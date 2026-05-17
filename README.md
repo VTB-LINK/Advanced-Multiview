@@ -1,4 +1,50 @@
-# OBS Plugin Template
+# OBS Advanced Multiview
+
+高度自定义的多画面监看工具插件，用于 OBS Studio。
+
+## 项目文档
+
+- **[开发环境配置](docs/setup/README.md)** — 完整的开发环境搭建指南
+  - [详细配置步骤](docs/setup/SETUP.md)
+  - [故障排除](docs/setup/TROUBLESHOOTING.md)
+- **[项目计划](plan.md)** — 完整的项目开发计划和路线图
+- **[UI 设计](docs/ui-ascii-wireframes.md)** — UI 界面设计线框图
+- **[第一阶段开发任务](docs/phase-1-development-breakdown.md)** — 详细的开发任务分解
+
+## 快速开始
+
+### 环境要求
+
+- Windows 10/11
+- Visual Studio 2022/2026（含 C++ 桌面开发工作负载）
+- CMake 3.28+（随 VS 安装）
+- OBS Studio 31.1.1+（用于测试）
+
+详细要求请查看 [开发环境配置文档](docs/setup/README.md)。
+
+### 构建步骤
+
+```powershell
+# 1. 配置项目（首次运行）
+cmake --preset windows-x64
+
+# 2. 构建
+cmake --build build_x64 --config Debug
+
+# 3. 部署到 OBS
+.\docs\setup\deploy-plugin.ps1
+
+# 4. 启动 OBS 测试
+C:\Downloads\OBS-Studio-31.1.1-Windows-x64\bin\64bit\obs64.exe
+```
+
+完整的配置和构建指南请查看 [SETUP.md](docs/setup/SETUP.md)。
+
+---
+
+## 原始 OBS 插件模板信息
+
+本项目基于 OBS 官方插件模板。以下是原始模板说明：
 
 ## Introduction
 

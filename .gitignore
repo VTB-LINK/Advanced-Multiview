@@ -6,6 +6,7 @@
 !/build-aux
 !/cmake
 !/data
+!/docs
 !/src
 !.clang-format
 !.gersemirc
@@ -15,6 +16,7 @@
 !CMakePresets.json
 !LICENSE
 !README.md
+!plan.md
 
 # Exclude lock files
 *.lock.json
@@ -24,3 +26,23 @@
 
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
+
+# Build artifacts and dependencies
+/build_x64/
+/build_macos/
+/build_x86_64/
+/.deps/
+
+# IDE and editor files
+/.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
