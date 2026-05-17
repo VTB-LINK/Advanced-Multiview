@@ -4,9 +4,14 @@
 
 ## 项目文档
 
+### 开发相关
+- **[开发工作流](docs/DEVELOPMENT.md)** ⭐ — **开发完成后必读**：构建配置、提交前检查、发布流程
 - **[开发环境配置](docs/setup/README.md)** — 完整的开发环境搭建指南
   - [详细配置步骤](docs/setup/SETUP.md)
   - [故障排除](docs/setup/TROUBLESHOOTING.md)
+  - [插件分发](docs/setup/DISTRIBUTION.md)
+  
+### 项目规划
 - **[项目计划](plan.md)** — 完整的项目开发计划和路线图
 - **[UI 设计](docs/ui-ascii-wireframes.md)** — UI 界面设计线框图
 - **[第一阶段开发任务](docs/phase-1-development-breakdown.md)** — 详细的开发任务分解
@@ -28,15 +33,18 @@
 # 1. 配置项目（首次运行）
 cmake --preset windows-x64
 
-# 2. 构建
-cmake --build build_x64 --config Debug
+# 2. 构建（日常开发推荐使用 RelWithDebInfo）
+cmake --build build_x64 --config Debug           # 调试用
+cmake --build build_x64 --config RelWithDebInfo  # 日常开发和分发
 
 # 3. 部署到 OBS
-.\docs\setup\deploy-plugin.ps1
+.\docs\setup\deploy-plugin.ps1 RelWithDebInfo
 
 # 4. 启动 OBS 测试
 C:\Downloads\OBS-Studio-31.1.1-Windows-x64\bin\64bit\obs64.exe
 ```
+
+**重要**：功能开发完成后，请阅读 **[开发工作流指南](docs/DEVELOPMENT.md)** 了解完整的构建、测试和提交流程。
 
 完整的配置和构建指南请查看 [SETUP.md](docs/setup/SETUP.md)。
 
