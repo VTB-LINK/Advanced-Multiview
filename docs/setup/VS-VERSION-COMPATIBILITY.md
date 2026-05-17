@@ -2,18 +2,18 @@
 
 ## 当前配置
 
-本项目当前配置为 **Visual Studio 2026**。
+本项目当前配置为 **Visual Studio 2022**（为兼容 GitHub Actions CI/CD）。
 
 ## 版本对照表
 
 | Visual Studio 版本 | CMakePresets.json Generator | MSVC 工具集 | Developer PowerShell |
 |-------------------|----------------------------|------------|---------------------|
-| **VS 2026** (当前) | `"Visual Studio 18 2026"` | v180+ (v19.51+) | Developer PowerShell for VS 2026 |
-| **VS 2022** | `"Visual Studio 17 2022"` | v143 (v14.3x) | Developer PowerShell for VS 2022 |
+| **VS 2022** (当前) | `"Visual Studio 17 2022"` | v143 (v14.3x) | Developer PowerShell for VS 2022 |
+| **VS 2026** | `"Visual Studio 18 2026"` | v180+ (v19.51+) | Developer PowerShell for VS 2026 |
 
-## 如何切换到 VS 2022
+## 如何切换到 VS 2026
 
-如果你使用 Visual Studio 2022 而非 2026，需要进行以下修改：
+如果你本地使用 Visual Studio 2026，需要进行以下修改：
 
 ### 1. 修改 CMakePresets.json
 
@@ -22,27 +22,27 @@
 **第 59 行**（windows-x64 预设中的 generator）：
 ```json
 // 从：
-"generator": "Visual Studio 18 2026",
+"generator": "Visual Studio 17 2022",
 
 // 改为：
-"generator": "Visual Studio 17 2022",
+"generator": "Visual Studio 18 2026",
 ```
 
 ### 2. 确认 Visual Studio 组件
 
 打开 **Visual Studio Installer**，确认已安装：
-- ✅ MSVC v143 - VS 2022 C++ x64/x86 生成工具（最新版本）
+- ✅ MSVC v180+ - VS 2026 C++ x64/x86 生成工具（最新版本）
 - ✅ Windows 11 SDK (10.0.22621.0 或更高)
 - ✅ 用于 Windows 的 C++ CMake 工具
 - ✅ C++ Clang 编译器
 
 ### 3. 使用对应的 Developer PowerShell
 
-在 **Developer PowerShell for VS 2022** 中运行：
+在 **Developer PowerShell for VS 2026** 中运行：
 ```powershell
 cd 项目根目录
 
-# 清理旧的构建缓存（如果之前用 VS 2026 配置过）
+# 清理旧的构建缓存（如果之前用 VS 2022 配置过）
 Remove-Item build_x64 -Recurse -Force -ErrorAction SilentlyContinue
 
 # 重新配置
@@ -54,7 +54,7 @@ cmake --build build_x64 --config Debug
 
 ### 4. 更新文档引用
 
-文档中提到的 "VS 2026" 对应改为 "VS 2022"。
+文档中提到的 "VS 2022" 对应改为 "VS 2026"。
 
 ## 验证配置
 
