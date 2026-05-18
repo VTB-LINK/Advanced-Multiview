@@ -23,14 +23,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "config-manager.hpp"
 #include "manager-dialog.hpp"
+#include "multiview-window.hpp"
 
 #include <QMainWindow>
+#include <map>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
 static ConfigManager *config_manager = nullptr;
 static ManagerDialog *manager_dialog = nullptr;
+static std::map<std::string, MultiviewWindow *> open_windows;
 
 static bool init_config_path()
 {
@@ -69,6 +72,43 @@ static void on_tools_menu_clicked(void *)
 	manager_dialog->show();
 }
 
+void open_manager_dialog()
+{
+	on_tools_menu_clicked(nullptr);
+}
+
+void open_multiview_window(const std::string &uuid)
+{
+	/* If already open, just bring to front */
+	auto it = open_windows.find(uuid);
+	if (it != open_windows.end() && it->second) {
+		it->second->show();
+		it->second->raise();
+		it->second->activateWindow();
+		return;
+	}
+
+	auto *window = new MultiviewWindow(config_manager, uuid, nullptr);
+
+	QObject::connect(window, &MultiviewWindow::window_closed,
+			 [](const std::string &closedUuid) {
+				 open_windows.erase(closedUuid);
+			 });
+
+	open_windows[uuid] = window;
+}
+
+static void close_all_multiview_windows()
+{
+	for (auto &[uuid, window] : open_windows) {
+		if (window) {
+			window->close();
+			delete window;
+		}
+	}
+	open_windows.clear();
+}
+
 static void on_frontend_event(enum obs_frontend_event event, void *)
 {
 	if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
@@ -82,6 +122,8 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 	if (event == OBS_FRONTEND_EVENT_EXIT) {
 		if (config_manager)
 			config_manager->save();
+
+		close_all_multiview_windows();
 
 		if (manager_dialog) {
 			manager_dialog->close();
@@ -113,6 +155,8 @@ bool obs_module_load(void)
 void obs_module_unload(void)
 {
 	obs_frontend_remove_event_callback(on_frontend_event, nullptr);
+
+	close_all_multiview_windows();
 
 	if (manager_dialog) {
 		delete manager_dialog;

@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "manager-dialog.hpp"
 #include "grid-preview-widget.hpp"
+#include "multiview-window.hpp"
 
 #include <obs-module.h>
 #include <plugin-support.h>
@@ -652,9 +653,9 @@ void ManagerDialog::on_open_instance()
 	if (!item)
 		return;
 
-	/* Placeholder: actual MultiviewWindow will be created in Milestone 3 */
-	obs_log(LOG_INFO, "open instance: %s (window creation pending M3)",
-		item->data(Qt::UserRole).toString().toUtf8().constData());
+	std::string uuid =
+		item->data(Qt::UserRole).toString().toStdString();
+	open_multiview_window(uuid);
 }
 
 void ManagerDialog::on_global_settings_clicked()

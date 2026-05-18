@@ -46,6 +46,10 @@ target_sources(
           src/grid-preview-widget.hpp
           src/grid-preview-widget.cpp
           src/manager-dialog.hpp
-          src/manager-dialog.cpp)
+          src/manager-dialog.cpp
+          src/multiview-window.hpp
+          src/multiview-window.cpp
+          src/source-picker.hpp
+          src/source-picker.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
