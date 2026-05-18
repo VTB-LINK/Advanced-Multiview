@@ -21,6 +21,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <util/platform.h>
 #include <plugin-support.h>
 
+#include "config-manager.hpp"
 #include "manager-dialog.hpp"
 
 #include <QMainWindow>
@@ -28,6 +29,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
+static ConfigManager *config_manager = nullptr;
 static ManagerDialog *manager_dialog = nullptr;
 
 static bool init_config_path()
@@ -63,13 +65,24 @@ static void on_tools_menu_clicked(void *)
 	QMainWindow *main_window =
 		static_cast<QMainWindow *>(obs_frontend_get_main_window());
 
-	manager_dialog = new ManagerDialog(main_window);
+	manager_dialog = new ManagerDialog(config_manager, main_window);
 	manager_dialog->show();
 }
 
 static void on_frontend_event(enum obs_frontend_event event, void *)
 {
+	if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
+		if (config_manager) {
+			config_manager->on_scene_collection_changed();
+			if (manager_dialog)
+				manager_dialog->refresh_instance_list();
+		}
+	}
+
 	if (event == OBS_FRONTEND_EVENT_EXIT) {
+		if (config_manager)
+			config_manager->save();
+
 		if (manager_dialog) {
 			manager_dialog->close();
 			delete manager_dialog;
@@ -84,6 +97,9 @@ bool obs_module_load(void)
 		PLUGIN_VERSION);
 
 	init_config_path();
+
+	config_manager = new ConfigManager();
+	config_manager->load();
 
 	obs_frontend_add_tools_menu_item(
 		obs_module_text("OBSAdvancedMultiview"),
@@ -101,6 +117,11 @@ void obs_module_unload(void)
 	if (manager_dialog) {
 		delete manager_dialog;
 		manager_dialog = nullptr;
+	}
+
+	if (config_manager) {
+		delete config_manager;
+		config_manager = nullptr;
 	}
 
 	obs_log(LOG_INFO, "plugin unloaded");

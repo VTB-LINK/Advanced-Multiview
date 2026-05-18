@@ -37,7 +37,11 @@ endif()
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE src/plugin-main.cpp
-          src/manager-dialog.cpp
-          src/manager-dialog.hpp)
+          src/multiview-instance.hpp
+          src/multiview-instance.cpp
+          src/config-manager.hpp
+          src/config-manager.cpp
+          src/manager-dialog.hpp
+          src/manager-dialog.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
