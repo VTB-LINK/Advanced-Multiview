@@ -36,12 +36,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#elif !defined(__APPLE__)
+#include <obs-nix-platform.h>
 #endif
 
 /* ---- helpers (same as OBS internal) ---- */
 
-static inline void startRegion(int vX, int vY, int vCX, int vCY, float oL,
-			       float oR, float oT, float oB)
+static inline void startRegion(int vX, int vY, int vCX, int vCY, float oL, float oR, float oT, float oB)
 {
 	gs_projection_push();
 	gs_viewport_push();
@@ -60,8 +61,7 @@ static inline QSize GetPixelSize(QWidget *widget)
 	return widget->size() * widget->devicePixelRatioF();
 }
 
-static inline void GetScaleAndCenterPos(int baseCX, int baseCY, int windowCX,
-					int windowCY, int &x, int &y,
+static inline void GetScaleAndCenterPos(int baseCX, int baseCY, int windowCX, int windowCY, int &x, int &y,
 					float &scale)
 {
 	double windowAspect = (double)windowCX / (double)windowCY;
@@ -84,8 +84,7 @@ static inline void GetScaleAndCenterPos(int baseCX, int baseCY, int windowCX,
 
 /* ---- MultiviewWindow implementation ---- */
 
-MultiviewWindow::MultiviewWindow(ConfigManager *config,
-				 const std::string &uuid, QWidget *parent)
+MultiviewWindow::MultiviewWindow(ConfigManager *config, const std::string &uuid, QWidget *parent)
 	: QWidget(parent, Qt::Window),
 	  config_(config),
 	  uuid_(uuid)
@@ -105,9 +104,7 @@ MultiviewWindow::MultiviewWindow(ConfigManager *config,
 	/* Window title */
 	MultiviewInstance *inst = config_->find_instance(uuid_);
 	if (inst) {
-		setWindowTitle(QStringLiteral("Multiview - %1")
-				       .arg(QString::fromStdString(
-					       inst->name)));
+		setWindowTitle(QStringLiteral("Multiview - %1").arg(QString::fromStdString(inst->name)));
 	}
 
 	/* Escape to close */
@@ -117,11 +114,10 @@ MultiviewWindow::MultiviewWindow(ConfigManager *config,
 	connect(escAction, &QAction::triggered, this, &QWidget::close);
 
 	/* Create display when window becomes visible */
-	connect(windowHandle(), &QWindow::visibleChanged, this,
-		[this](bool visible) {
-			if (visible && !display_created_)
-				create_display();
-		});
+	connect(windowHandle(), &QWindow::visibleChanged, this, [this](bool visible) {
+		if (visible && !display_created_)
+			create_display();
+	});
 
 	/* Get canvas aspect ratio from OBS base resolution */
 	obs_video_info ovi;
@@ -193,8 +189,7 @@ void MultiviewWindow::refresh_layout()
 		return;
 
 	layout_ = inst->layout;
-	gutter_px_ = inst->effective_gutter(
-		config_->global_settings().defaultGutterPx);
+	gutter_px_ = inst->effective_gutter(config_->global_settings().defaultGutterPx);
 
 	/* Update layout with effective gutter */
 	layout_.gutterPx = gutter_px_;
@@ -263,8 +258,7 @@ void MultiviewWindow::release_source_refs()
 
 	for (auto &cs : cell_sources_) {
 		if (cs.showing) {
-			OBSSourceAutoRelease src =
-				OBSGetStrongRef(cs.weak_ref);
+			OBSSourceAutoRelease src = OBSGetStrongRef(cs.weak_ref);
 			if (src)
 				obs_source_dec_showing(src);
 			cs.showing = false;
@@ -341,12 +335,10 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				isPgm = true;
 			} else if (cs.type == "prvw") {
 				/* Resolve PRVW fresh each frame */
-				srcHolder =
-					obs_frontend_get_current_preview_scene();
+				srcHolder = obs_frontend_get_current_preview_scene();
 				if (!srcHolder) {
 					/* No Studio Mode → fallback to PGM */
-					srcHolder =
-						obs_frontend_get_current_scene();
+					srcHolder = obs_frontend_get_current_scene();
 					isPrvwFallback = (srcHolder != nullptr);
 				}
 				src = srcHolder;
@@ -373,13 +365,10 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 
 			if (srcW == 0 || srcH == 0) {
 				/* Source not ready, draw black */
-				startRegion(cellX, cellY, cell.w, cell.h,
-					    0.0f, (float)cell.w, 0.0f,
-					    (float)cell.h);
+				startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
 				gs_effect_set_color(colorParam, 0xFF000000);
 				while (gs_effect_loop(solid, "Solid"))
-					gs_draw_sprite(nullptr, 0, cell.w,
-						       cell.h);
+					gs_draw_sprite(nullptr, 0, cell.w, cell.h);
 				endRegion();
 				continue;
 			}
@@ -390,16 +379,14 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			int vrY = vr.y + vpY;
 
 			/* Draw black background for the entire cell first */
-			startRegion(cellX, cellY, cell.w, cell.h, 0.0f,
-				    (float)cell.w, 0.0f, (float)cell.h);
+			startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
 			gs_effect_set_color(colorParam, 0xFF000000);
 			while (gs_effect_loop(solid, "Solid"))
 				gs_draw_sprite(nullptr, 0, cell.w, cell.h);
 			endRegion();
 
 			/* Render into video rect */
-			startRegion(vrX, vrY, vr.w, vr.h, 0.0f,
-				    (float)srcW, 0.0f, (float)srcH);
+			startRegion(vrX, vrY, vr.w, vr.h, 0.0f, (float)srcW, 0.0f, (float)srcH);
 			if (isPgm)
 				obs_render_main_texture();
 			else
@@ -409,20 +396,17 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			/* Draw PRVW fallback indicator (yellow bar at bottom) */
 			if (isPrvwFallback) {
 				int barH = (std::max)(2, cell.h / 20);
-				startRegion(cellX, cellY + cell.h - barH,
-					    cell.w, barH, 0.0f,
-					    (float)cell.w, 0.0f, (float)barH);
+				startRegion(cellX, cellY + cell.h - barH, cell.w, barH, 0.0f, (float)cell.w, 0.0f,
+					    (float)barH);
 				/* Yellow with some transparency: 0xCC00D4FF (ABGR) */
 				gs_effect_set_color(colorParam, 0xCC00D4FF);
 				while (gs_effect_loop(solid, "Solid"))
-					gs_draw_sprite(nullptr, 0, cell.w,
-						       barH);
+					gs_draw_sprite(nullptr, 0, cell.w, barH);
 				endRegion();
 			}
 		} else {
 			/* Empty cell - draw dark background */
-			startRegion(cellX, cellY, cell.w, cell.h, 0.0f,
-				    (float)cell.w, 0.0f, (float)cell.h);
+			startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
 			gs_effect_set_color(colorParam, 0xFF1A1A1A);
 			while (gs_effect_loop(solid, "Solid"))
 				gs_draw_sprite(nullptr, 0, cell.w, cell.h);
@@ -516,20 +500,16 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 	QMenu menu(this);
 
 	/* Fullscreen */
-	QAction *fullscreenAction =
-		menu.addAction(QStringLiteral("Fullscreen"));
+	QAction *fullscreenAction = menu.addAction(QStringLiteral("Fullscreen"));
 	fullscreenAction->setCheckable(true);
 	fullscreenAction->setChecked(isFullScreen());
-	connect(fullscreenAction, &QAction::triggered, this,
-		&MultiviewWindow::on_toggle_fullscreen);
+	connect(fullscreenAction, &QAction::triggered, this, &MultiviewWindow::on_toggle_fullscreen);
 
 	/* Always on top */
-	QAction *onTopAction =
-		menu.addAction(QStringLiteral("Always on Top"));
+	QAction *onTopAction = menu.addAction(QStringLiteral("Always on Top"));
 	onTopAction->setCheckable(true);
 	onTopAction->setChecked(is_always_on_top_);
-	connect(onTopAction, &QAction::triggered, this,
-		&MultiviewWindow::on_toggle_always_on_top);
+	connect(onTopAction, &QAction::triggered, this, &MultiviewWindow::on_toggle_always_on_top);
 
 	menu.addSeparator();
 
@@ -538,53 +518,37 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 		bool hasSource = false;
 		{
 			std::lock_guard<std::mutex> lock(source_mutex_);
-			if (cellIndex < (int)cell_sources_.size() &&
-			    !cell_sources_[cellIndex].type.empty())
+			if (cellIndex < (int)cell_sources_.size() && !cell_sources_[cellIndex].type.empty())
 				hasSource = true;
 		}
 
 		if (hasSource) {
-			QAction *changeAction = menu.addAction(
-				QStringLiteral("Change Source..."));
+			QAction *changeAction = menu.addAction(QStringLiteral("Change Source..."));
 			connect(changeAction, &QAction::triggered, this,
-				[this, cellIndex]() {
-					on_change_source(cellIndex);
-				});
+				[this, cellIndex]() { on_change_source(cellIndex); });
 
-			QAction *clearAction =
-				menu.addAction(QStringLiteral("Clear Cell"));
+			QAction *clearAction = menu.addAction(QStringLiteral("Clear Cell"));
 			connect(clearAction, &QAction::triggered, this,
-				[this, cellIndex]() {
-					on_clear_cell(cellIndex);
-				});
+				[this, cellIndex]() { on_clear_cell(cellIndex); });
 		} else {
-			QAction *addAction = menu.addAction(
-				QStringLiteral("Add Source..."));
+			QAction *addAction = menu.addAction(QStringLiteral("Add Source..."));
 			connect(addAction, &QAction::triggered, this,
-				[this, cellIndex]() {
-					on_add_source(cellIndex);
-				});
+				[this, cellIndex]() { on_add_source(cellIndex); });
 		}
 
 		menu.addSeparator();
 	}
 
-	QAction *editGridAction =
-		menu.addAction(QStringLiteral("Edit Grid..."));
-	connect(editGridAction, &QAction::triggered, this,
-		&MultiviewWindow::on_edit_grid);
+	QAction *editGridAction = menu.addAction(QStringLiteral("Edit Grid..."));
+	connect(editGridAction, &QAction::triggered, this, &MultiviewWindow::on_edit_grid);
 
-	QAction *saveAction =
-		menu.addAction(QStringLiteral("Save Cell Assignments"));
-	connect(saveAction, &QAction::triggered, this,
-		&MultiviewWindow::on_save_assignments);
+	QAction *saveAction = menu.addAction(QStringLiteral("Save Cell Assignments"));
+	connect(saveAction, &QAction::triggered, this, &MultiviewWindow::on_save_assignments);
 
 	menu.addSeparator();
 
-	QAction *settingsAction =
-		menu.addAction(QStringLiteral("Global Settings"));
-	connect(settingsAction, &QAction::triggered, this,
-		&MultiviewWindow::on_global_settings);
+	QAction *settingsAction = menu.addAction(QStringLiteral("Global Settings"));
+	connect(settingsAction, &QAction::triggered, this, &MultiviewWindow::on_global_settings);
 
 	QAction *closeAction = menu.addAction(QStringLiteral("Close"));
 	connect(closeAction, &QAction::triggered, this, &QWidget::close);
@@ -642,8 +606,7 @@ void MultiviewWindow::on_save_assignments()
 
 	inst->signalDirty = false;
 	config_->save();
-	obs_log(LOG_INFO, "cell assignments saved for '%s'",
-		inst->name.c_str());
+	obs_log(LOG_INFO, "cell assignments saved for '%s'", inst->name.c_str());
 }
 
 void MultiviewWindow::on_edit_grid()

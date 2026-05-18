@@ -34,8 +34,7 @@ class MultiviewWindow : public QWidget {
 	Q_OBJECT
 
 public:
-	MultiviewWindow(ConfigManager *config, const std::string &uuid,
-			QWidget *parent = nullptr);
+	MultiviewWindow(ConfigManager *config, const std::string &uuid, QWidget *parent = nullptr);
 	~MultiviewWindow() override;
 
 	std::string instance_uuid() const { return uuid_; }
@@ -91,8 +90,8 @@ private:
 
 	/* Sources per cell (indexed same as engine_.cells()) */
 	struct CellSource {
-		std::string type;           /* "pgm", "prvw", "scene", "source", "" */
-		OBSWeakSource weak_ref;     /* cached for scene/source only */
+		std::string type;       /* "pgm", "prvw", "scene", "source", "" */
+		OBSWeakSource weak_ref; /* cached for scene/source only */
 		bool showing = false;
 		bool prvw_fallback = false; /* PRVW fell back to PGM */
 	};

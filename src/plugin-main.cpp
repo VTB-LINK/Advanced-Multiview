@@ -45,8 +45,7 @@ static bool init_config_path()
 
 	int ret = os_mkdirs(path);
 	if (ret == MKDIR_ERROR) {
-		obs_log(LOG_ERROR, "failed to create config directory: %s",
-			path);
+		obs_log(LOG_ERROR, "failed to create config directory: %s", path);
 		bfree(path);
 		return false;
 	}
@@ -65,8 +64,7 @@ static void on_tools_menu_clicked(void *)
 		return;
 	}
 
-	QMainWindow *main_window =
-		static_cast<QMainWindow *>(obs_frontend_get_main_window());
+	QMainWindow *main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 
 	manager_dialog = new ManagerDialog(config_manager, main_window);
 	manager_dialog->show();
@@ -90,14 +88,13 @@ void open_multiview_window(const std::string &uuid)
 
 	auto *window = new MultiviewWindow(config_manager, uuid, nullptr);
 
-	QObject::connect(window, &MultiviewWindow::window_closed,
-			 [](const std::string &closedUuid) {
-				 auto it = open_windows.find(closedUuid);
-				 if (it != open_windows.end()) {
-					 it->second->deleteLater();
-					 open_windows.erase(it);
-				 }
-			 });
+	QObject::connect(window, &MultiviewWindow::window_closed, [](const std::string &closedUuid) {
+		auto it = open_windows.find(closedUuid);
+		if (it != open_windows.end()) {
+			it->second->deleteLater();
+			open_windows.erase(it);
+		}
+	});
 
 	open_windows[uuid] = window;
 }
@@ -156,17 +153,14 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 
 bool obs_module_load(void)
 {
-	obs_log(LOG_INFO, "plugin loaded successfully (version %s)",
-		PLUGIN_VERSION);
+	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
 
 	init_config_path();
 
 	config_manager = new ConfigManager();
 	config_manager->load();
 
-	obs_frontend_add_tools_menu_item(
-		obs_module_text("OBSAdvancedMultiview"),
-		on_tools_menu_clicked, nullptr);
+	obs_frontend_add_tools_menu_item(obs_module_text("OBSAdvancedMultiview"), on_tools_menu_clicked, nullptr);
 
 	obs_frontend_add_event_callback(on_frontend_event, nullptr);
 
