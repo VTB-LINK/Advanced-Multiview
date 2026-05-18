@@ -199,7 +199,9 @@ void MultiviewWindow::refresh_layout()
 	/* Update layout with effective gutter */
 	layout_.gutterPx = gutter_px_;
 
-	/* Engine will be recomputed in render callback with actual viewport size */
+	/* Invalidate cached viewport to force recompute in next render frame */
+	cached_vpW_ = 0;
+	cached_vpH_ = 0;
 }
 
 void MultiviewWindow::refresh_sources()
@@ -301,10 +303,14 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		vpY = ((int)cy - vpH) / 2;
 	}
 
-	/* Recompute layout within the aspect-correct viewport */
-	engine_.set_layout(layout_);
-	engine_.set_viewport(vpW, vpH);
-	engine_.compute();
+	/* Recompute layout only when viewport size actually changed */
+	if (vpW != cached_vpW_ || vpH != cached_vpH_) {
+		engine_.set_layout(layout_);
+		engine_.set_viewport(vpW, vpH);
+		engine_.compute();
+		cached_vpW_ = vpW;
+		cached_vpH_ = vpH;
+	}
 
 	const auto &cells = engine_.cells();
 
@@ -669,6 +675,13 @@ void MultiviewWindow::on_toggle_always_on_top()
 	else
 		flags &= ~Qt::WindowStaysOnTopHint;
 
+	/* setWindowFlags recreates the native window (HWND on Windows).
+	 * We must destroy our OBS display first, then recreate it after
+	 * show() establishes the new native window. */
+	destroy_display();
 	setWindowFlags(flags);
 	show(); /* Required after changing window flags */
+
+	/* Force display recreation with new HWND */
+	create_display();
 }

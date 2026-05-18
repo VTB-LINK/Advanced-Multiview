@@ -26,6 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QWidget>
 #include <QWindow>
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -102,7 +103,11 @@ private:
 	double canvas_aspect_ = 16.0 / 9.0;
 
 	bool is_always_on_top_ = false;
-	bool ready_ = false;
+	std::atomic<bool> ready_{false};
+
+	/* Cached viewport size to avoid recomputing layout every frame */
+	int cached_vpW_ = 0;
+	int cached_vpH_ = 0;
 };
 
 /* Global functions (defined in plugin-main) */
