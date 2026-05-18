@@ -103,11 +103,16 @@ cmake --build build_x64 --config RelWithDebInfo
 
 ## 提交前必做检查
 
-⚠️ **在创建 commit 之前，必须提醒用户**：
+⚠️ **在创建 commit 之前，必须执行 clang-format 并提醒用户**：
 
-1. [ ] Debug 和 RelWithDebInfo 都成功构建
-2. [ ] 在 OBS 中测试了修改的功能
-3. [ ] 代码已格式化
+```powershell
+# 必须先格式化代码
+& "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-format.exe" -i src/*.cpp src/*.hpp src/*.c src/*.h
+```
+
+1. [ ] 已运行 clang-format 格式化所有源文件
+2. [ ] Debug 和 RelWithDebInfo 都成功构建
+3. [ ] 在 OBS 中测试了修改的功能
 4. [ ] 没有临时调试代码
 5. [ ] git status 确认没有意外文件
 
