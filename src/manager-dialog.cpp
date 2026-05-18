@@ -198,6 +198,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 				QStringLiteral("Effective gutter: %1px")
 					.arg(eff));
 			config_->save();
+			notify_multiview_layout_changed(current_detail_uuid_);
 		});
 
 	connect(detail_gutter_spin_,
@@ -212,6 +213,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 				QStringLiteral("Effective gutter: %1px")
 					.arg(value));
 			config_->save();
+			notify_multiview_layout_changed(current_detail_uuid_);
 		});
 
 	detail_layout->addStretch();
@@ -259,6 +261,8 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		config_->save();
 		obs_log(LOG_INFO, "global settings saved (gutter=%d)",
 			spin_default_gutter_->value());
+		/* Refresh all windows that inherit global gutter */
+		notify_multiview_layout_changed();
 	});
 
 	right_stack_->addWidget(page_global_settings_);

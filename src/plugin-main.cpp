@@ -98,6 +98,21 @@ void open_multiview_window(const std::string &uuid)
 	open_windows[uuid] = window;
 }
 
+void notify_multiview_layout_changed(const std::string &uuid)
+{
+	if (uuid.empty()) {
+		/* Refresh all open windows */
+		for (auto &[id, window] : open_windows) {
+			if (window)
+				window->refresh_layout();
+		}
+	} else {
+		auto it = open_windows.find(uuid);
+		if (it != open_windows.end() && it->second)
+			it->second->refresh_layout();
+	}
+}
+
 static void close_all_multiview_windows()
 {
 	for (auto &[uuid, window] : open_windows) {
