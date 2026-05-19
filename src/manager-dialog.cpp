@@ -44,6 +44,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QStackedWidget>
 #include <QSvgRenderer>
 #include <QTabWidget>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -231,63 +232,70 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	toolbar->setSpacing(2);
 
 	const int btn_sz = 24;
+	const int ico_sz = 16;
 
-	btn_new_ = new QPushButton(panel);
+	btn_new_ = new QToolButton(panel);
 	btn_new_->setIcon(obs_theme_icon("plus"));
 	btn_new_->setFixedSize(btn_sz, btn_sz);
-	btn_new_->setFlat(true);
+	btn_new_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_new_->setAutoRaise(true);
 	btn_new_->setToolTip(QStringLiteral("New Instance"));
 	toolbar->addWidget(btn_new_);
 
-	btn_delete_ = new QPushButton(panel);
+	btn_delete_ = new QToolButton(panel);
 	btn_delete_->setIcon(obs_theme_icon("trash"));
 	btn_delete_->setFixedSize(btn_sz, btn_sz);
-	btn_delete_->setFlat(true);
+	btn_delete_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_delete_->setAutoRaise(true);
 	btn_delete_->setToolTip(QStringLiteral("Delete"));
 	toolbar->addWidget(btn_delete_);
 
-	btn_clone_ = new QPushButton(panel);
+	btn_clone_ = new QToolButton(panel);
 	btn_clone_->setIcon(obs_theme_icon("popout"));
 	btn_clone_->setFixedSize(btn_sz, btn_sz);
-	btn_clone_->setFlat(true);
+	btn_clone_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_clone_->setAutoRaise(true);
 	btn_clone_->setToolTip(QStringLiteral("Clone Instance"));
 	toolbar->addWidget(btn_clone_);
 
-	btn_open_ = new QPushButton(panel);
+	btn_open_ = new QToolButton(panel);
 	btn_open_->setIcon(make_open_icon());
 	btn_open_->setFixedSize(btn_sz, btn_sz);
-	btn_open_->setFlat(true);
+	btn_open_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_open_->setAutoRaise(true);
 	btn_open_->setToolTip(QStringLiteral("Open Multiview Window"));
 	toolbar->addWidget(btn_open_);
 
 	toolbar->addStretch();
 
-	btn_move_up_ = new QPushButton(panel);
+	btn_move_up_ = new QToolButton(panel);
 	btn_move_up_->setIcon(obs_theme_icon("up"));
 	btn_move_up_->setFixedSize(btn_sz, btn_sz);
-	btn_move_up_->setFlat(true);
+	btn_move_up_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_move_up_->setAutoRaise(true);
 	btn_move_up_->setToolTip(QStringLiteral("Reorder is not implemented yet"));
 	btn_move_up_->setEnabled(false);
 	toolbar->addWidget(btn_move_up_);
 
-	btn_move_down_ = new QPushButton(panel);
+	btn_move_down_ = new QToolButton(panel);
 	btn_move_down_->setIcon(obs_theme_icon("down"));
 	btn_move_down_->setFixedSize(btn_sz, btn_sz);
-	btn_move_down_->setFlat(true);
+	btn_move_down_->setIconSize(QSize(ico_sz, ico_sz));
+	btn_move_down_->setAutoRaise(true);
 	btn_move_down_->setToolTip(QStringLiteral("Reorder is not implemented yet"));
 	btn_move_down_->setEnabled(false);
 	toolbar->addWidget(btn_move_down_);
 
 	layout->addLayout(toolbar);
 
-	connect(btn_new_, &QPushButton::clicked, this, &ManagerDialog::on_new_instance);
-	connect(btn_clone_, &QPushButton::clicked, this, &ManagerDialog::on_clone_instance);
-	connect(btn_delete_, &QPushButton::clicked, this, &ManagerDialog::on_delete_instance);
-	connect(btn_open_, &QPushButton::clicked, this, &ManagerDialog::on_open_instance);
-	connect(btn_move_up_, &QPushButton::clicked, this, [this]() {
+	connect(btn_new_, &QToolButton::clicked, this, &ManagerDialog::on_new_instance);
+	connect(btn_clone_, &QToolButton::clicked, this, &ManagerDialog::on_clone_instance);
+	connect(btn_delete_, &QToolButton::clicked, this, &ManagerDialog::on_delete_instance);
+	connect(btn_open_, &QToolButton::clicked, this, &ManagerDialog::on_open_instance);
+	connect(btn_move_up_, &QToolButton::clicked, this, [this]() {
 		/* TODO: reorder support */
 	});
-	connect(btn_move_down_, &QPushButton::clicked, this, [this]() {
+	connect(btn_move_down_, &QToolButton::clicked, this, [this]() {
 		/* TODO: reorder support */
 	});
 }
@@ -321,24 +329,27 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	detail_name_edit_->installEventFilter(this);
 	top_row->addWidget(detail_name_edit_, 1);
 
-	btn_detail_open_ = new QPushButton(page_instance_);
+	btn_detail_open_ = new QToolButton(page_instance_);
 	btn_detail_open_->setIcon(make_open_icon());
 	btn_detail_open_->setFixedSize(24, 24);
-	btn_detail_open_->setFlat(true);
+	btn_detail_open_->setIconSize(QSize(16, 16));
+	btn_detail_open_->setAutoRaise(true);
 	btn_detail_open_->setToolTip(QStringLiteral("Open"));
 	top_row->addWidget(btn_detail_open_);
 
-	btn_detail_delete_ = new QPushButton(page_instance_);
+	btn_detail_delete_ = new QToolButton(page_instance_);
 	btn_detail_delete_->setIcon(obs_theme_icon("trash"));
 	btn_detail_delete_->setFixedSize(24, 24);
-	btn_detail_delete_->setFlat(true);
+	btn_detail_delete_->setIconSize(QSize(16, 16));
+	btn_detail_delete_->setAutoRaise(true);
 	btn_detail_delete_->setToolTip(QStringLiteral("Delete"));
 	top_row->addWidget(btn_detail_delete_);
 
-	btn_detail_clone_ = new QPushButton(page_instance_);
+	btn_detail_clone_ = new QToolButton(page_instance_);
 	btn_detail_clone_->setIcon(obs_theme_icon("popout"));
 	btn_detail_clone_->setFixedSize(24, 24);
-	btn_detail_clone_->setFlat(true);
+	btn_detail_clone_->setIconSize(QSize(16, 16));
+	btn_detail_clone_->setAutoRaise(true);
 	btn_detail_clone_->setToolTip(QStringLiteral("Clone"));
 	top_row->addWidget(btn_detail_clone_);
 
@@ -423,9 +434,9 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	/* Name edit: Enter applies (handled in eventFilter), Esc/focus-out cancels */
 
 	/* Action buttons */
-	connect(btn_detail_open_, &QPushButton::clicked, this, &ManagerDialog::on_open_instance);
-	connect(btn_detail_delete_, &QPushButton::clicked, this, &ManagerDialog::on_delete_instance);
-	connect(btn_detail_clone_, &QPushButton::clicked, this, &ManagerDialog::on_clone_instance);
+	connect(btn_detail_open_, &QToolButton::clicked, this, &ManagerDialog::on_open_instance);
+	connect(btn_detail_delete_, &QToolButton::clicked, this, &ManagerDialog::on_delete_instance);
+	connect(btn_detail_clone_, &QToolButton::clicked, this, &ManagerDialog::on_clone_instance);
 
 	/* Gutter */
 	connect(detail_use_global_gutter_, &QCheckBox::toggled, this, [this](bool checked) {

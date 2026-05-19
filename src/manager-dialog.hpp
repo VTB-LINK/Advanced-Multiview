@@ -26,6 +26,7 @@ class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QPushButton;
+class QToolButton;
 class QStackedWidget;
 class QLabel;
 class QLineEdit;
@@ -78,12 +79,12 @@ private:
 	/* Left panel (Instances tab) */
 	QSplitter *splitter_;
 	QTreeWidget *instance_tree_;
-	QPushButton *btn_new_;
-	QPushButton *btn_clone_;
-	QPushButton *btn_delete_;
-	QPushButton *btn_open_;
-	QPushButton *btn_move_up_;
-	QPushButton *btn_move_down_;
+	QToolButton *btn_new_;
+	QToolButton *btn_clone_;
+	QToolButton *btn_delete_;
+	QToolButton *btn_open_;
+	QToolButton *btn_move_up_;
+	QToolButton *btn_move_down_;
 
 	/* Right panel (Instances tab) */
 	QStackedWidget *right_stack_;
@@ -93,9 +94,9 @@ private:
 	/* Instance page widgets */
 	QLineEdit *detail_name_edit_;
 	QLabel *detail_uuid_label_;
-	QPushButton *btn_detail_open_;
-	QPushButton *btn_detail_delete_;
-	QPushButton *btn_detail_clone_;
+	QToolButton *btn_detail_open_;
+	QToolButton *btn_detail_delete_;
+	QToolButton *btn_detail_clone_;
 	QString name_edit_original_; /* for cancel on Esc/focus-out */
 
 	/* Gutter section */
