@@ -84,6 +84,8 @@ struct LayoutPreset {
 
 struct GlobalSettings {
 	int defaultGutterPx = 4;
+	bool reResolveInheritObs = true;
+	double reResolveCustomFps = 30.0;
 
 	obs_data_t *to_obs_data() const;
 	static GlobalSettings from_obs_data(obs_data_t *data);

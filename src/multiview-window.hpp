@@ -94,6 +94,7 @@ private:
 	/* Sources per cell (indexed same as engine_.cells()) */
 	struct CellSource {
 		std::string type;       /* "pgm", "prvw", "scene", "source", "" */
+		std::string name;       /* source name for lazy re-resolution */
 		OBSWeakSource weak_ref; /* cached for scene/source only */
 		bool showing = false;
 		bool prvw_fallback = false; /* PRVW fell back to PGM */
@@ -110,6 +111,9 @@ private:
 	/* Cached viewport size to avoid recomputing layout every frame */
 	int cached_vpW_ = 0;
 	int cached_vpH_ = 0;
+
+	/* Frame counter for throttled lazy re-resolution of dead sources */
+	int re_resolve_counter_ = 0;
 };
 
 /* Global functions (defined in plugin-main) */

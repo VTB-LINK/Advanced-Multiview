@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QApplication>
 #include <QCheckBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -595,16 +596,69 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	gutter_row->addStretch();
 	layout->addLayout(gutter_row);
 
+	/* Re-resolve interval */
+	auto *resolve_row = new QHBoxLayout();
+	chk_re_resolve_inherit_ = new QCheckBox(QStringLiteral("Inherit re-resolve rate from OBS"), tab);
+	chk_re_resolve_inherit_->setChecked(config_->global_settings().reResolveInheritObs);
+	resolve_row->addWidget(chk_re_resolve_inherit_);
+
+	resolve_row->addWidget(new QLabel(QStringLiteral("Custom (fps):"), tab));
+	spin_re_resolve_fps_ = new QDoubleSpinBox(tab);
+	spin_re_resolve_fps_->setRange(1.0, 120.0);
+	spin_re_resolve_fps_->setDecimals(2);
+	spin_re_resolve_fps_->setSingleStep(1.0);
+	spin_re_resolve_fps_->setMinimumWidth(80);
+	spin_re_resolve_fps_->setValue(config_->global_settings().reResolveCustomFps);
+	spin_re_resolve_fps_->setEnabled(!config_->global_settings().reResolveInheritObs);
+	resolve_row->addWidget(spin_re_resolve_fps_);
+
+	lbl_re_resolve_effective_ = new QLabel(tab);
+	lbl_re_resolve_effective_->setStyleSheet(QStringLiteral("color: gray;"));
+	resolve_row->addWidget(lbl_re_resolve_effective_);
+	resolve_row->addStretch();
+	layout->addLayout(resolve_row);
+
+	/* Compute initial effective display */
+	update_re_resolve_effective_label();
+
+	connect(chk_re_resolve_inherit_, &QCheckBox::toggled, this, [this](bool checked) {
+		spin_re_resolve_fps_->setEnabled(!checked);
+		update_re_resolve_effective_label();
+	});
+
+	connect(spin_re_resolve_fps_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+		[this](double) { update_re_resolve_effective_label(); });
+
 	auto *gs_apply = new QPushButton(QStringLiteral("Apply"), tab);
 	layout->addWidget(gs_apply);
 	layout->addStretch();
 
 	connect(gs_apply, &QPushButton::clicked, this, [this]() {
 		config_->global_settings().defaultGutterPx = spin_default_gutter_->value();
+		config_->global_settings().reResolveInheritObs = chk_re_resolve_inherit_->isChecked();
+		config_->global_settings().reResolveCustomFps = spin_re_resolve_fps_->value();
 		config_->save();
-		obs_log(LOG_INFO, "global settings saved (gutter=%d)", spin_default_gutter_->value());
+		obs_log(LOG_INFO, "global settings saved (gutter=%d, reResolve=%s %.2f fps)",
+			spin_default_gutter_->value(), chk_re_resolve_inherit_->isChecked() ? "inherit" : "custom",
+			spin_re_resolve_fps_->value());
+		update_re_resolve_effective_label();
 		notify_multiview_layout_changed();
 	});
+}
+
+void ManagerDialog::update_re_resolve_effective_label()
+{
+	double fps;
+	if (chk_re_resolve_inherit_->isChecked()) {
+		struct obs_video_info ovi;
+		if (obs_get_video_info(&ovi))
+			fps = (double)ovi.fps_num / (double)ovi.fps_den;
+		else
+			fps = 30.0;
+	} else {
+		fps = spin_re_resolve_fps_->value();
+	}
+	lbl_re_resolve_effective_->setText(QStringLiteral("Effective: %1 fps").arg(fps, 0, 'f', 2));
 }
 
 /* ---- instance list ---- */

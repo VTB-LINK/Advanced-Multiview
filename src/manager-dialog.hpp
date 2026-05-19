@@ -30,6 +30,7 @@ class QStackedWidget;
 class QLabel;
 class QLineEdit;
 class QSpinBox;
+class QDoubleSpinBox;
 class QCheckBox;
 class QSplitter;
 class QMenu;
@@ -115,6 +116,11 @@ private:
 
 	/* Global settings page widgets */
 	QSpinBox *spin_default_gutter_;
+	QCheckBox *chk_re_resolve_inherit_;
+	QDoubleSpinBox *spin_re_resolve_fps_;
+	QLabel *lbl_re_resolve_effective_;
+
+	void update_re_resolve_effective_label();
 
 	enum { PAGE_EMPTY = 0, PAGE_INSTANCE };
 };

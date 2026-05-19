@@ -233,6 +233,7 @@ void MultiviewWindow::update_source_refs()
 
 	for (size_t i = 0; i < cellCount; i++) {
 		cell_sources_[i].type.clear();
+		cell_sources_[i].name.clear();
 		cell_sources_[i].weak_ref = nullptr;
 		cell_sources_[i].showing = false;
 		cell_sources_[i].prvw_fallback = false;
@@ -251,6 +252,7 @@ void MultiviewWindow::update_source_refs()
 			continue;
 
 		cell_sources_[i].type = ca->type;
+		cell_sources_[i].name = ca->name;
 
 		/* PGM/PRVW are resolved per-frame in render(), no caching */
 		if (ca->type == "pgm" || ca->type == "prvw")
@@ -296,6 +298,22 @@ void MultiviewWindow::render_callback(void *data, uint32_t cx, uint32_t cy)
 void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 {
 	std::lock_guard<std::mutex> lock(source_mutex_);
+
+	/* Throttle lazy re-resolution: attempt once per re-resolve interval.
+	 * Interval is determined by OBS canvas FPS or custom setting. */
+	{
+		const GlobalSettings &gs = config_->global_settings();
+		double intervalFps = gs.reResolveCustomFps;
+		if (gs.reResolveInheritObs) {
+			struct obs_video_info ovi;
+			if (obs_get_video_info(&ovi))
+				intervalFps = (double)ovi.fps_num / (double)ovi.fps_den;
+		}
+		int interval = (int)(intervalFps + 0.5);
+		if (interval < 1)
+			interval = 1;
+		re_resolve_counter_ = (re_resolve_counter_ + 1) % interval;
+	}
 
 	/* Compute canvas-aspect-ratio viewport (centered, with black borders) */
 	double windowAspect = (double)cx / (double)cy;
@@ -357,9 +375,21 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 					isPrvwFallback = (srcHolder != nullptr);
 				}
 				src = srcHolder;
-			} else if (cs.weak_ref) {
-				/* scene/source: use cached ref */
-				srcHolder = OBSGetStrongRef(cs.weak_ref);
+			} else if (!cs.type.empty()) {
+				/* scene/source: use cached ref, or lazy re-resolve */
+				if (cs.weak_ref)
+					srcHolder = OBSGetStrongRef(cs.weak_ref);
+				if (!srcHolder && !cs.name.empty() && re_resolve_counter_ == 0) {
+					/* Source may have been re-added (undo) - throttled */
+					obs_source_t *resolved = obs_get_source_by_name(cs.name.c_str());
+					if (resolved) {
+						cell_sources_[i].weak_ref = OBSGetWeakRef(resolved);
+						obs_source_inc_showing(resolved);
+						cell_sources_[i].showing = true;
+						srcHolder = resolved;
+						obs_source_release(resolved);
+					}
+				}
 				src = srcHolder;
 			}
 		}
@@ -413,8 +443,8 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				int barH = (std::max)(2, cell.h / 20);
 				startRegion(cellX, cellY + cell.h - barH, cell.w, barH, 0.0f, (float)cell.w, 0.0f,
 					    (float)barH);
-				/* Yellow with some transparency: 0xCC00D4FF (ABGR) */
-				gs_effect_set_color(colorParam, 0xCC00D4FF);
+				/* Yellow with some transparency: 0xCCFFD400 (ARGB) */
+				gs_effect_set_color(colorParam, 0xCCFFD400);
 				while (gs_effect_loop(solid, "Solid"))
 					gs_draw_sprite(nullptr, 0, cell.w, barH);
 				endRegion();
@@ -686,19 +716,21 @@ void MultiviewWindow::on_toggle_always_on_top()
 {
 	is_always_on_top_ = !is_always_on_top_;
 
+#ifdef _WIN32
+	/* Use SetWindowPos directly to avoid HWND recreation and flicker */
+	HWND hwnd = (HWND)winId();
+	HWND insertAfter = is_always_on_top_ ? HWND_TOPMOST : HWND_NOTOPMOST;
+	SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+#else
 	Qt::WindowFlags flags = windowFlags();
 	if (is_always_on_top_)
 		flags |= Qt::WindowStaysOnTopHint;
 	else
 		flags &= ~Qt::WindowStaysOnTopHint;
 
-	/* setWindowFlags recreates the native window (HWND on Windows).
-	 * We must destroy our OBS display first, then recreate it after
-	 * show() establishes the new native window. */
 	destroy_display();
 	setWindowFlags(flags);
-	show(); /* Required after changing window flags */
-
-	/* Force display recreation with new HWND */
+	show();
 	create_display();
+#endif
 }

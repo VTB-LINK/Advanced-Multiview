@@ -264,6 +264,8 @@ obs_data_t *GlobalSettings::to_obs_data() const
 {
 	obs_data_t *data = obs_data_create();
 	obs_data_set_int(data, "defaultGutterPx", defaultGutterPx);
+	obs_data_set_bool(data, "reResolveInheritObs", reResolveInheritObs);
+	obs_data_set_double(data, "reResolveCustomFps", reResolveCustomFps);
 	return data;
 }
 
@@ -275,5 +277,17 @@ GlobalSettings GlobalSettings::from_obs_data(obs_data_t *data)
 		gs.defaultGutterPx = 0;
 	if (gs.defaultGutterPx > 50)
 		gs.defaultGutterPx = 50;
+
+	gs.reResolveInheritObs = obs_data_get_bool(data, "reResolveInheritObs");
+	/* Default to true if key absent (new config) */
+	if (!obs_data_has_user_value(data, "reResolveInheritObs"))
+		gs.reResolveInheritObs = true;
+
+	gs.reResolveCustomFps = obs_data_get_double(data, "reResolveCustomFps");
+	if (gs.reResolveCustomFps < 1.0)
+		gs.reResolveCustomFps = 30.0;
+	if (gs.reResolveCustomFps > 120.0)
+		gs.reResolveCustomFps = 120.0;
+
 	return gs;
 }
