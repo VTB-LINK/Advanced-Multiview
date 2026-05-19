@@ -39,8 +39,7 @@ public:
 	explicit GridPreviewWidget(QWidget *parent = nullptr);
 
 	void set_layout(const LayoutData &layout);
-	void set_cell_labels(
-		const std::vector<std::string> &labels);
+	void set_cell_labels(const std::vector<std::string> &labels);
 
 	/* Selection */
 	void clear_selection();
@@ -75,5 +74,5 @@ private:
 
 	/* Multi-selection state */
 	std::set<std::pair<int, int>> selected_positions_; /* (row, col) */
-	std::pair<int, int> shift_anchor_ = {-1, -1};     /* for shift-click range */
+	std::pair<int, int> shift_anchor_ = {-1, -1};      /* for shift-click range */
 };

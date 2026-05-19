@@ -22,20 +22,22 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QDialog>
 
-class QListWidget;
+class QTreeWidget;
+class QTreeWidgetItem;
 class QPushButton;
 class QStackedWidget;
 class QLabel;
 class QSpinBox;
 class QCheckBox;
+class QSplitter;
+class QMenu;
 class GridPreviewWidget;
 
 class ManagerDialog : public QDialog {
 	Q_OBJECT
 
 public:
-	explicit ManagerDialog(ConfigManager *config,
-			       QWidget *parent = nullptr);
+	explicit ManagerDialog(ConfigManager *config, QWidget *parent = nullptr);
 	~ManagerDialog() override;
 
 	void refresh_instance_list();
@@ -49,6 +51,9 @@ private slots:
 	void on_instance_selection_changed();
 	void on_global_settings_clicked();
 	void on_edit_grid_clicked();
+	void on_new_folder();
+	void on_move_to_folder();
+	void on_rename_folder(QTreeWidgetItem *folder_item);
 
 private:
 	void setup_ui();
@@ -59,16 +64,22 @@ private:
 	void show_grid_editor(const std::string &uuid);
 	void update_button_states();
 	void update_grid_preview();
+	void show_context_menu(const QPoint &pos);
+	QTreeWidgetItem *find_or_create_folder_item(const std::string &folder);
+	std::string get_item_uuid(QTreeWidgetItem *item) const;
+	bool is_folder_item(QTreeWidgetItem *item) const;
 
 	ConfigManager *config_;
 
 	/* Left panel */
-	QListWidget *instance_list_;
+	QSplitter *splitter_;
+	QTreeWidget *instance_tree_;
 	QPushButton *btn_new_;
-	QPushButton *btn_rename_;
 	QPushButton *btn_clone_;
 	QPushButton *btn_delete_;
 	QPushButton *btn_open_;
+	QPushButton *btn_move_up_;
+	QPushButton *btn_move_down_;
 	QPushButton *btn_global_settings_;
 
 	/* Right panel */
@@ -104,10 +115,5 @@ private:
 	/* Global settings page widgets */
 	QSpinBox *spin_default_gutter_;
 
-	enum {
-		PAGE_EMPTY = 0,
-		PAGE_INSTANCE_DETAIL,
-		PAGE_GLOBAL_SETTINGS,
-		PAGE_GRID_EDITOR
-	};
+	enum { PAGE_EMPTY = 0, PAGE_INSTANCE_DETAIL, PAGE_GLOBAL_SETTINGS, PAGE_GRID_EDITOR };
 };

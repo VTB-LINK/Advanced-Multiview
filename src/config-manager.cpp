@@ -33,8 +33,8 @@ std::string ConfigManager::sanitize_filename(const std::string &name)
 	std::string result;
 	result.reserve(name.size());
 	for (char c : name) {
-		if (c == '/' || c == '\\' || c == ':' || c == '*' ||
-		    c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+		if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' ||
+		    c == '|')
 			result += '_';
 		else
 			result += c;
@@ -89,8 +89,7 @@ bool ConfigManager::load()
 bool ConfigManager::load_from_file(const std::string &path)
 {
 	if (!os_file_exists(path.c_str())) {
-		obs_log(LOG_INFO, "no config file found, using defaults: %s",
-			path.c_str());
+		obs_log(LOG_INFO, "no config file found, using defaults: %s", path.c_str());
 		instances_.clear();
 		layout_presets_.clear();
 		global_settings_ = GlobalSettings();
@@ -99,8 +98,7 @@ bool ConfigManager::load_from_file(const std::string &path)
 
 	obs_data_t *data = obs_data_create_from_json_file(path.c_str());
 	if (!data) {
-		obs_log(LOG_ERROR, "failed to parse config file: %s",
-			path.c_str());
+		obs_log(LOG_ERROR, "failed to parse config file: %s", path.c_str());
 		return false;
 	}
 
@@ -124,8 +122,7 @@ bool ConfigManager::load_from_file(const std::string &path)
 		size_t count = obs_data_array_count(arr);
 		for (size_t i = 0; i < count; i++) {
 			obs_data_t *item = obs_data_array_item(arr, i);
-			instances_.push_back(
-				MultiviewInstance::from_obs_data(item));
+			instances_.push_back(MultiviewInstance::from_obs_data(item));
 			obs_data_release(item);
 		}
 		obs_data_array_release(arr);
@@ -138,8 +135,7 @@ bool ConfigManager::load_from_file(const std::string &path)
 		size_t count = obs_data_array_count(parr);
 		for (size_t i = 0; i < count; i++) {
 			obs_data_t *item = obs_data_array_item(parr, i);
-			layout_presets_.push_back(
-				LayoutPreset::from_obs_data(item));
+			layout_presets_.push_back(LayoutPreset::from_obs_data(item));
 			obs_data_release(item);
 		}
 		obs_data_array_release(parr);
@@ -147,8 +143,7 @@ bool ConfigManager::load_from_file(const std::string &path)
 
 	obs_data_release(data);
 
-	obs_log(LOG_INFO, "loaded %zu instance(s) from %s",
-		instances_.size(), path.c_str());
+	obs_log(LOG_INFO, "loaded %zu instance(s) from %s", instances_.size(), path.c_str());
 	return true;
 }
 
@@ -197,13 +192,11 @@ bool ConfigManager::save_to_file(const std::string &path)
 	obs_data_release(data);
 
 	if (!ok) {
-		obs_log(LOG_ERROR, "failed to save config to %s",
-			path.c_str());
+		obs_log(LOG_ERROR, "failed to save config to %s", path.c_str());
 		return false;
 	}
 
-	obs_log(LOG_INFO, "saved %zu instance(s) to %s", instances_.size(),
-		path.c_str());
+	obs_log(LOG_INFO, "saved %zu instance(s) to %s", instances_.size(), path.c_str());
 	return true;
 }
 
@@ -215,8 +208,8 @@ void ConfigManager::on_scene_collection_changed()
 	if (new_collection == current_collection_)
 		return;
 
-	obs_log(LOG_INFO, "scene collection changed: '%s' -> '%s'",
-		current_collection_.c_str(), new_collection.c_str());
+	obs_log(LOG_INFO, "scene collection changed: '%s' -> '%s'", current_collection_.c_str(),
+		new_collection.c_str());
 
 	/* save current before switching */
 	save();
@@ -233,8 +226,7 @@ MultiviewInstance *ConfigManager::add_instance(const std::string &name)
 	return &instances_.back();
 }
 
-bool ConfigManager::rename_instance(const std::string &uuid,
-				    const std::string &newName)
+bool ConfigManager::rename_instance(const std::string &uuid, const std::string &newName)
 {
 	MultiviewInstance *inst = find_instance(uuid);
 	if (!inst)
@@ -243,8 +235,7 @@ bool ConfigManager::rename_instance(const std::string &uuid,
 	return true;
 }
 
-MultiviewInstance *ConfigManager::clone_instance(const std::string &uuid,
-						 const std::string &newName)
+MultiviewInstance *ConfigManager::clone_instance(const std::string &uuid, const std::string &newName)
 {
 	MultiviewInstance *src = find_instance(uuid);
 	if (!src)
@@ -255,11 +246,8 @@ MultiviewInstance *ConfigManager::clone_instance(const std::string &uuid,
 
 bool ConfigManager::delete_instance(const std::string &uuid)
 {
-	auto it =
-		std::remove_if(instances_.begin(), instances_.end(),
-			       [&](const MultiviewInstance &inst) {
-				       return inst.uuid == uuid;
-			       });
+	auto it = std::remove_if(instances_.begin(), instances_.end(),
+				 [&](const MultiviewInstance &inst) { return inst.uuid == uuid; });
 	if (it == instances_.end())
 		return false;
 	instances_.erase(it, instances_.end());

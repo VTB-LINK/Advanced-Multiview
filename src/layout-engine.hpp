@@ -28,11 +28,11 @@ struct CellRect {
 	int y;
 	int w;
 	int h;
-	int gridRow;    /* top-left row in the base grid */
-	int gridCol;    /* top-left col in the base grid */
-	int rowSpan;    /* 1 for normal cells */
-	int colSpan;    /* 1 for normal cells */
-	int spanIndex;  /* index into LayoutData::spans, or -1 */
+	int gridRow;   /* top-left row in the base grid */
+	int gridCol;   /* top-left col in the base grid */
+	int rowSpan;   /* 1 for normal cells */
+	int colSpan;   /* 1 for normal cells */
+	int spanIndex; /* index into LayoutData::spans, or -1 */
 };
 
 struct VideoRect {
@@ -63,8 +63,7 @@ public:
 	const std::vector<CellRect> &cells() const;
 	int cell_count() const;
 
-	VideoRect video_rect(int cellIndex, int srcWidth,
-			     int srcHeight) const;
+	VideoRect video_rect(int cellIndex, int srcWidth, int srcHeight) const;
 
 	std::optional<HitTestResult> hit_test(int x, int y) const;
 
@@ -77,13 +76,11 @@ public:
 	};
 
 	SpanError validate_span(const SpanRegion &span) const;
-	SpanError validate_span(const SpanRegion &span,
-				int excludeSpanIndex) const;
+	SpanError validate_span(const SpanRegion &span, int excludeSpanIndex) const;
 	static SpanError validate_all_spans(const LayoutData &layout);
 
 private:
-	bool is_cell_covered_by_span(int row, int col,
-				     int excludeSpanIndex = -1) const;
+	bool is_cell_covered_by_span(int row, int col, int excludeSpanIndex = -1) const;
 
 	LayoutData layout_;
 	int vp_width_ = 0;

@@ -172,12 +172,11 @@ void LayoutEngine::compute()
 	}
 
 	/* Sort cells by row then col for consistent indexing */
-	std::sort(cells_.begin(), cells_.end(),
-		  [](const CellRect &a, const CellRect &b) {
-			  if (a.gridRow != b.gridRow)
-				  return a.gridRow < b.gridRow;
-			  return a.gridCol < b.gridCol;
-		  });
+	std::sort(cells_.begin(), cells_.end(), [](const CellRect &a, const CellRect &b) {
+		if (a.gridRow != b.gridRow)
+			return a.gridRow < b.gridRow;
+		return a.gridCol < b.gridCol;
+	});
 }
 
 /* ---- query ---- */
@@ -192,11 +191,9 @@ int LayoutEngine::cell_count() const
 	return (int)cells_.size();
 }
 
-VideoRect LayoutEngine::video_rect(int cellIndex, int srcWidth,
-				   int srcHeight) const
+VideoRect LayoutEngine::video_rect(int cellIndex, int srcWidth, int srcHeight) const
 {
-	if (cellIndex < 0 || cellIndex >= (int)cells_.size() || srcWidth <= 0 ||
-	    srcHeight <= 0) {
+	if (cellIndex < 0 || cellIndex >= (int)cells_.size() || srcWidth <= 0 || srcHeight <= 0) {
 		return {0, 0, 0, 0};
 	}
 
@@ -244,29 +241,24 @@ std::optional<HitTestResult> LayoutEngine::hit_test(int x, int y) const
 
 /* ---- span validation ---- */
 
-bool LayoutEngine::is_cell_covered_by_span(int row, int col,
-					   int excludeSpanIndex) const
+bool LayoutEngine::is_cell_covered_by_span(int row, int col, int excludeSpanIndex) const
 {
 	for (int i = 0; i < (int)layout_.spans.size(); i++) {
 		if (i == excludeSpanIndex)
 			continue;
 		auto &s = layout_.spans[i];
-		if (row >= s.row && row < s.row + s.rowSpan && col >= s.col &&
-		    col < s.col + s.colSpan)
+		if (row >= s.row && row < s.row + s.rowSpan && col >= s.col && col < s.col + s.colSpan)
 			return true;
 	}
 	return false;
 }
 
-LayoutEngine::SpanError
-LayoutEngine::validate_span(const SpanRegion &span) const
+LayoutEngine::SpanError LayoutEngine::validate_span(const SpanRegion &span) const
 {
 	return validate_span(span, -1);
 }
 
-LayoutEngine::SpanError
-LayoutEngine::validate_span(const SpanRegion &span,
-			    int excludeSpanIndex) const
+LayoutEngine::SpanError LayoutEngine::validate_span(const SpanRegion &span, int excludeSpanIndex) const
 {
 	if (span.rowSpan < 1 || span.colSpan < 1)
 		return SpanError::TooSmall;
@@ -274,8 +266,7 @@ LayoutEngine::validate_span(const SpanRegion &span,
 	if (span.rowSpan == 1 && span.colSpan == 1)
 		return SpanError::TooSmall; /* not a span */
 
-	if (span.row < 0 || span.col < 0 ||
-	    span.row + span.rowSpan > layout_.rows ||
+	if (span.row < 0 || span.col < 0 || span.row + span.rowSpan > layout_.rows ||
 	    span.col + span.colSpan > layout_.columns)
 		return SpanError::OutOfBounds;
 
@@ -289,8 +280,7 @@ LayoutEngine::validate_span(const SpanRegion &span,
 	return SpanError::None;
 }
 
-LayoutEngine::SpanError
-LayoutEngine::validate_all_spans(const LayoutData &layout)
+LayoutEngine::SpanError LayoutEngine::validate_all_spans(const LayoutData &layout)
 {
 	LayoutEngine tmp;
 	tmp.set_layout(layout);
@@ -302,14 +292,12 @@ LayoutEngine::validate_all_spans(const LayoutData &layout)
 		if (span.rowSpan < 1 || span.colSpan < 1)
 			return SpanError::TooSmall;
 
-		if (span.row < 0 || span.col < 0 ||
-		    span.row + span.rowSpan > layout.rows ||
+		if (span.row < 0 || span.col < 0 || span.row + span.rowSpan > layout.rows ||
 		    span.col + span.colSpan > layout.columns)
 			return SpanError::OutOfBounds;
 
 		for (int r = span.row; r < span.row + span.rowSpan; r++) {
-			for (int c = span.col;
-			     c < span.col + span.colSpan; c++) {
+			for (int c = span.col; c < span.col + span.colSpan; c++) {
 				if (tmp.is_cell_covered_by_span(r, c, i))
 					return SpanError::Overlaps;
 			}

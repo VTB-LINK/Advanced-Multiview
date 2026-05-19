@@ -54,6 +54,7 @@ struct LayoutData {
 struct MultiviewInstance {
 	std::string uuid;
 	std::string name;
+	std::string folder; /* UI-only grouping tag, empty = root */
 	LayoutData layout;
 	std::vector<CellAssignment> cellAssignments;
 

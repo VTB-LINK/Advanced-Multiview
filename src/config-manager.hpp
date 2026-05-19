@@ -39,10 +39,8 @@ public:
 
 	/* Instance CRUD */
 	MultiviewInstance *add_instance(const std::string &name);
-	bool rename_instance(const std::string &uuid,
-			     const std::string &newName);
-	MultiviewInstance *clone_instance(const std::string &uuid,
-					  const std::string &newName);
+	bool rename_instance(const std::string &uuid, const std::string &newName);
+	MultiviewInstance *clone_instance(const std::string &uuid, const std::string &newName);
 	bool delete_instance(const std::string &uuid);
 	MultiviewInstance *find_instance(const std::string &uuid);
 	const std::vector<MultiviewInstance> &instances() const;

@@ -128,6 +128,8 @@ obs_data_t *MultiviewInstance::to_obs_data() const
 	obs_data_t *data = obs_data_create();
 	obs_data_set_string(data, "uuid", uuid.c_str());
 	obs_data_set_string(data, "name", name.c_str());
+	if (!folder.empty())
+		obs_data_set_string(data, "folder", folder.c_str());
 	obs_data_set_bool(data, "useGlobalGutter", useGlobalGutter);
 
 	obs_data_t *layoutData = layout.to_obs_data();
@@ -151,10 +153,10 @@ MultiviewInstance MultiviewInstance::from_obs_data(obs_data_t *data)
 	MultiviewInstance inst;
 	inst.uuid = obs_data_get_string(data, "uuid");
 	inst.name = obs_data_get_string(data, "name");
+	inst.folder = obs_data_get_string(data, "folder");
 
 	if (obs_data_has_user_value(data, "useGlobalGutter"))
-		inst.useGlobalGutter =
-			obs_data_get_bool(data, "useGlobalGutter");
+		inst.useGlobalGutter = obs_data_get_bool(data, "useGlobalGutter");
 	else
 		inst.useGlobalGutter = true;
 
@@ -169,8 +171,7 @@ MultiviewInstance MultiviewInstance::from_obs_data(obs_data_t *data)
 		size_t count = obs_data_array_count(arr);
 		for (size_t i = 0; i < count; i++) {
 			obs_data_t *item = obs_data_array_item(arr, i);
-			inst.cellAssignments.push_back(
-				CellAssignment::from_obs_data(item));
+			inst.cellAssignments.push_back(CellAssignment::from_obs_data(item));
 			obs_data_release(item);
 		}
 		obs_data_array_release(arr);
@@ -179,13 +180,10 @@ MultiviewInstance MultiviewInstance::from_obs_data(obs_data_t *data)
 	return inst;
 }
 
-MultiviewInstance
-MultiviewInstance::create_new(const std::string &instanceName)
+MultiviewInstance MultiviewInstance::create_new(const std::string &instanceName)
 {
 	MultiviewInstance inst;
-	inst.uuid = QUuid::createUuid()
-			    .toString(QUuid::WithoutBraces)
-			    .toStdString();
+	inst.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
 	inst.name = instanceName;
 	inst.useGlobalGutter = true;
 	return inst;
@@ -196,13 +194,10 @@ int MultiviewInstance::effective_gutter(int globalGutter) const
 	return useGlobalGutter ? globalGutter : layout.gutterPx;
 }
 
-MultiviewInstance
-MultiviewInstance::clone_instance(const std::string &newName) const
+MultiviewInstance MultiviewInstance::clone_instance(const std::string &newName) const
 {
 	MultiviewInstance cloned = *this;
-	cloned.uuid = QUuid::createUuid()
-			      .toString(QUuid::WithoutBraces)
-			      .toStdString();
+	cloned.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
 	cloned.name = newName;
 	cloned.layoutDirty = false;
 	cloned.signalDirty = false;

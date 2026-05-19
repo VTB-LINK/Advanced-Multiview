@@ -26,8 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QLabel>
 #include <QVBoxLayout>
 
-SourcePicker::SourcePicker(QWidget *parent)
-	: QDialog(parent)
+SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
 {
 	setWindowTitle(QStringLiteral("Select Source"));
 	setMinimumSize(360, 400);
@@ -39,8 +38,7 @@ SourcePicker::SourcePicker(QWidget *parent)
 	auto *filterLayout = new QHBoxLayout;
 	filterLayout->addWidget(new QLabel(QStringLiteral("Filter:")));
 	filter_edit_ = new QLineEdit;
-	filter_edit_->setPlaceholderText(
-		QStringLiteral("Type to filter..."));
+	filter_edit_->setPlaceholderText(QStringLiteral("Type to filter..."));
 	filterLayout->addWidget(filter_edit_);
 	mainLayout->addLayout(filterLayout);
 
@@ -58,22 +56,15 @@ SourcePicker::SourcePicker(QWidget *parent)
 	tabs_->addTab(source_list_, QStringLiteral("Sources"));
 
 	/* Buttons */
-	auto *buttons =
-		new QDialogButtonBox(QDialogButtonBox::Ok |
-				     QDialogButtonBox::Cancel);
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	mainLayout->addWidget(buttons);
 
-	connect(buttons, &QDialogButtonBox::accepted, this,
-		&SourcePicker::on_accept);
+	connect(buttons, &QDialogButtonBox::accepted, this, &SourcePicker::on_accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-	connect(filter_edit_, &QLineEdit::textChanged, this,
-		&SourcePicker::on_filter_changed);
-	connect(special_list_, &QListWidget::itemDoubleClicked, this,
-		&SourcePicker::on_item_double_clicked);
-	connect(scene_list_, &QListWidget::itemDoubleClicked, this,
-		&SourcePicker::on_item_double_clicked);
-	connect(source_list_, &QListWidget::itemDoubleClicked, this,
-		&SourcePicker::on_item_double_clicked);
+	connect(filter_edit_, &QLineEdit::textChanged, this, &SourcePicker::on_filter_changed);
+	connect(special_list_, &QListWidget::itemDoubleClicked, this, &SourcePicker::on_item_double_clicked);
+	connect(scene_list_, &QListWidget::itemDoubleClicked, this, &SourcePicker::on_item_double_clicked);
+	connect(source_list_, &QListWidget::itemDoubleClicked, this, &SourcePicker::on_item_double_clicked);
 
 	populate_list();
 }
@@ -142,10 +133,7 @@ void SourcePicker::on_filter_changed(const QString &text)
 	auto filter_list = [&text](QListWidget *list) {
 		for (int i = 0; i < list->count(); i++) {
 			auto *item = list->item(i);
-			bool visible =
-				text.isEmpty() ||
-				item->text().contains(text,
-						      Qt::CaseInsensitive);
+			bool visible = text.isEmpty() || item->text().contains(text, Qt::CaseInsensitive);
 			item->setHidden(!visible);
 		}
 	};
@@ -179,8 +167,7 @@ void SourcePicker::on_accept()
 	}
 
 	result_.type = current->data(Qt::UserRole).toString().toStdString();
-	result_.name =
-		current->data(Qt::UserRole + 1).toString().toStdString();
+	result_.name = current->data(Qt::UserRole + 1).toString().toStdString();
 
 	accept();
 }

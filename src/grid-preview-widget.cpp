@@ -49,8 +49,7 @@ void GridPreviewWidget::set_layout(const LayoutData &layout)
 	update();
 }
 
-void GridPreviewWidget::set_cell_labels(
-	const std::vector<std::string> &labels)
+void GridPreviewWidget::set_cell_labels(const std::vector<std::string> &labels)
 {
 	cell_labels_ = labels;
 	update();
@@ -64,8 +63,7 @@ void GridPreviewWidget::clear_selection()
 	emit selection_changed();
 }
 
-const std::set<std::pair<int, int>> &
-GridPreviewWidget::selected_positions() const
+const std::set<std::pair<int, int>> &GridPreviewWidget::selected_positions() const
 {
 	return selected_positions_;
 }
@@ -111,8 +109,8 @@ bool GridPreviewWidget::selection_overlaps_span() const
 {
 	for (auto &[r, c] : selected_positions_) {
 		for (auto &span : layout_.spans) {
-			if (r >= span.row && r < span.row + span.rowSpan &&
-			    c >= span.col && c < span.col + span.colSpan)
+			if (r >= span.row && r < span.row + span.rowSpan && c >= span.col &&
+			    c < span.col + span.colSpan)
 				return true;
 		}
 	}
@@ -173,16 +171,12 @@ void GridPreviewWidget::paintEvent(QPaintEvent *)
 		/* Determine if this cell is selected */
 		bool is_selected = false;
 		if (c.rowSpan == 1 && c.colSpan == 1) {
-			is_selected = selected_positions_.count(
-					      {c.gridRow, c.gridCol}) > 0;
+			is_selected = selected_positions_.count({c.gridRow, c.gridCol}) > 0;
 		} else {
 			/* For span cells, check if any of its positions are selected */
-			for (int sr = c.gridRow;
-			     sr < c.gridRow + c.rowSpan; sr++) {
-				for (int sc = c.gridCol;
-				     sc < c.gridCol + c.colSpan; sc++) {
-					if (selected_positions_.count(
-						    {sr, sc}) > 0) {
+			for (int sr = c.gridRow; sr < c.gridRow + c.rowSpan; sr++) {
+				for (int sc = c.gridCol; sc < c.gridCol + c.colSpan; sc++) {
+					if (selected_positions_.count({sr, sc}) > 0) {
 						is_selected = true;
 						break;
 					}
@@ -209,8 +203,7 @@ void GridPreviewWidget::paintEvent(QPaintEvent *)
 
 		/* Label */
 		QString label;
-		if (i < (int)cell_labels_.size() &&
-		    !cell_labels_[i].empty()) {
+		if (i < (int)cell_labels_.size() && !cell_labels_[i].empty()) {
 			label = QString::fromStdString(cell_labels_[i]);
 		} else {
 			if (c.rowSpan > 1 || c.colSpan > 1) {
@@ -220,9 +213,7 @@ void GridPreviewWidget::paintEvent(QPaintEvent *)
 						.arg(c.rowSpan)
 						.arg(c.colSpan);
 			} else {
-				label = QStringLiteral("%1,%2")
-						.arg(c.gridRow)
-						.arg(c.gridCol);
+				label = QStringLiteral("%1,%2").arg(c.gridRow).arg(c.gridCol);
 			}
 		}
 
