@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QDialog>
 
+class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QPushButton;
@@ -49,7 +50,6 @@ private slots:
 	void on_delete_instance();
 	void on_open_instance();
 	void on_instance_selection_changed();
-	void on_global_settings_clicked();
 	void on_edit_grid_clicked();
 	void on_new_folder();
 	void on_move_to_folder();
@@ -57,10 +57,11 @@ private slots:
 
 private:
 	void setup_ui();
+	void setup_instances_tab(QWidget *tab);
 	void setup_left_panel(QWidget *panel);
 	void setup_right_panel(QWidget *panel);
+	void setup_settings_tab(QWidget *tab);
 	void show_instance_detail(const std::string &uuid);
-	void show_global_settings();
 	void show_grid_editor(const std::string &uuid);
 	void update_button_states();
 	void update_grid_preview();
@@ -71,7 +72,10 @@ private:
 
 	ConfigManager *config_;
 
-	/* Left panel */
+	/* Top-level tabs */
+	QTabWidget *tab_widget_;
+
+	/* Left panel (Instances tab) */
 	QSplitter *splitter_;
 	QTreeWidget *instance_tree_;
 	QPushButton *btn_new_;
@@ -80,13 +84,11 @@ private:
 	QPushButton *btn_open_;
 	QPushButton *btn_move_up_;
 	QPushButton *btn_move_down_;
-	QPushButton *btn_global_settings_;
 
-	/* Right panel */
+	/* Right panel (Instances tab) */
 	QStackedWidget *right_stack_;
 	QWidget *page_empty_;
 	QWidget *page_instance_detail_;
-	QWidget *page_global_settings_;
 	QWidget *page_grid_editor_;
 
 	/* Instance detail page widgets */
@@ -115,5 +117,5 @@ private:
 	/* Global settings page widgets */
 	QSpinBox *spin_default_gutter_;
 
-	enum { PAGE_EMPTY = 0, PAGE_INSTANCE_DETAIL, PAGE_GLOBAL_SETTINGS, PAGE_GRID_EDITOR };
+	enum { PAGE_EMPTY = 0, PAGE_INSTANCE_DETAIL, PAGE_GRID_EDITOR };
 };

@@ -102,10 +102,7 @@ MultiviewWindow::MultiviewWindow(ConfigManager *config, const std::string &uuid,
 	resize(960, 540);
 
 	/* Window title */
-	MultiviewInstance *inst = config_->find_instance(uuid_);
-	if (inst) {
-		setWindowTitle(QStringLiteral("Multiview - %1").arg(QString::fromStdString(inst->name)));
-	}
+	refresh_title();
 
 	/* Escape to close */
 	QAction *escAction = new QAction(this);
@@ -180,6 +177,13 @@ void MultiviewWindow::destroy_display()
 	obs_display_remove_draw_callback(display_, render_callback, this);
 	display_ = nullptr;
 	display_created_ = false;
+}
+
+void MultiviewWindow::refresh_title()
+{
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (inst)
+		setWindowTitle(QStringLiteral("Advanced Multiview - %1").arg(QString::fromStdString(inst->name)));
 }
 
 void MultiviewWindow::refresh_layout()

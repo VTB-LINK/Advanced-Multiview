@@ -39,6 +39,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QSvgRenderer>
+#include <QTabWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -114,16 +115,34 @@ ManagerDialog::~ManagerDialog() = default;
 
 void ManagerDialog::setup_ui()
 {
-	auto *main_layout = new QHBoxLayout(this);
+	auto *main_layout = new QVBoxLayout(this);
 	main_layout->setContentsMargins(0, 0, 0, 0);
 
-	splitter_ = new QSplitter(Qt::Horizontal, this);
+	tab_widget_ = new QTabWidget(this);
+
+	auto *instances_tab = new QWidget();
+	setup_instances_tab(instances_tab);
+	tab_widget_->addTab(instances_tab, QStringLiteral("Instances"));
+
+	auto *settings_tab = new QWidget();
+	setup_settings_tab(settings_tab);
+	tab_widget_->addTab(settings_tab, QStringLiteral("Settings"));
+
+	main_layout->addWidget(tab_widget_);
+}
+
+void ManagerDialog::setup_instances_tab(QWidget *tab)
+{
+	auto *layout = new QHBoxLayout(tab);
+	layout->setContentsMargins(0, 0, 0, 0);
+
+	splitter_ = new QSplitter(Qt::Horizontal, tab);
 	splitter_->setChildrenCollapsible(false);
 
-	auto *left_panel = new QWidget(this);
+	auto *left_panel = new QWidget(tab);
 	setup_left_panel(left_panel);
 
-	auto *right_panel = new QWidget(this);
+	auto *right_panel = new QWidget(tab);
 	setup_right_panel(right_panel);
 
 	splitter_->addWidget(left_panel);
@@ -132,17 +151,13 @@ void ManagerDialog::setup_ui()
 	splitter_->setStretchFactor(1, 1);
 	splitter_->setSizes({200, 600});
 
-	main_layout->addWidget(splitter_);
+	layout->addWidget(splitter_);
 }
 
 void ManagerDialog::setup_left_panel(QWidget *panel)
 {
 	auto *layout = new QVBoxLayout(panel);
 	layout->setContentsMargins(4, 4, 0, 4);
-
-	auto *title = new QLabel(QStringLiteral("Multiview Instances"), panel);
-	title->setStyleSheet(QStringLiteral("font-weight: bold;"));
-	layout->addWidget(title);
 
 	instance_tree_ = new QTreeWidget(panel);
 	instance_tree_->setHeaderHidden(true);
@@ -247,14 +262,10 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 
 	layout->addLayout(toolbar);
 
-	btn_global_settings_ = new QPushButton(QStringLiteral("Global Settings"), panel);
-	layout->addWidget(btn_global_settings_);
-
 	connect(btn_new_, &QPushButton::clicked, this, &ManagerDialog::on_new_instance);
 	connect(btn_clone_, &QPushButton::clicked, this, &ManagerDialog::on_clone_instance);
 	connect(btn_delete_, &QPushButton::clicked, this, &ManagerDialog::on_delete_instance);
 	connect(btn_open_, &QPushButton::clicked, this, &ManagerDialog::on_open_instance);
-	connect(btn_global_settings_, &QPushButton::clicked, this, &ManagerDialog::on_global_settings_clicked);
 	connect(btn_move_up_, &QPushButton::clicked, this, [this]() {
 		/* TODO: reorder support */
 	});
@@ -341,38 +352,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 
 	right_stack_->addWidget(page_instance_detail_);
 
-	/* Page 2: global settings */
-	page_global_settings_ = new QWidget();
-	auto *gs_layout = new QVBoxLayout(page_global_settings_);
-
-	auto *gs_title = new QLabel(QStringLiteral("Global Settings"), page_global_settings_);
-	gs_title->setStyleSheet(QStringLiteral("font-size: 16px; font-weight: bold;"));
-	gs_layout->addWidget(gs_title);
-
-	auto *gutter_row = new QHBoxLayout();
-	gutter_row->addWidget(new QLabel(QStringLiteral("Default Gutter (px):"), page_global_settings_));
-	spin_default_gutter_ = new QSpinBox(page_global_settings_);
-	spin_default_gutter_->setRange(0, 50);
-	spin_default_gutter_->setValue(config_->global_settings().defaultGutterPx);
-	gutter_row->addWidget(spin_default_gutter_);
-	gutter_row->addStretch();
-	gs_layout->addLayout(gutter_row);
-
-	auto *gs_apply = new QPushButton(QStringLiteral("Apply"), page_global_settings_);
-	gs_layout->addWidget(gs_apply);
-	gs_layout->addStretch();
-
-	connect(gs_apply, &QPushButton::clicked, this, [this]() {
-		config_->global_settings().defaultGutterPx = spin_default_gutter_->value();
-		config_->save();
-		obs_log(LOG_INFO, "global settings saved (gutter=%d)", spin_default_gutter_->value());
-		/* Refresh all windows that inherit global gutter */
-		notify_multiview_layout_changed();
-	});
-
-	right_stack_->addWidget(page_global_settings_);
-
-	/* Page 3: grid editor */
+	/* Page 2: grid editor */
 	page_grid_editor_ = new QWidget();
 	auto *ge_layout = new QVBoxLayout(page_grid_editor_);
 
@@ -582,6 +562,32 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	layout->addWidget(right_stack_);
 }
 
+void ManagerDialog::setup_settings_tab(QWidget *tab)
+{
+	auto *layout = new QVBoxLayout(tab);
+	layout->setContentsMargins(12, 12, 12, 12);
+
+	auto *gutter_row = new QHBoxLayout();
+	gutter_row->addWidget(new QLabel(QStringLiteral("Default Gutter (px):"), tab));
+	spin_default_gutter_ = new QSpinBox(tab);
+	spin_default_gutter_->setRange(0, 50);
+	spin_default_gutter_->setValue(config_->global_settings().defaultGutterPx);
+	gutter_row->addWidget(spin_default_gutter_);
+	gutter_row->addStretch();
+	layout->addLayout(gutter_row);
+
+	auto *gs_apply = new QPushButton(QStringLiteral("Apply"), tab);
+	layout->addWidget(gs_apply);
+	layout->addStretch();
+
+	connect(gs_apply, &QPushButton::clicked, this, [this]() {
+		config_->global_settings().defaultGutterPx = spin_default_gutter_->value();
+		config_->save();
+		obs_log(LOG_INFO, "global settings saved (gutter=%d)", spin_default_gutter_->value());
+		notify_multiview_layout_changed();
+	});
+}
+
 /* ---- instance list ---- */
 
 void ManagerDialog::refresh_instance_list()
@@ -726,6 +732,7 @@ void ManagerDialog::on_rename_instance()
 	config_->rename_instance(uuid, name.trimmed().toStdString());
 	config_->save();
 	refresh_instance_list();
+	notify_multiview_name_changed(uuid);
 }
 
 void ManagerDialog::on_clone_instance()
@@ -825,12 +832,6 @@ void ManagerDialog::on_open_instance()
 		if (!uuid.empty())
 			open_multiview_window(uuid);
 	}
-}
-
-void ManagerDialog::on_global_settings_clicked()
-{
-	instance_tree_->clearSelection();
-	show_global_settings();
 }
 
 void ManagerDialog::on_new_folder()
@@ -997,12 +998,6 @@ void ManagerDialog::show_instance_detail(const std::string &uuid)
 	detail_gutter_spin_->blockSignals(false);
 
 	right_stack_->setCurrentIndex(PAGE_INSTANCE_DETAIL);
-}
-
-void ManagerDialog::show_global_settings()
-{
-	spin_default_gutter_->setValue(config_->global_settings().defaultGutterPx);
-	right_stack_->setCurrentIndex(PAGE_GLOBAL_SETTINGS);
 }
 
 void ManagerDialog::on_edit_grid_clicked()

@@ -42,6 +42,9 @@ public:
 	/* Rebuild layout from config (call after layout changes) */
 	void refresh_layout();
 
+	/* Update window title from config */
+	void refresh_title();
+
 	/* Rebuild cell sources (call after cell assignment changes) */
 	void refresh_sources();
 
@@ -113,3 +116,4 @@ private:
 void open_multiview_window(const std::string &uuid);
 void open_manager_dialog();
 void notify_multiview_layout_changed(const std::string &uuid = "");
+void notify_multiview_name_changed(const std::string &uuid);
