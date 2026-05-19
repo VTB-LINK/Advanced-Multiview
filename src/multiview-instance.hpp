@@ -24,6 +24,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-data.h>
 
 struct CellAssignment {
+	int row = -1;     // grid row position (-1 = legacy/unset)
+	int col = -1;     // grid col position (-1 = legacy/unset)
 	std::string type; // "pgm", "prvw", "scene", "source", ""
 	std::string name; // scene/source name, empty for pgm/prvw/empty
 

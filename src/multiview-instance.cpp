@@ -27,6 +27,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 obs_data_t *CellAssignment::to_obs_data() const
 {
 	obs_data_t *data = obs_data_create();
+	obs_data_set_int(data, "row", row);
+	obs_data_set_int(data, "col", col);
 	obs_data_set_string(data, "type", type.c_str());
 	obs_data_set_string(data, "name", name.c_str());
 	return data;
@@ -35,6 +37,14 @@ obs_data_t *CellAssignment::to_obs_data() const
 CellAssignment CellAssignment::from_obs_data(obs_data_t *data)
 {
 	CellAssignment ca;
+	ca.row = (int)obs_data_get_int(data, "row");
+	ca.col = (int)obs_data_get_int(data, "col");
+	/* Legacy data without row/col will read as 0,0 - we use a sentinel
+	 * to detect this case: if "row" key doesn't exist, mark as -1 */
+	if (!obs_data_has_user_value(data, "row"))
+		ca.row = -1;
+	if (!obs_data_has_user_value(data, "col"))
+		ca.col = -1;
 	ca.type = obs_data_get_string(data, "type");
 	ca.name = obs_data_get_string(data, "name");
 	return ca;
@@ -138,6 +148,8 @@ obs_data_t *MultiviewInstance::to_obs_data() const
 
 	obs_data_array_t *arr = obs_data_array_create();
 	for (auto &ca : cellAssignments) {
+		if (ca.type.empty())
+			continue; /* Don't save empty assignments */
 		obs_data_t *item = ca.to_obs_data();
 		obs_data_array_push_back(arr, item);
 		obs_data_release(item);
@@ -171,8 +183,20 @@ MultiviewInstance MultiviewInstance::from_obs_data(obs_data_t *data)
 		size_t count = obs_data_array_count(arr);
 		for (size_t i = 0; i < count; i++) {
 			obs_data_t *item = obs_data_array_item(arr, i);
-			inst.cellAssignments.push_back(CellAssignment::from_obs_data(item));
+			CellAssignment ca = CellAssignment::from_obs_data(item);
 			obs_data_release(item);
+			/* Skip empty assignments */
+			if (ca.type.empty())
+				continue;
+			/* Legacy migration: if row/col not stored, compute from flat index */
+			if (ca.row < 0 || ca.col < 0) {
+				int cols = inst.layout.columns;
+				if (cols < 1)
+					cols = 4;
+				ca.row = (int)i / cols;
+				ca.col = (int)i % cols;
+			}
+			inst.cellAssignments.push_back(ca);
 		}
 		obs_data_array_release(arr);
 	}

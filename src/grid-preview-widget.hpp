@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <functional>
 #include <set>
+#include <vector>
 
 struct SelectionRect {
 	int row;
@@ -51,6 +52,10 @@ public:
 
 	/* Check if selection overlaps existing spans */
 	bool selection_overlaps_span() const;
+
+	/* Check if all overlapped spans are fully contained within the selection rectangle.
+	 * Returns true and fills absorbed_indices with span indices to remove. */
+	bool selection_can_absorb_spans(std::vector<int> &absorbed_indices) const;
 
 	/* Get span index at a given cell index (-1 if none) */
 	int span_at_cell(int cellIndex) const;

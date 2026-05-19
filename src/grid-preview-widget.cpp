@@ -117,6 +117,48 @@ bool GridPreviewWidget::selection_overlaps_span() const
 	return false;
 }
 
+bool GridPreviewWidget::selection_can_absorb_spans(std::vector<int> &absorbed_indices) const
+{
+	absorbed_indices.clear();
+	if (selected_positions_.size() < 2)
+		return false;
+
+	/* Find bounding box of selection */
+	int minR = INT_MAX, maxR = INT_MIN;
+	int minC = INT_MAX, maxC = INT_MIN;
+	for (auto &[r, c] : selected_positions_) {
+		minR = std::min(minR, r);
+		maxR = std::max(maxR, r);
+		minC = std::min(minC, c);
+		maxC = std::max(maxC, c);
+	}
+
+	/* Find all spans that overlap the selection */
+	for (int i = 0; i < (int)layout_.spans.size(); i++) {
+		auto &s = layout_.spans[i];
+		bool overlaps = false;
+		for (auto &[r, c] : selected_positions_) {
+			if (r >= s.row && r < s.row + s.rowSpan && c >= s.col && c < s.col + s.colSpan) {
+				overlaps = true;
+				break;
+			}
+		}
+		if (!overlaps)
+			continue;
+
+		/* Check if span is fully contained within the selection rectangle */
+		if (s.row >= minR && s.row + s.rowSpan - 1 <= maxR && s.col >= minC && s.col + s.colSpan - 1 <= maxC) {
+			absorbed_indices.push_back(i);
+		} else {
+			/* Span partially outside selection - cannot absorb */
+			absorbed_indices.clear();
+			return false;
+		}
+	}
+
+	return !absorbed_indices.empty();
+}
+
 int GridPreviewWidget::span_at_cell(int cellIndex) const
 {
 	const auto &cells = engine_.cells();
@@ -243,15 +285,24 @@ void GridPreviewWidget::mousePressEvent(QMouseEvent *event)
 	if (row < 0)
 		return;
 
+	/* Get span extent of clicked cell */
+	const auto &cells = engine_.cells();
+	int cRowSpan = cells[cellIdx].rowSpan;
+	int cColSpan = cells[cellIdx].colSpan;
+
 	bool ctrl = event->modifiers() & Qt::ControlModifier;
 	bool shift = event->modifiers() & Qt::ShiftModifier;
 
 	if (shift && shift_anchor_.first >= 0) {
-		/* Shift+Click: range select from anchor to this cell */
+		/* Shift+Click: range select from anchor to this cell.
+		 * Expand range to include full span extent if target is a span cell. */
+		int targetMaxR = row + cRowSpan - 1;
+		int targetMaxC = col + cColSpan - 1;
+
 		int r0 = std::min(shift_anchor_.first, row);
-		int r1 = std::max(shift_anchor_.first, row);
+		int r1 = std::max(shift_anchor_.first, targetMaxR);
 		int c0 = std::min(shift_anchor_.second, col);
-		int c1 = std::max(shift_anchor_.second, col);
+		int c1 = std::max(shift_anchor_.second, targetMaxC);
 
 		selected_positions_.clear();
 		for (int r = r0; r <= r1; r++) {
@@ -260,18 +311,36 @@ void GridPreviewWidget::mousePressEvent(QMouseEvent *event)
 			}
 		}
 	} else if (ctrl) {
-		/* Ctrl+Click: toggle individual cell in selection */
+		/* Ctrl+Click: toggle all positions of the cell/span */
 		shift_anchor_ = {row, col};
-		auto pos = std::make_pair(row, col);
-		if (selected_positions_.count(pos))
-			selected_positions_.erase(pos);
-		else
-			selected_positions_.insert(pos);
+		bool any_selected = false;
+		for (int sr = row; sr < row + cRowSpan; sr++) {
+			for (int sc = col; sc < col + cColSpan; sc++) {
+				if (selected_positions_.count({sr, sc})) {
+					any_selected = true;
+					break;
+				}
+			}
+			if (any_selected)
+				break;
+		}
+		for (int sr = row; sr < row + cRowSpan; sr++) {
+			for (int sc = col; sc < col + cColSpan; sc++) {
+				if (any_selected)
+					selected_positions_.erase({sr, sc});
+				else
+					selected_positions_.insert({sr, sc});
+			}
+		}
 	} else {
-		/* Plain click: single select, set anchor for future shift-click */
+		/* Plain click: select all positions of the cell/span */
 		shift_anchor_ = {row, col};
 		selected_positions_.clear();
-		selected_positions_.insert({row, col});
+		for (int sr = row; sr < row + cRowSpan; sr++) {
+			for (int sc = col; sc < col + cColSpan; sc++) {
+				selected_positions_.insert({sr, sc});
+			}
+		}
 	}
 
 	update();

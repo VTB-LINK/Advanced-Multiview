@@ -201,6 +201,10 @@ void MultiviewWindow::refresh_layout()
 	/* Invalidate cached viewport to force recompute in next render frame */
 	cached_vpW_ = 0;
 	cached_vpH_ = 0;
+
+	/* Re-resolve source refs: grid shape may have changed, affecting
+	 * which cells exist and their indices */
+	refresh_sources();
 }
 
 void MultiviewWindow::refresh_sources()
@@ -217,13 +221,14 @@ void MultiviewWindow::update_source_refs()
 	if (!inst)
 		return;
 
-	/* Recompute layout to know cell count */
+	/* Recompute layout to know cell count and positions */
 	LayoutEngine tmpEngine;
 	tmpEngine.set_layout(layout_);
 	tmpEngine.set_viewport(800, 600); /* dummy size for cell count */
 	tmpEngine.compute();
 
-	size_t cellCount = tmpEngine.cells().size();
+	const auto &cells = tmpEngine.cells();
+	size_t cellCount = cells.size();
 	cell_sources_.resize(cellCount);
 
 	for (size_t i = 0; i < cellCount; i++) {
@@ -232,21 +237,27 @@ void MultiviewWindow::update_source_refs()
 		cell_sources_[i].showing = false;
 		cell_sources_[i].prvw_fallback = false;
 
-		if (i >= inst->cellAssignments.size())
+		/* Look up assignment by (gridRow, gridCol) */
+		int r = cells[i].gridRow;
+		int c = cells[i].gridCol;
+		const CellAssignment *ca = nullptr;
+		for (auto &a : inst->cellAssignments) {
+			if (a.row == r && a.col == c) {
+				ca = &a;
+				break;
+			}
+		}
+		if (!ca || ca->type.empty())
 			continue;
 
-		const CellAssignment &ca = inst->cellAssignments[i];
-		if (ca.type.empty())
-			continue;
-
-		cell_sources_[i].type = ca.type;
+		cell_sources_[i].type = ca->type;
 
 		/* PGM/PRVW are resolved per-frame in render(), no caching */
-		if (ca.type == "pgm" || ca.type == "prvw")
+		if (ca->type == "pgm" || ca->type == "prvw")
 			continue;
 
 		/* Scene/Source: cache weak ref and inc_showing */
-		obs_source_t *src = obs_get_source_by_name(ca.name.c_str());
+		obs_source_t *src = obs_get_source_by_name(ca->name.c_str());
 		if (src) {
 			cell_sources_[i].weak_ref = OBSGetWeakRef(src);
 			obs_source_inc_showing(src);
@@ -546,9 +557,6 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 	QAction *editGridAction = menu.addAction(QStringLiteral("Edit Grid..."));
 	connect(editGridAction, &QAction::triggered, this, &MultiviewWindow::on_edit_grid);
 
-	QAction *saveAction = menu.addAction(QStringLiteral("Save Cell Assignments"));
-	connect(saveAction, &QAction::triggered, this, &MultiviewWindow::on_save_assignments);
-
 	menu.addSeparator();
 
 	QAction *settingsAction = menu.addAction(QStringLiteral("Global Settings"));
@@ -572,11 +580,35 @@ void MultiviewWindow::on_add_source(int cellIndex)
 	if (!inst)
 		return;
 
-	/* Ensure cellAssignments vector is large enough */
-	while ((int)inst->cellAssignments.size() <= cellIndex)
-		inst->cellAssignments.push_back(CellAssignment{"", ""});
+	/* Determine the (row, col) of the clicked cell from the engine */
+	int r, c;
+	{
+		LayoutEngine tmpEngine;
+		tmpEngine.set_layout(layout_);
+		tmpEngine.set_viewport(cached_vpW_ > 0 ? cached_vpW_ : 800, cached_vpH_ > 0 ? cached_vpH_ : 600);
+		tmpEngine.compute();
+		const auto &cells = tmpEngine.cells();
+		if (cellIndex < 0 || cellIndex >= (int)cells.size())
+			return;
+		r = cells[cellIndex].gridRow;
+		c = cells[cellIndex].gridCol;
+	}
 
-	inst->cellAssignments[cellIndex] = ca;
+	ca.row = r;
+	ca.col = c;
+
+	/* Replace existing assignment at (r,c) or add new */
+	bool found = false;
+	for (auto &a : inst->cellAssignments) {
+		if (a.row == r && a.col == c) {
+			a = ca;
+			found = true;
+			break;
+		}
+	}
+	if (!found)
+		inst->cellAssignments.push_back(ca);
+
 	inst->signalDirty = true;
 	config_->save();
 
@@ -594,12 +626,30 @@ void MultiviewWindow::on_clear_cell(int cellIndex)
 	if (!inst)
 		return;
 
-	if (cellIndex < (int)inst->cellAssignments.size()) {
-		inst->cellAssignments[cellIndex] = CellAssignment{"", ""};
-		inst->signalDirty = true;
-		config_->save();
-		refresh_sources();
+	/* Determine (row, col) of the cell */
+	int r, c;
+	{
+		LayoutEngine tmpEngine;
+		tmpEngine.set_layout(layout_);
+		tmpEngine.set_viewport(cached_vpW_ > 0 ? cached_vpW_ : 800, cached_vpH_ > 0 ? cached_vpH_ : 600);
+		tmpEngine.compute();
+		const auto &cells = tmpEngine.cells();
+		if (cellIndex < 0 || cellIndex >= (int)cells.size())
+			return;
+		r = cells[cellIndex].gridRow;
+		c = cells[cellIndex].gridCol;
 	}
+
+	/* Remove assignment at (r,c) */
+	auto &assignments = inst->cellAssignments;
+	assignments.erase(std::remove_if(assignments.begin(), assignments.end(),
+					 [r, c](const CellAssignment &a) { return a.row == r && a.col == c; }),
+			  assignments.end());
+
+	inst->signalDirty = true;
+	config_->save();
+
+	refresh_sources();
 }
 
 void MultiviewWindow::on_save_assignments()

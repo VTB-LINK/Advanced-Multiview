@@ -477,8 +477,17 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		SelectionRect sr;
 		if (!grid_preview_->selection_is_mergeable(sr))
 			return;
-		if (grid_preview_->selection_overlaps_span())
-			return;
+
+		/* Check if we need to absorb existing spans */
+		std::vector<int> absorbed;
+		bool has_span = grid_preview_->selection_overlaps_span();
+		if (has_span) {
+			if (!grid_preview_->selection_can_absorb_spans(absorbed))
+				return;
+			/* Remove absorbed spans in reverse order */
+			for (auto it = absorbed.rbegin(); it != absorbed.rend(); ++it)
+				grid_edit_layout_.spans.erase(grid_edit_layout_.spans.begin() + *it);
+		}
 
 		SpanRegion newSpan{sr.row, sr.col, sr.rowSpan, sr.colSpan};
 		LayoutEngine validator;
@@ -539,7 +548,10 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		SelectionRect sr;
 		bool mergeable = grid_preview_->selection_is_mergeable(sr);
 
-		btn_add_span_->setEnabled(mergeable && !has_span);
+		std::vector<int> absorbed;
+		bool can_absorb = mergeable && has_span && grid_preview_->selection_can_absorb_spans(absorbed);
+
+		btn_add_span_->setEnabled(mergeable && (!has_span || can_absorb));
 		btn_remove_span_->setEnabled(has_span);
 
 		if (sel.size() == 1) {
@@ -552,6 +564,13 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 							 .arg(sr.colSpan)
 							 .arg(sr.row)
 							 .arg(sr.col));
+		} else if (can_absorb) {
+			grid_span_info_->setText(QStringLiteral("%1x%2 at %3,%4 - absorb %5 span(s)")
+							 .arg(sr.rowSpan)
+							 .arg(sr.colSpan)
+							 .arg(sr.row)
+							 .arg(sr.col)
+							 .arg(absorbed.size()));
 		} else if (!mergeable) {
 			grid_span_info_->setText(QStringLiteral("Not a valid rectangle"));
 		} else {
