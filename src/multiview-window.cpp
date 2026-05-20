@@ -438,12 +438,25 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		int cellX = cell.x + vpX;
 		int cellY = cell.y + vpY;
 
-		/* Fill cell area with black background (OBS native backgroundColor) */
-		startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
-		gs_effect_set_color(colorParam, 0xFF000000);
-		while (gs_effect_loop(solid, "Solid"))
-			gs_draw_sprite(nullptr, 0, cell.w, cell.h);
-		endRegion();
+		/* Determine if Below + FillSignalOnly mode (pillarbox stays gutter grey) */
+		bool belowSignalOnly = false;
+		if (i < (int)effective_visuals_.size() &&
+		    effective_visuals_[i].label.displayMode == LabelDisplayMode::Below &&
+		    effective_visuals_[i].background.fillMode == BackgroundFillMode::FillSignalOnly) {
+			belowSignalOnly = true;
+		}
+
+		if (!belowSignalOnly) {
+			/* Fill entire cell with background color (default black) */
+			uint32_t cellBg = 0xFF000000;
+			if (i < (int)effective_visuals_.size() && effective_visuals_[i].background.colorEnabled)
+				cellBg = effective_visuals_[i].background.color;
+			startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
+			gs_effect_set_color(colorParam, cellBg);
+			while (gs_effect_loop(solid, "Solid"))
+				gs_draw_sprite(nullptr, 0, cell.w, cell.h);
+			endRegion();
+		}
 
 		/* Get source for this cell */
 		obs_source_t *src = nullptr;
@@ -547,13 +560,16 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			}
 			hasSignalRect = true;
 
-			/* Draw custom background color if configured (cell already black from initial fill) */
-			if (i < (int)effective_visuals_.size() && effective_visuals_[i].background.colorEnabled) {
-				uint32_t bgColor = effective_visuals_[i].background.color;
-				startRegion(cellX, cellY, cell.w, cell.h, 0.0f, (float)cell.w, 0.0f, (float)cell.h);
+			/* Draw background fill for Below + FillSignalOnly mode:
+			 * Only fill the signal rect area; pillarbox areas stay gutter grey. */
+			if (belowSignalOnly) {
+				uint32_t bgColor = 0xFF000000;
+				if (i < (int)effective_visuals_.size() && effective_visuals_[i].background.colorEnabled)
+					bgColor = effective_visuals_[i].background.color;
+				startRegion(vrX, vrY, vrW, vrH, 0.0f, (float)vrW, 0.0f, (float)vrH);
 				gs_effect_set_color(colorParam, bgColor);
 				while (gs_effect_loop(solid, "Solid"))
-					gs_draw_sprite(nullptr, 0, cell.w, cell.h);
+					gs_draw_sprite(nullptr, 0, vrW, vrH);
 				endRegion();
 			}
 

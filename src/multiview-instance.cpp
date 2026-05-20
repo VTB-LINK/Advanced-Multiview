@@ -117,6 +117,23 @@ static ImageFitMode image_fit_mode_from_str(const char *s)
 	return ImageFitMode::Fit;
 }
 
+static const char *bg_fill_mode_to_str(BackgroundFillMode m)
+{
+	switch (m) {
+	case BackgroundFillMode::FillEntireCell:
+		return "cell";
+	default:
+		return "signal";
+	}
+}
+
+static BackgroundFillMode bg_fill_mode_from_str(const char *s)
+{
+	if (s && strcmp(s, "cell") == 0)
+		return BackgroundFillMode::FillEntireCell;
+	return BackgroundFillMode::FillSignalOnly;
+}
+
 static const char *safe_area_preset_to_str(SafeAreaPreset p)
 {
 	(void)p;
@@ -205,6 +222,7 @@ obs_data_t *BackgroundSettings::to_obs_data() const
 	obs_data_t *data = obs_data_create();
 	obs_data_set_bool(data, "colorEnabled", colorEnabled);
 	obs_data_set_int(data, "color", (long long)color);
+	obs_data_set_string(data, "fillMode", bg_fill_mode_to_str(fillMode));
 	obs_data_set_bool(data, "imageEnabled", imageEnabled);
 	obs_data_set_string(data, "imagePath", imagePath.c_str());
 	obs_data_set_string(data, "imageFitMode", image_fit_mode_to_str(imageFitMode));
@@ -220,6 +238,7 @@ BackgroundSettings BackgroundSettings::from_obs_data(obs_data_t *data)
 	s.color = (uint32_t)obs_data_get_int(data, "color");
 	if (!obs_data_has_user_value(data, "color"))
 		s.color = 0xFF000000;
+	s.fillMode = bg_fill_mode_from_str(obs_data_get_string(data, "fillMode"));
 	s.imageEnabled = obs_data_get_bool(data, "imageEnabled");
 	s.imagePath = obs_data_get_string(data, "imagePath");
 	s.imageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "imageFitMode"));

@@ -46,11 +46,14 @@ enum class OverlayFitMode { Fit, Stretch };
 
 enum class OverlayAnchorMode { Cell, Signal };
 
+enum class BackgroundFillMode { FillSignalOnly, FillEntireCell };
+
 /* ========== Visual Settings Group Structs ========== */
 
 struct BackgroundSettings {
 	bool colorEnabled = false;
 	uint32_t color = 0xFF000000; /* ARGB black */
+	BackgroundFillMode fillMode = BackgroundFillMode::FillSignalOnly;
 	bool imageEnabled = false;
 	std::string imagePath;
 	ImageFitMode imageFitMode = ImageFitMode::Fit;

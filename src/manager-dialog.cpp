@@ -26,7 +26,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QDir>
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -48,57 +47,86 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
-/* Load an icon from the active OBS theme directory.
- * Detects light/dark via palette, then searches for the
- * matching theme folder next to the OBS executable. */
-static QIcon obs_theme_icon(const char *name)
-{
-	/* Determine if we're in a light or dark theme via text luminance */
-	QColor textColor = QApplication::palette().color(QPalette::WindowText);
-	bool isDark = (textColor.lightnessF() > 0.5);
-
-	QString app_dir = QApplication::applicationDirPath();
-	QDir dir(app_dir);
-	dir.cdUp(); /* 64bit -> bin */
-	dir.cdUp(); /* bin -> root */
-
-	/* Preferred theme order based on palette */
-	QStringList themes;
-	if (isDark)
-		themes = {"Dark", "Yami", "Rachni", "Acri", "Light"};
-	else
-		themes = {"Light", "Acri", "Rachni", "Yami", "Dark"};
-
-	for (auto &t : themes) {
-		QString path = dir.absoluteFilePath(
-			QStringLiteral("data/obs-studio/themes/%1/%2.svg").arg(t, QString::fromUtf8(name)));
-		if (QFile::exists(path))
-			return QIcon(path);
-	}
-	return QIcon();
-}
-
-/* Generate a northeast-arrow (↗) icon matching current theme color */
-static QIcon make_open_icon()
+/* Generate a theme-aware icon from an SVG path string.
+ * Uses the current palette's WindowText color so icons always match the theme. */
+static QIcon make_palette_icon(const QString &svgTemplate)
 {
 	QColor c = QApplication::palette().color(QPalette::WindowText);
-	QString color = c.name(); /* e.g. "#fefefe" or "#202020" */
-
-	/* Simple SVG: arrow pointing to top-right with a short line */
-	QString svg = QStringLiteral("<svg xmlns='http://www.w3.org/2000/svg' "
-				     "viewBox='0 0 16 16' width='16' height='16'>"
-				     "<path d='M4 12 L12 4 M12 4 L6 4 M12 4 L12 10' "
-				     "fill='none' stroke='%1' stroke-width='2' "
-				     "stroke-linecap='round' stroke-linejoin='round'/>"
-				     "</svg>")
-			      .arg(color);
-
+	QString svg = svgTemplate.arg(c.name());
 	QPixmap pix(16, 16);
 	pix.fill(Qt::transparent);
 	QSvgRenderer renderer(svg.toUtf8());
 	QPainter painter(&pix);
 	renderer.render(&painter);
 	return QIcon(pix);
+}
+
+/* Built-in SVG templates for toolbar icons (stroke color = %1) */
+static QIcon obs_theme_icon(const char *name)
+{
+	QString n = QString::fromUtf8(name);
+
+	/* Each icon is a simple 16x16 SVG with stroke='%1' placeholder */
+	static const char *hdr = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'>";
+	static const char *tail = "</svg>";
+	QString svg;
+
+	if (n == "plus") {
+		svg = QStringLiteral("%1<path d='M8 3 L8 13 M3 8 L13 8' fill='none' stroke='%2' "
+				     "stroke-width='2' stroke-linecap='round'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	} else if (n == "trash") {
+		svg = QStringLiteral("%1<path d='M4 4 L4 13 L12 13 L12 4 M2 4 L14 4 M6 2 L10 2 "
+				     "M7 6 L7 11 M9 6 L9 11' fill='none' stroke='%2' "
+				     "stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	} else if (n == "popout") {
+		/* Two overlapping rectangles (clone/duplicate) */
+		svg = QStringLiteral("%1<rect x='1' y='4' width='9' height='9' rx='1' fill='none' "
+				     "stroke='%2' stroke-width='1.4'/>"
+				     "<path d='M6 4 L6 2 L14 2 L14 10 L12 10' fill='none' "
+				     "stroke='%2' stroke-width='1.4' stroke-linejoin='round'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	} else if (n == "up") {
+		svg = QStringLiteral("%1<path d='M4 10 L8 5 L12 10' fill='none' stroke='%2' "
+				     "stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	} else if (n == "down") {
+		svg = QStringLiteral("%1<path d='M4 6 L8 11 L12 6' fill='none' stroke='%2' "
+				     "stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	} else {
+		/* Fallback: generic square */
+		svg = QStringLiteral("%1<rect x='3' y='3' width='10' height='10' rx='1' fill='none' "
+				     "stroke='%2' stroke-width='1.4'/>%3")
+			      .arg(hdr)
+			      .arg("%1")
+			      .arg(tail);
+	}
+
+	return make_palette_icon(svg);
+}
+
+/* Generate a northeast-arrow (↗) icon matching current theme color */
+static QIcon make_open_icon()
+{
+	QString svg = QStringLiteral("<svg xmlns='http://www.w3.org/2000/svg' "
+				     "viewBox='0 0 16 16' width='16' height='16'>"
+				     "<path d='M4 12 L12 4 M12 4 L6 4 M12 4 L12 10' "
+				     "fill='none' stroke='%1' stroke-width='2' "
+				     "stroke-linecap='round' stroke-linejoin='round'/>"
+				     "</svg>");
+	return make_palette_icon(svg);
 }
 
 ManagerDialog::ManagerDialog(ConfigManager *config, QWidget *parent) : QDialog(parent), config_(config)
