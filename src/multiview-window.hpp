@@ -28,6 +28,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <vector>
 
 class MultiviewWindow : public QWidget {
@@ -120,6 +121,16 @@ private:
 
 	/* Cached effective visual settings per cell (same indexing as cell_sources_) */
 	std::vector<EffectiveCellVisualSettings> effective_visuals_;
+
+	/* Label text sources (one per cell, may be null if label disabled) */
+	struct LabelSource {
+		OBSSource source; /* text_ft2_source_v2 private source */
+		std::string text; /* current text for change detection */
+		uint32_t color = 0xFFFFFFFF;
+	};
+	std::vector<LabelSource> label_sources_;
+	void rebuild_label_sources();
+	void render_label(int cellIndex, const CellRect &cell, int vpX, int vpY);
 };
 
 /* Global functions (defined in plugin-main) */

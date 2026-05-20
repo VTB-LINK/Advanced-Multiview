@@ -60,7 +60,7 @@ struct BackgroundSettings {
 };
 
 struct LabelSettings {
-	LabelDisplayMode displayMode = LabelDisplayMode::None;
+	LabelDisplayMode displayMode = LabelDisplayMode::Overlay;
 	LabelPosition position = LabelPosition::Bottom;
 	std::string fontFamily; /* empty = system default */
 	int fontSize = 14;

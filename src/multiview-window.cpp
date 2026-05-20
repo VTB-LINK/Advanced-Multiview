@@ -214,6 +214,7 @@ void MultiviewWindow::refresh_sources()
 {
 	release_source_refs();
 	update_source_refs();
+	rebuild_label_sources();
 }
 
 void MultiviewWindow::refresh_visual_settings()
@@ -244,6 +245,8 @@ void MultiviewWindow::refresh_visual_settings()
 		const CellVisualSettings *cellVS = inst->find_cell_visual(r, c);
 		effective_visuals_[i] = resolve_effective_visual_settings(globalVS, instVS, cellVS);
 	}
+
+	rebuild_label_sources();
 }
 
 void MultiviewWindow::update_source_refs()
@@ -316,6 +319,9 @@ void MultiviewWindow::release_source_refs()
 		cs.weak_ref = nullptr;
 	}
 	cell_sources_.clear();
+
+	/* Release label text sources */
+	label_sources_.clear();
 }
 
 /* ---- Rendering ---- */
@@ -490,7 +496,200 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				gs_draw_sprite(nullptr, 0, cell.w, cell.h);
 			endRegion();
 		}
+
+		/* Render label overlay */
+		render_label(i, cell, vpX, vpY);
 	}
+}
+
+/* ---- Label rendering ---- */
+
+void MultiviewWindow::rebuild_label_sources()
+{
+	/* Must be called from graphics or with OBS context.
+	 * We create private text sources for each cell that needs a label. */
+	LayoutEngine tmpEngine;
+	tmpEngine.set_layout(layout_);
+	tmpEngine.set_viewport(cached_vpW_ > 0 ? cached_vpW_ : 800, cached_vpH_ > 0 ? cached_vpH_ : 600);
+	tmpEngine.compute();
+
+	const auto &cells = tmpEngine.cells();
+	size_t cellCount = cells.size();
+
+	/* Resize label_sources_ to match cell count */
+	label_sources_.resize(cellCount);
+
+	for (size_t i = 0; i < cellCount; i++) {
+		/* Determine label text from cell assignment */
+		std::string labelText;
+		if (i < cell_sources_.size()) {
+			const auto &cs = cell_sources_[i];
+			if (cs.type == "pgm")
+				labelText = "PGM";
+			else if (cs.type == "prvw")
+				labelText = "PRVW";
+			else if (!cs.name.empty())
+				labelText = cs.name;
+		}
+
+		/* Determine effective label settings */
+		const LabelSettings *ls = nullptr;
+		if (i < effective_visuals_.size())
+			ls = &effective_visuals_[i].label;
+
+		/* If label is disabled or no text, release source */
+		if (labelText.empty() || !ls || ls->displayMode == LabelDisplayMode::None) {
+			label_sources_[i].source = nullptr;
+			label_sources_[i].text.clear();
+			continue;
+		}
+
+		/* Create source if needed */
+		if (!label_sources_[i].source) {
+			std::string srcName = "adv_mv_label_" + uuid_ + "_" + std::to_string(i);
+
+			/* Font settings are nested in a "font" object for text_ft2_source_v2 */
+			obs_data_t *fontObj = obs_data_create();
+			obs_data_set_int(fontObj, "size", ls->fontSize);
+			obs_data_set_string(fontObj, "face", ls->fontFamily.empty() ? "Arial" : ls->fontFamily.c_str());
+			obs_data_set_int(fontObj, "flags", 0);
+
+			obs_data_t *settings = obs_data_create();
+			obs_data_set_string(settings, "text", labelText.c_str());
+			obs_data_set_obj(settings, "font", fontObj);
+			obs_data_set_int(settings, "color1", ls->textColor);
+			obs_data_set_int(settings, "color2", ls->textColor);
+			obs_data_set_bool(settings, "outline", false);
+			obs_data_set_bool(settings, "drop_shadow", true);
+
+			obs_source_t *src = obs_source_create_private("text_ft2_source_v2", srcName.c_str(), settings);
+			obs_data_release(settings);
+			obs_data_release(fontObj);
+
+			if (!src) {
+				/* Fallback: try text_ft2_source */
+				fontObj = obs_data_create();
+				obs_data_set_int(fontObj, "size", ls->fontSize);
+				obs_data_set_string(fontObj, "face",
+						    ls->fontFamily.empty() ? "Arial" : ls->fontFamily.c_str());
+				obs_data_set_int(fontObj, "flags", 0);
+
+				settings = obs_data_create();
+				obs_data_set_string(settings, "text", labelText.c_str());
+				obs_data_set_obj(settings, "font", fontObj);
+				obs_data_set_int(settings, "color1", ls->textColor);
+				obs_data_set_int(settings, "color2", ls->textColor);
+				src = obs_source_create_private("text_ft2_source", srcName.c_str(), settings);
+				obs_data_release(settings);
+				obs_data_release(fontObj);
+			}
+
+			label_sources_[i].source = src;
+			label_sources_[i].text = labelText;
+			label_sources_[i].color = ls->textColor;
+			obs_source_release(src);
+		} else if (label_sources_[i].text != labelText || label_sources_[i].color != ls->textColor) {
+			/* Update existing source text/color */
+			obs_data_t *fontObj = obs_data_create();
+			obs_data_set_int(fontObj, "size", ls->fontSize);
+			obs_data_set_string(fontObj, "face", ls->fontFamily.empty() ? "Arial" : ls->fontFamily.c_str());
+			obs_data_set_int(fontObj, "flags", 0);
+
+			obs_data_t *settings = obs_source_get_settings(label_sources_[i].source);
+			obs_data_set_string(settings, "text", labelText.c_str());
+			obs_data_set_obj(settings, "font", fontObj);
+			obs_data_set_int(settings, "color1", ls->textColor);
+			obs_data_set_int(settings, "color2", ls->textColor);
+			obs_source_update(label_sources_[i].source, settings);
+			obs_data_release(settings);
+			obs_data_release(fontObj);
+			label_sources_[i].text = labelText;
+			label_sources_[i].color = ls->textColor;
+		}
+	}
+}
+
+void MultiviewWindow::render_label(int cellIndex, const CellRect &cell, int vpX, int vpY)
+{
+	if (cellIndex < 0 || cellIndex >= (int)effective_visuals_.size())
+		return;
+
+	const LabelSettings &ls = effective_visuals_[cellIndex].label;
+	if (ls.displayMode == LabelDisplayMode::None)
+		return;
+
+	if (cellIndex >= (int)label_sources_.size() || !label_sources_[cellIndex].source)
+		return;
+
+	obs_source_t *labelSrc = label_sources_[cellIndex].source;
+	uint32_t labelW = obs_source_get_width(labelSrc);
+	uint32_t labelH = obs_source_get_height(labelSrc);
+	if (labelW == 0 || labelH == 0)
+		return;
+
+	int cellX = cell.x + vpX;
+	int cellY = cell.y + vpY;
+	int margin = ls.margin;
+
+	/* Calculate label position */
+	int labelX, labelY;
+	int drawW = (int)labelW;
+	int drawH = (int)labelH;
+
+	/* Clamp label width to cell width - 2*margin */
+	int maxW = cell.w - 2 * margin;
+	if (maxW < 1)
+		return;
+	if (drawW > maxW) {
+		float scale = (float)maxW / (float)drawW;
+		drawW = maxW;
+		drawH = (int)((float)drawH * scale);
+	}
+
+	/* Clamp label height to 1/4 of cell height */
+	int maxH = cell.h / 4;
+	if (maxH < 8)
+		maxH = 8;
+	if (drawH > maxH) {
+		float scale = (float)maxH / (float)drawH;
+		drawH = maxH;
+		drawW = (int)((float)drawW * scale);
+	}
+
+	/* Horizontal centering */
+	labelX = cellX + (cell.w - drawW) / 2;
+
+	if (ls.position == LabelPosition::Top) {
+		labelY = cellY + margin;
+	} else {
+		/* Bottom */
+		labelY = cellY + cell.h - drawH - margin;
+	}
+
+	/* Draw semi-transparent background behind label */
+	if (ls.backgroundOpacity > 0.01) {
+		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
+		gs_eparam_t *colorParam = gs_effect_get_param_by_name(solid, "color");
+
+		int bgX = labelX - margin;
+		int bgY = labelY - margin / 2;
+		int bgW = drawW + 2 * margin;
+		int bgH = drawH + margin;
+
+		uint8_t alpha = (uint8_t)(ls.backgroundOpacity * 255.0);
+		uint32_t bgColor = ((uint32_t)alpha << 24) | 0x000000;
+
+		startRegion(bgX, bgY, bgW, bgH, 0.0f, (float)bgW, 0.0f, (float)bgH);
+		gs_effect_set_color(colorParam, bgColor);
+		while (gs_effect_loop(solid, "Solid"))
+			gs_draw_sprite(nullptr, 0, bgW, bgH);
+		endRegion();
+	}
+
+	/* Render text source */
+	startRegion(labelX, labelY, drawW, drawH, 0.0f, (float)labelW, 0.0f, (float)labelH);
+	obs_source_video_render(labelSrc);
+	endRegion();
 }
 
 /* ---- Events ---- */
