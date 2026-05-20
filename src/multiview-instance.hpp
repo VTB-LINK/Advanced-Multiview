@@ -54,6 +54,7 @@ struct BackgroundSettings {
 	bool colorEnabled = false;
 	uint32_t color = 0xFF000000; /* ARGB black */
 	BackgroundFillMode fillMode = BackgroundFillMode::FillSignalOnly;
+	bool labelRegionFill = false; /* Below mode: fill label row with bgColor */
 	bool imageEnabled = false;
 	std::string imagePath;
 	ImageFitMode imageFitMode = ImageFitMode::Fit;

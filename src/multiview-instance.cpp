@@ -223,6 +223,7 @@ obs_data_t *BackgroundSettings::to_obs_data() const
 	obs_data_set_bool(data, "colorEnabled", colorEnabled);
 	obs_data_set_int(data, "color", (long long)color);
 	obs_data_set_string(data, "fillMode", bg_fill_mode_to_str(fillMode));
+	obs_data_set_bool(data, "labelRegionFill", labelRegionFill);
 	obs_data_set_bool(data, "imageEnabled", imageEnabled);
 	obs_data_set_string(data, "imagePath", imagePath.c_str());
 	obs_data_set_string(data, "imageFitMode", image_fit_mode_to_str(imageFitMode));
@@ -239,6 +240,7 @@ BackgroundSettings BackgroundSettings::from_obs_data(obs_data_t *data)
 	if (!obs_data_has_user_value(data, "color"))
 		s.color = 0xFF000000;
 	s.fillMode = bg_fill_mode_from_str(obs_data_get_string(data, "fillMode"));
+	s.labelRegionFill = obs_data_get_bool(data, "labelRegionFill");
 	s.imageEnabled = obs_data_get_bool(data, "imageEnabled");
 	s.imagePath = obs_data_get_string(data, "imagePath");
 	s.imageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "imageFitMode"));

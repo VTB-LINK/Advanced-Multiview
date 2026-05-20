@@ -735,6 +735,27 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			}
 		}
 
+		/* Fill label region background (Below mode only, when labelRegionFill enabled) */
+		if (i < (int)effective_visuals_.size() &&
+		    effective_visuals_[i].label.displayMode == LabelDisplayMode::Below &&
+		    effective_visuals_[i].background.labelRegionFill && effective_visuals_[i].background.colorEnabled) {
+			int labelRegionH = cell.h / 6;
+			if (labelRegionH < 16)
+				labelRegionH = 16;
+			int gutterH = gutter_px_;
+			int labelY = cellY + cell.h - labelRegionH;
+			/* The gutter strip is between content and label - leave it as-is.
+			 * Fill only the label row itself with the cell's bgColor. */
+			uint32_t bgColor = effective_visuals_[i].background.color;
+			startRegion(cellX, labelY, cell.w, labelRegionH, 0.0f, (float)cell.w, 0.0f,
+				    (float)labelRegionH);
+			gs_effect_set_color(colorParam, bgColor);
+			while (gs_effect_loop(solid, "Solid"))
+				gs_draw_sprite(nullptr, 0, cell.w, labelRegionH);
+			endRegion();
+			(void)gutterH;
+		}
+
 		/* Render label overlay */
 		render_label(i, cell, vpX, vpY);
 	}
