@@ -1080,6 +1080,22 @@ Phase 2 建议拆分为以下 7 个 milestone。
 - 动态生效；
 - 重启恢复。
 
+**实现建议（基于 OBS 原生 multiview 分析）**：
+
+OBS 原生使用 `InitSafeAreas()` + `RenderSafeAreas()` 的 vertex buffer 方案：
+
+- 预计算安全区矩形坐标（Action Safe 90%、Title Safe 80%），写入 `gs_vertbuffer_t`；
+- 渲染时只需 `gs_load_vertexbuffer` + `gs_draw(GS_LINESTRIP, 0, 0)`，开销极低；
+- 关键参考：`obs-studio/UI/multiview.cpp` 中 `InitSafeAreas()`（根据 actionSize/titleSize 计算 inner rect）和 `RenderSafeAreas()`（设 thick_color/thin_color 后 draw linestrip）。
+
+推荐实现路径：
+
+1. 在 `MultiviewWindow` 中添加 `gs_vertbuffer_t *safe_area_vb_` 成员；
+2. 布局变更时重建 vertex buffer（与 cell 尺寸同步）；
+3. `render()` 中 source 绘制后、label 绘制前调用安全区渲染；
+4. 使用 `gs_render_start(true)` / `gs_render_save()` 创建 linestrip geometry；
+5. 支持 EBU R95 (Action 93%, Title 90%) 和 SMPTE RP 218（Action 90%, Title 80%）。
+
 ### Milestone 2.5：VU Meter v1
 
 目标：
@@ -1125,6 +1141,30 @@ Phase 2 建议拆分为以下 7 个 milestone。
 - 动态生效；
 - auto-save；
 - 不阻塞 OBS。
+
+**实现建议（基于 OBS 原生 multiview 分析）**：
+
+1. **使用 OBS 主题变量而非硬编码颜色**：
+   - OBS 内部通过 `obs_frontend_get_current_theme()` 和 palette 获取主题色；
+   - 插件 UI 中的辅助文字/标签已改用 `QPalette::PlaceholderText`（commit 11151f1）；
+   - 后续 Visual Settings UI 中的颜色选择器默认值应从当前主题反映；
+   - 参考 OBS `window-basic-main.cpp` 中 `QApplication::palette()` 的用法。
+
+2. **dirty-flag + HookWidget 模式**：
+   - OBS 的 Settings Dialog 使用 `HookWidget()` 宏自动监听控件变更，设置 dirty flag；
+   - 当 dirty=true 时才触发 save / apply，避免每次控件值变化都写磁盘；
+   - 推荐在 Visual Settings 页面中采用类似模式：
+     ```cpp
+     bool visual_settings_dirty_ = false;
+     // 每个控件 connect → visual_settings_dirty_ = true;
+     // Apply 按钮或 focusOut/tab切换 时才 flush
+     ```
+   - 这对 per-cell 设置尤为重要：10x10 grid 有 100 个 cell，不能每次 spinbox 值变化都 save+rebuild。
+
+3. **继承关系 UI 表达**：
+   - 对 "inherit" 状态的控件，建议视觉上降低对比度（类似 disabled 但可点击）；
+   - 点击 "inherit" 控件时切换为 "override" 模式并恢复完全对比度；
+   - 参考 OBS Filter 面板的 "inherit from parent" checkbox 表达方式。
 
 ### Milestone 2.7：Phase 2 回归与性能验收
 
