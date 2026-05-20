@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "multiview-window.hpp"
+#include "cell-display-settings-dialog.hpp"
 #include "source-picker.hpp"
 
 #include <obs-module.h>
@@ -1118,7 +1119,7 @@ void MultiviewWindow::rebuild_bg_images()
 		gs_image_file_init(&li.imgFile, op.newPath.c_str());
 		li.loaded = li.imgFile.loaded;
 		if (!li.loaded)
-			blog(LOG_WARNING, "[adv-multiview] Failed to load background image: %s", op.newPath.c_str());
+			obs_log(LOG_WARNING, "failed to load background image: %s", op.newPath.c_str());
 		loaded.push_back(std::move(li));
 	}
 
@@ -1233,7 +1234,7 @@ void MultiviewWindow::rebuild_overlay_images()
 		gs_image_file_init(&li.imgFile, op.newPath.c_str());
 		li.loaded = li.imgFile.loaded;
 		if (!li.loaded)
-			blog(LOG_WARNING, "[adv-multiview] Failed to load overlay image: %s", op.newPath.c_str());
+			obs_log(LOG_WARNING, "failed to load overlay image: %s", op.newPath.c_str());
 		loaded.push_back(std::move(li));
 	}
 
@@ -1532,7 +1533,7 @@ void MultiviewWindow::rebuild_volmeters()
 			obs_volmeter_attach_source(svPtr->volmeter, audioSrc);
 			svPtr->channels = obs_volmeter_get_nr_channels(svPtr->volmeter);
 
-			blog(LOG_INFO, "[AMV] VU meter cell %d: attached '%s'", (int)i, svPtr->name.c_str());
+			obs_log(LOG_INFO, "VU meter cell %d: attached '%s'", (int)i, svPtr->name.c_str());
 			obs_source_release(audioSrc);
 		}
 
@@ -1587,8 +1588,20 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 	}
 
 	/* Apply ballistics: immediate attack, gradual decay
-	 * Decay rate: ~40 dB / 1.7 sec ≈ 23.5 dB/sec (OBS Fast profile) */
-	const float decayRate = 23.5f; /* dB per second */
+	 * Decay rates (matching OBS): Fast=23.5, Medium=11.76, Slow=8.57 dB/s */
+	float decayRate;
+	switch (vmSettings.decayRate) {
+	case VuMeterDecayRate::Medium:
+		decayRate = 11.76f;
+		break;
+	case VuMeterDecayRate::Slow:
+		decayRate = 8.57f;
+		break;
+	default:
+		decayRate = 23.5f;
+		break;
+	}
+
 	uint64_t now = os_gettime_ns();
 	if (cellVm->last_render_ns > 0) {
 		double deltaS = (double)(now - cellVm->last_render_ns) * 1e-9;
@@ -1622,16 +1635,28 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 	if (level <= 0.0f)
 		return;
 
-	/* Determine bar geometry based on position */
+	/* Determine bar geometry based on position and anchor mode */
 	int barW = vmSettings.width;
 	int cellX = vpX + cell.x;
 	int cellY = vpY + cell.y;
+	int cellW = cell.w;
+	int cellH = cell.h;
 
-	/* Color zones normalized thresholds:
-	 * -20dB => (-20 - (-60)) / 60 = 40/60 ≈ 0.667
-	 * -9dB  => (-9 - (-60)) / 60 = 51/60 = 0.85 */
-	const float warningNorm = 40.0f / 60.0f;
-	const float errorNorm = 51.0f / 60.0f;
+	/* Anchor mode: Cell = use cell rect, Signal = use video rect (same as cell for now) */
+	/* Note: SignalRect support can be expanded in future when video-rect tracking is refined */
+
+	/* Color zones using custom dB thresholds:
+	 * warningDB and errorDB normalized to 0..1 range on the -60..0 dB scale */
+	float warningNorm = (float)(vmSettings.warningDB - minDB) / (maxDB - minDB);
+	float errorNorm = (float)(vmSettings.errorDB - minDB) / (maxDB - minDB);
+	if (warningNorm < 0.0f)
+		warningNorm = 0.0f;
+	if (warningNorm > 1.0f)
+		warningNorm = 1.0f;
+	if (errorNorm < warningNorm)
+		errorNorm = warningNorm;
+	if (errorNorm > 1.0f)
+		errorNorm = 1.0f;
 
 	/* Colors in ARGB format */
 	uint32_t alpha = (uint32_t)(vmSettings.opacity * 255.0 + 0.5);
@@ -1660,23 +1685,27 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		{errorNorm, 1.0f, redColor},
 	};
 
-	bool isHorizontal = (vmSettings.position == VuMeterPosition::Bottom);
+	bool isHorizontal =
+		(vmSettings.position == VuMeterPosition::Bottom || vmSettings.position == VuMeterPosition::Top);
 
+	/* Apply length ratio */
 	int barFullLen;
 	int barX, barY;
-	if (vmSettings.position == VuMeterPosition::Left) {
-		barX = cellX;
-		barY = cellY;
-		barFullLen = cell.h;
-	} else if (isHorizontal) {
-		barX = cellX;
-		barY = cellY + cell.h - barW;
-		barFullLen = cell.w;
+	if (isHorizontal) {
+		barFullLen = (int)(cellW * vmSettings.lengthRatio + 0.5);
+		int offset = (cellW - barFullLen) / 2; /* center the bar */
+		barX = cellX + offset;
+		barY = (vmSettings.position == VuMeterPosition::Top) ? cellY : cellY + cellH - barW;
 	} else {
-		/* Right (default) */
-		barX = cellX + cell.w - barW;
-		barY = cellY;
-		barFullLen = cell.h;
+		barFullLen = (int)(cellH * vmSettings.lengthRatio + 0.5);
+		int offset = (cellH - barFullLen) / 2;
+		barY = cellY + offset;
+		barX = (vmSettings.position == VuMeterPosition::Left) ? cellX : cellX + cellW - barW;
+	}
+
+	if (barFullLen <= 0) {
+		gs_blend_state_pop();
+		return;
 	}
 
 	for (int s = 0; s < 3; s++) {
@@ -1697,14 +1726,27 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		gs_effect_set_color(colorParam, segments[s].color);
 
 		if (isHorizontal) {
-			/* Horizontal: draw from left to right */
-			startRegion(barX + pixStart, barY, pixLen, barW, 0.0f, (float)pixLen, 0.0f, (float)barW);
+			int drawX;
+			if (vmSettings.flip) {
+				/* Flip: 0dB on left, -∞ on right */
+				drawX = barX + barFullLen - pixEnd;
+			} else {
+				/* Normal: -∞ on left, 0dB on right */
+				drawX = barX + pixStart;
+			}
+			startRegion(drawX, barY, pixLen, barW, 0.0f, (float)pixLen, 0.0f, (float)barW);
 			while (gs_effect_loop(solid, "Solid"))
 				gs_draw_sprite(nullptr, 0, pixLen, barW);
 			endRegion();
 		} else {
-			/* Vertical: draw from bottom up */
-			int drawY = barY + barFullLen - pixEnd;
+			int drawY;
+			if (vmSettings.flip) {
+				/* Flip: 0dB on top, -∞ on bottom */
+				drawY = barY + pixStart;
+			} else {
+				/* Normal: -∞ on top (bottom-up), 0dB at bottom */
+				drawY = barY + barFullLen - pixEnd;
+			}
 			startRegion(barX, drawY, barW, pixLen, 0.0f, (float)barW, 0.0f, (float)pixLen);
 			while (gs_effect_loop(solid, "Solid"))
 				gs_draw_sprite(nullptr, 0, barW, pixLen);
@@ -1861,6 +1903,66 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 				refresh_visual_settings();
 			});
 		}
+	}
+
+	/* Cell Display Settings (per-cell) */
+	if (cellIndex >= 0) {
+		QAction *cellSettingsAction = menu.addAction(QStringLiteral("Cell Display Settings..."));
+		connect(cellSettingsAction, &QAction::triggered, this, [this, cellIndex]() {
+			MultiviewInstance *inst = config_->find_instance(uuid_);
+			if (!inst)
+				return;
+
+			/* Find cell (row, col) from engine */
+			LayoutEngine tmpEngine;
+			tmpEngine.set_layout(inst->layout);
+			tmpEngine.set_viewport(100, 100);
+			tmpEngine.compute();
+			const auto &cells = tmpEngine.cells();
+			if (cellIndex >= (int)cells.size())
+				return;
+			int row = cells[cellIndex].gridRow;
+			int col = cells[cellIndex].gridCol;
+
+			/* Find or create CellVisualSettings for this cell */
+			CellVisualSettings *cvs = nullptr;
+			for (auto &c : inst->cellVisualSettings) {
+				if (c.row == row && c.col == col) {
+					cvs = &c;
+					break;
+				}
+			}
+			CellVisualSettings temp;
+			if (!cvs) {
+				temp.row = row;
+				temp.col = col;
+				cvs = &temp;
+			}
+
+			CellDisplaySettingsDialog dlg(CellDisplaySettingsDialog::Mode::Cell, this);
+			dlg.set_cell_position(row, col);
+			dlg.set_cell_settings(*cvs);
+			if (dlg.exec() == QDialog::Accepted) {
+				CellVisualSettings result = dlg.get_cell_settings();
+				result.row = row;
+				result.col = col;
+
+				/* Update or insert */
+				bool found = false;
+				for (auto &c : inst->cellVisualSettings) {
+					if (c.row == row && c.col == col) {
+						c = result;
+						found = true;
+						break;
+					}
+				}
+				if (!found)
+					inst->cellVisualSettings.push_back(result);
+
+				config_->save();
+				refresh_visual_settings();
+			}
+		});
 	}
 
 	menu.addSeparator();

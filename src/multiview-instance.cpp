@@ -153,6 +153,8 @@ static const char *vu_meter_position_to_str(VuMeterPosition p)
 		return "left";
 	case VuMeterPosition::Bottom:
 		return "bottom";
+	case VuMeterPosition::Top:
+		return "top";
 	default:
 		return "right";
 	}
@@ -166,7 +168,51 @@ static VuMeterPosition vu_meter_position_from_str(const char *s)
 		return VuMeterPosition::Left;
 	if (strcmp(s, "bottom") == 0)
 		return VuMeterPosition::Bottom;
+	if (strcmp(s, "top") == 0)
+		return VuMeterPosition::Top;
 	return VuMeterPosition::Right;
+}
+
+static const char *vu_meter_anchor_to_str(VuMeterAnchorMode a)
+{
+	switch (a) {
+	case VuMeterAnchorMode::Signal:
+		return "signal";
+	default:
+		return "cell";
+	}
+}
+
+static VuMeterAnchorMode vu_meter_anchor_from_str(const char *s)
+{
+	if (!s)
+		return VuMeterAnchorMode::Cell;
+	if (strcmp(s, "signal") == 0)
+		return VuMeterAnchorMode::Signal;
+	return VuMeterAnchorMode::Cell;
+}
+
+static const char *vu_meter_decay_to_str(VuMeterDecayRate r)
+{
+	switch (r) {
+	case VuMeterDecayRate::Medium:
+		return "medium";
+	case VuMeterDecayRate::Slow:
+		return "slow";
+	default:
+		return "fast";
+	}
+}
+
+static VuMeterDecayRate vu_meter_decay_from_str(const char *s)
+{
+	if (!s)
+		return VuMeterDecayRate::Fast;
+	if (strcmp(s, "medium") == 0)
+		return VuMeterDecayRate::Medium;
+	if (strcmp(s, "slow") == 0)
+		return VuMeterDecayRate::Slow;
+	return VuMeterDecayRate::Fast;
 }
 
 static const char *vu_meter_style_to_str(VuMeterStyle st)
@@ -343,6 +389,12 @@ obs_data_t *VuMeterSettings::to_obs_data() const
 	obs_data_set_double(data, "opacity", opacity);
 	obs_data_set_int(data, "width", width);
 	obs_data_set_string(data, "style", vu_meter_style_to_str(style));
+	obs_data_set_string(data, "anchor", vu_meter_anchor_to_str(anchor));
+	obs_data_set_bool(data, "flip", flip);
+	obs_data_set_double(data, "lengthRatio", lengthRatio);
+	obs_data_set_double(data, "warningDB", warningDB);
+	obs_data_set_double(data, "errorDB", errorDB);
+	obs_data_set_string(data, "decayRate", vu_meter_decay_to_str(decayRate));
 	return data;
 }
 
@@ -366,6 +418,22 @@ VuMeterSettings VuMeterSettings::from_obs_data(obs_data_t *data)
 	if (s.width > 64)
 		s.width = 64;
 	s.style = vu_meter_style_from_str(obs_data_get_string(data, "style"));
+	s.anchor = vu_meter_anchor_from_str(obs_data_get_string(data, "anchor"));
+	s.flip = obs_data_get_bool(data, "flip");
+	s.lengthRatio = obs_data_get_double(data, "lengthRatio");
+	if (!obs_data_has_user_value(data, "lengthRatio"))
+		s.lengthRatio = 1.0;
+	if (s.lengthRatio < 0.0)
+		s.lengthRatio = 0.0;
+	if (s.lengthRatio > 1.0)
+		s.lengthRatio = 1.0;
+	s.warningDB = obs_data_get_double(data, "warningDB");
+	if (!obs_data_has_user_value(data, "warningDB"))
+		s.warningDB = -20.0;
+	s.errorDB = obs_data_get_double(data, "errorDB");
+	if (!obs_data_has_user_value(data, "errorDB"))
+		s.errorDB = -9.0;
+	s.decayRate = vu_meter_decay_from_str(obs_data_get_string(data, "decayRate"));
 	return s;
 }
 
