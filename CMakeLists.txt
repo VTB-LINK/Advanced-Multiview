@@ -47,6 +47,8 @@ target_sources(
           src/grid-preview-widget.cpp
           src/manager-dialog.hpp
           src/manager-dialog.cpp
+          src/cell-display-settings-dialog.hpp
+          src/cell-display-settings-dialog.cpp
           src/multiview-window.hpp
           src/multiview-window.cpp
           src/source-picker.hpp

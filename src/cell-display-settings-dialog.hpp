@@ -1,0 +1,136 @@
+/*
+OBS Advanced Multiview
+Copyright (C) 2025 VTB-LINK
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program. If not, see <https://www.gnu.org/licenses/>
+*/
+
+#pragma once
+
+#include "multiview-instance.hpp"
+
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialog>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QSpinBox>
+
+class QLabel;
+class QGroupBox;
+class QVBoxLayout;
+
+class CellDisplaySettingsDialog : public QDialog {
+	Q_OBJECT
+
+public:
+	/* mode: "global" = no inheritance UI, "instance" = inherits global,
+	 * "cell" = inherits instance */
+	enum class Mode { Global, Instance, Cell };
+
+	CellDisplaySettingsDialog(Mode mode, QWidget *parent = nullptr);
+
+	/* Set/get visual settings - use the appropriate pair based on mode */
+	void set_global_settings(const GlobalVisualSettings &gs);
+	GlobalVisualSettings get_global_settings() const;
+
+	void set_instance_settings(const InstanceVisualSettings &is);
+	InstanceVisualSettings get_instance_settings() const;
+
+	void set_cell_settings(const CellVisualSettings &cs);
+	CellVisualSettings get_cell_settings() const;
+
+	/* Cell row/col, for display purposes */
+	void set_cell_position(int row, int col);
+
+signals:
+	void settings_changed();
+
+private:
+	void setup_ui();
+	QGroupBox *create_background_group();
+	QGroupBox *create_label_group();
+	QGroupBox *create_safe_area_group();
+	QGroupBox *create_vu_meter_group();
+	QGroupBox *create_overlay_group();
+	void update_inheritance_visibility();
+
+	Mode mode_;
+	int cell_row_ = -1;
+	int cell_col_ = -1;
+	bool dirty_ = false;
+
+	/* Inheritance combos (only for Instance/Cell mode) */
+	QComboBox *cmb_bg_inherit_ = nullptr;
+	QComboBox *cmb_label_inherit_ = nullptr;
+	QComboBox *cmb_safe_area_inherit_ = nullptr;
+	QComboBox *cmb_vu_meter_inherit_ = nullptr;
+	QComboBox *cmb_overlay_inherit_ = nullptr;
+
+	/* Background group */
+	QGroupBox *grp_background_ = nullptr;
+	QCheckBox *chk_bg_color_enabled_ = nullptr;
+	QLineEdit *edit_bg_color_ = nullptr;
+	QComboBox *cmb_bg_fill_mode_ = nullptr;
+	QCheckBox *chk_bg_label_fill_ = nullptr;
+	QCheckBox *chk_bg_image_enabled_ = nullptr;
+	QLineEdit *edit_bg_image_path_ = nullptr;
+	QComboBox *cmb_bg_image_fit_ = nullptr;
+
+	/* Label group */
+	QGroupBox *grp_label_ = nullptr;
+	QComboBox *cmb_label_display_ = nullptr;
+	QComboBox *cmb_label_position_ = nullptr;
+	QSpinBox *spin_label_font_size_ = nullptr;
+	QComboBox *cmb_label_scale_mode_ = nullptr;
+	QSpinBox *spin_label_min_font_ = nullptr;
+	QSpinBox *spin_label_max_font_ = nullptr;
+	QLineEdit *edit_label_text_color_ = nullptr;
+	QDoubleSpinBox *spin_label_bg_opacity_ = nullptr;
+	QSpinBox *spin_label_margin_ = nullptr;
+
+	/* Safe Area group */
+	QGroupBox *grp_safe_area_ = nullptr;
+	QCheckBox *chk_safe_area_enabled_ = nullptr;
+	QLineEdit *edit_safe_area_color_ = nullptr;
+	QDoubleSpinBox *spin_safe_area_opacity_ = nullptr;
+
+	/* VU Meter group */
+	QGroupBox *grp_vu_meter_ = nullptr;
+	QCheckBox *chk_vu_enabled_ = nullptr;
+	QComboBox *cmb_vu_position_ = nullptr;
+	QComboBox *cmb_vu_anchor_ = nullptr;
+	QSpinBox *spin_vu_width_ = nullptr;
+	QDoubleSpinBox *spin_vu_opacity_ = nullptr;
+	QDoubleSpinBox *spin_vu_length_ratio_ = nullptr;
+	QComboBox *cmb_vu_alignment_ = nullptr;
+	QDoubleSpinBox *spin_vu_warning_db_ = nullptr;
+	QDoubleSpinBox *spin_vu_error_db_ = nullptr;
+	QComboBox *cmb_vu_decay_ = nullptr;
+	QCheckBox *chk_vu_flip_ = nullptr;
+
+	/* Overlay group */
+	QGroupBox *grp_overlay_ = nullptr;
+	QCheckBox *chk_overlay_enabled_ = nullptr;
+	QLineEdit *edit_overlay_path_ = nullptr;
+	QDoubleSpinBox *spin_overlay_opacity_ = nullptr;
+	QComboBox *cmb_overlay_fit_ = nullptr;
+	QComboBox *cmb_overlay_anchor_ = nullptr;
+
+	/* Copy/Paste/Reset */
+	static QByteArray s_clipboard_; /* shared clipboard for copy/paste */
+	void on_copy();
+	void on_paste();
+	void on_reset();
+};

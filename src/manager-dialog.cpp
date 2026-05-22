@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "manager-dialog.hpp"
+#include "cell-display-settings-dialog.hpp"
 #include "grid-preview-widget.hpp"
 #include "multiview-window.hpp"
 
@@ -417,6 +418,22 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	gutter_row->addWidget(detail_gutter_effective_);
 	p_layout->addLayout(gutter_row);
 
+	/* --- Instance Visual Settings button --- */
+	auto *btn_instance_visual = new QPushButton(QStringLiteral("Instance Visual Settings..."), page_instance_);
+	p_layout->addWidget(btn_instance_visual);
+	connect(btn_instance_visual, &QPushButton::clicked, this, [this]() {
+		MultiviewInstance *inst = config_->find_instance(current_detail_uuid_);
+		if (!inst)
+			return;
+		CellDisplaySettingsDialog dlg(CellDisplaySettingsDialog::Mode::Instance, this);
+		dlg.set_instance_settings(inst->visualSettings);
+		if (dlg.exec() == QDialog::Accepted) {
+			inst->visualSettings = dlg.get_instance_settings();
+			config_->save();
+			notify_multiview_visual_settings_changed(current_detail_uuid_);
+		}
+	});
+
 	/* --- Separator --- */
 	auto *sep2 = new QFrame(page_instance_);
 	sep2->setFrameShape(QFrame::HLine);
@@ -684,6 +701,27 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	chk_safe_area_enabled_ = new QCheckBox(QStringLiteral("Show safe area guides"), tab);
 	chk_safe_area_enabled_->setChecked(config_->global_settings().visualSettings.safeArea.enabled);
 	layout->addWidget(chk_safe_area_enabled_);
+
+	/* Visual Settings button */
+	layout->addSpacing(12);
+	auto *vs_label = new QLabel(QStringLiteral("Visual Settings (Global Defaults)"), tab);
+	vs_label->setStyleSheet(QStringLiteral("font-weight: bold;"));
+	layout->addWidget(vs_label);
+
+	auto *btn_global_visual = new QPushButton(QStringLiteral("Edit Global Visual Settings..."), tab);
+	layout->addWidget(btn_global_visual);
+
+	connect(btn_global_visual, &QPushButton::clicked, this, [this]() {
+		CellDisplaySettingsDialog dlg(CellDisplaySettingsDialog::Mode::Global, this);
+		dlg.set_global_settings(config_->global_settings().visualSettings);
+		if (dlg.exec() == QDialog::Accepted) {
+			config_->global_settings().visualSettings = dlg.get_global_settings();
+			/* Sync safe area checkbox with dialog result */
+			chk_safe_area_enabled_->setChecked(config_->global_settings().visualSettings.safeArea.enabled);
+			config_->save();
+			notify_multiview_visual_settings_changed();
+		}
+	});
 
 	auto *gs_apply = new QPushButton(QStringLiteral("Apply"), tab);
 	layout->addWidget(gs_apply);

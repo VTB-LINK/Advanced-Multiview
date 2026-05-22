@@ -38,9 +38,15 @@ enum class ImageFitMode { Fit, Stretch };
 
 enum class SafeAreaPreset { EBU_R95 };
 
-enum class VuMeterPosition { Left, Right, Bottom };
+enum class VuMeterPosition { Left, Right, Bottom, Top };
 
 enum class VuMeterStyle { Bar };
+
+enum class VuMeterAnchorMode { Cell, Signal };
+
+enum class VuMeterDecayRate { Fast, Medium, Slow };
+
+enum class VuMeterAlignment { Start, Center };
 
 enum class OverlayFitMode { Fit, Stretch };
 
@@ -96,6 +102,13 @@ struct VuMeterSettings {
 	double opacity = 0.8;
 	int width = 8;
 	VuMeterStyle style = VuMeterStyle::Bar;
+	VuMeterAnchorMode anchor = VuMeterAnchorMode::Cell;
+	bool flip = false;
+	double lengthRatio = 1.0; /* 0.0~1.0, fraction of edge length */
+	double warningDB = -20.0; /* green->yellow threshold */
+	double errorDB = -9.0;    /* yellow->red threshold */
+	VuMeterDecayRate decayRate = VuMeterDecayRate::Fast;
+	VuMeterAlignment alignment = VuMeterAlignment::Center;
 
 	obs_data_t *to_obs_data() const;
 	static VuMeterSettings from_obs_data(obs_data_t *data);
