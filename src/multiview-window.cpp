@@ -1133,6 +1133,17 @@ void MultiviewWindow::rebuild_bg_images()
 		while (bg_images_.size() < cellCount)
 			bg_images_.push_back(BgImage{});
 
+		/* Shrink: if grid shrank, collect textures from excess entries
+		 * for destruction before erasing them. Without this the textures
+		 * would leak (held by orphan entries past cellCount). */
+		if (bg_images_.size() > cellCount) {
+			for (size_t i = cellCount; i < bg_images_.size(); i++) {
+				if (bg_images_[i].texture)
+					textures_to_destroy.push_back(bg_images_[i].texture);
+			}
+			bg_images_.resize(cellCount);
+		}
+
 		for (size_t i = 0; i < cellCount; i++) {
 			const BackgroundSettings *bg = nullptr;
 			if (i < effective_visuals_.size())
@@ -1248,6 +1259,16 @@ void MultiviewWindow::rebuild_overlay_images()
 
 		while (overlay_images_.size() < cellCount)
 			overlay_images_.push_back(OverlayImage{});
+
+		/* Shrink: collect textures from excess entries for destruction
+		 * before erasing them (otherwise they leak when the grid shrinks). */
+		if (overlay_images_.size() > cellCount) {
+			for (size_t i = cellCount; i < overlay_images_.size(); i++) {
+				if (overlay_images_[i].texture)
+					textures_to_destroy.push_back(overlay_images_[i].texture);
+			}
+			overlay_images_.resize(cellCount);
+		}
 
 		for (size_t i = 0; i < cellCount; i++) {
 			const OverlaySettings *ovl = nullptr;
@@ -1669,6 +1690,11 @@ void MultiviewWindow::check_scene_change_for_volmeters()
 
 void MultiviewWindow::release_volmeters()
 {
+	/* Protect cell_volmeters_ vector against concurrent read from
+	 * the render thread (render_vu_meter()). source_mutex_ is recursive
+	 * so callers that already hold it (e.g. rebuild_volmeters() from
+	 * within render()) are unaffected. */
+	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 	for (auto *cellVm : cell_volmeters_) {
 		if (!cellVm)
 			continue;

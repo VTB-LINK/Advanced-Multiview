@@ -1,0 +1,114 @@
+# Phase 2 Hardening Notes
+
+> 本文档记录 Phase 2（视觉参数系统：背景 / 标签 / 安全区 / VU meter / overlay）完成后做的代码硬化观察项与修复。
+> 延续 [phase-1-hardening-notes.md](phase-1-hardening-notes.md) 的"已修复 / 观察项"结构。
+> 修复范围：multiview-instance.cpp、multiview-window.cpp、config-manager.cpp、cell-display-settings-dialog.cpp。
+
+---
+
+## ConfigManager
+
+### 已修复
+
+- **`configVersion` 升级日志**：[config-manager.cpp](../src/config-manager.cpp) `load_from_file()` 现在区分三种情况：
+  - 旧版本（`version < CURRENT`）→ 记录 `LOG_INFO` 升级日志；
+  - 新版本（`version > CURRENT`）→ 记录 `LOG_WARNING`，提示部分字段可能被忽略；
+  - 当前版本 → 无日志。
+- **`CURRENT_CONFIG_VERSION` 升到 2**：v1 = Phase 1 baseline；v2 = Phase 2（新增 `visualSettings` 字段贯穿 global / instance / cell）。  
+  Phase 1 配置缺失 `visualSettings` 时不会报错——各 `from_obs_data()` 都有完整的默认值回退路径，仅升级日志会出现。
+
+### 观察项
+
+- **解析失败仍只返回 false**：当前 `load_from_file()` 在 JSON 解析失败时返回 false 但不重置内存中的现有配置。Phase 3 如有更严格的容错需求，可考虑解析失败时主动重置为 safe defaults 并 backup 损坏文件。
+
+---
+
+## MultiviewInstance / VisualSettings
+
+### 已修复
+
+- **`LabelSettings::from_obs_data` 加上界**：[multiview-instance.cpp](../src/multiview-instance.cpp)
+  - `fontSize`: clamp 到 `[1, 200]`（防止恶意配置导致 GDI+/text_ft2 渲染失败）
+  - `minFontSize`: clamp 到 `[1, 200]`
+  - `maxFontSize`: clamp 到 `[minFontSize, 400]`
+  - `margin`: clamp 到 `[0, 200]`
+  - `fontFamily`: 长度 clamp 到 128 字符（防止极长字符串拖慢 Qt 字体查找）
+- **`VuMeterSettings` dB 区间合理化**：
+  - `warningDB` / `errorDB`: clamp 到 `[-96.0, 0.0]`
+  - 保证 `errorDB >= warningDB`（红区在 dB 轴上必然高于黄区，否则渲染逻辑会颠倒）
+- **数据模型 = 持久化 = UI 三方一致**（来自上一轮设计文档审计）：
+  - `fontFamily` 与 `backgroundRounded` 在 UI 端补齐；
+  - 所有 5 个 settings group（Background / Label / SafeArea / VuMeter / Overlay）字段已逐一对照设计文档 5.0 节，全部存在于 UI。
+
+### 观察项
+
+- **`from_obs_data(nullptr)` 沉默**：所有 `*Settings::from_obs_data()` 在 `data == nullptr` 时返回默认对象但不记录日志。若 Phase 3 出现"配置看起来加载了但字段全空"的场景，可在 null 分支加 WARNING 帮助诊断。
+- **Inheritance Mode 字段未做白名单校验**：`InheritanceMode` 从字符串解析时未知值会回退默认，但不报告原始字符串。可在 Phase 3 补充。
+
+---
+
+## MultiviewWindow
+
+### 已修复
+
+- **`bg_images_` / `overlay_images_` 缩容时的纹理泄漏**：[multiview-window.cpp](../src/multiview-window.cpp) `rebuild_bg_images()` / `rebuild_overlay_images()`
+  - 此前只通过 `while (size < cellCount) push_back()` 增长，从未缩小；
+  - 当 grid 从 10×10 改成 4×4 时，超出 cellCount 的旧纹理保留到窗口关闭才释放（实际占用显存）；
+  - 修复：检测 `bg_images_.size() > cellCount` 时收集所有越界 entry 的纹理到 `textures_to_destroy`，然后 `resize(cellCount)`。释放仍走原有的"锁外 `obs_enter_graphics()`"路径，遵守锁顺序。
+- **`release_volmeters()` 加锁保护 `cell_volmeters_`**：
+  - 原实现不持有 `source_mutex_`，但渲染线程在 `render_vu_meter()` 中读取 `cell_volmeters_.size()` 与 `cell_volmeters_[i]`；
+  - UI 线程通过 `refresh_sources()` → `release_source_refs()` → `release_volmeters()` 修改 vector 时，与渲染线程存在并发；
+  - 修复：在 `release_volmeters()` 顶部加 `std::lock_guard<std::recursive_mutex> lock(source_mutex_)`。`rebuild_volmeters()` 本身已经先调用 `release_volmeters()` 再加锁，由于使用 `recursive_mutex`，递归加锁安全。
+
+### 观察项
+
+- **`refresh_visual_settings()` 在锁内调用 `rebuild_label_sources()`**：标签源创建/销毁是重操作（OBS 私有 source），锁内执行会延长 UI 线程对渲染线程的阻塞。后续可重构为"锁内收集数据 → 锁外创建/销毁 source → 锁内 swap"模式（参考 `rebuild_bg_images()` 的四阶段做法）。
+- **`check_scene_change_for_volmeters()` 防抖**：从渲染线程每帧调用，当 PGM/PRVW 频繁切换时可能频繁触发 `rebuild_volmeters()`。当前未观测到性能问题，但 Phase 3 可考虑增加 100ms 节流。
+- **`volmeter_callback` 写入 `SingleVolmeter` 字段无原子保护**：float 写入在 x64 上对齐时硬件原子，渲染线程读到的最坏只是"上一帧值"（VU meter 显示可容忍），不会撕裂。`last_callback_ns` (uint64_t) 同样依赖 64-bit 自然对齐。当前实现与 OBS 内置 `VolumeMeter` 行为一致，不打算改动。
+- **窗口隐藏时 VU meter 仍在工作**：`obs_volmeter_*` 在窗口隐藏后继续接收音频回调（约 100 Hz × meter 数）。监视器场景下窗口通常常开，影响有限。后续可在 `hideEvent` 调用 `release_volmeters()`、`showEvent` 调用 `rebuild_volmeters()`。
+- **上下文菜单 cellIndex 失效**：在菜单弹出与点击之间用户可能通过 Edit Grid 改变布局。Cell Display Settings 入口已通过"重新计算 layout 并验证 `cellIndex < cells.size()`"自我保护；Change Source / Clear Cell / Add Source 入口依赖现有 `on_change_source()` 内部检查。当前未出现问题，但可作为统一约定记录。
+
+---
+
+## CellDisplaySettingsDialog
+
+### 已修复
+
+- **OBS-native 选色器**：替换原有"裸 line edit 输 #RRGGBB"为 `QColorDialog` + 28×22 色块按钮（Background color / Label text color / Safe area color），与 OBS 内置 `obs_properties_add_color` 使用同一组件。
+- **OBS-native 文件选择器**：图片路径字段配 "Browse..." 按钮，调用 `QFileDialog::getOpenFileName()`，过滤器默认 `All Files (*)`；保留直接路径输入能力（Background image / Overlay image）。
+- **OBS-native 字体选择器**：新增 `btn_label_font_`，点击调用 `QFontDialog::getFont()`，所选字体名作为按钮的显示字体实时预览，与 OBS `text_gdiplus` 字体属性体验一致。
+- **`backgroundRounded` UI 暴露**：Label 组新增 "BG Rounded" 复选框，与数据模型 / 持久化字段同步。
+
+### 观察项
+
+- **dirty flag 利用不充分**：`dirty_` 标志已存在，但对话框 `Accepted` 时无条件 `save()`。100 cell 场景下 UI 改一个字段就触发全 instance 的 JSON 重写。可在 `accept()` 中加入"初始 hash vs 当前 hash"对比。
+- **lambda 捕获 `swatch` / `edit` 的生命周期**：使用 Qt context object (`QObject::connect(edit, signal, swatch, lambda)`) 模式，Qt 在 context object 析构时自动断开连接，无 UAF 风险。已确认安全，无需改动。
+
+---
+
+## CI / Build
+
+### 观察项
+
+- **Phase 2 仅在 RelWithDebInfo + Windows 验证**：macOS / Linux 在 Phase 2 中未做手动验证；CI workflow 存在但运行结果未确认。
+
+---
+
+## Documentation Hygiene
+
+### 已修复
+
+- **`docs/setup/deploy-plugin.ps1` 编码**：PS 脚本含中文，需保存为 UTF-8 with BOM 才能被 Windows PowerShell 5.x 正确解码（无 BOM 时 5.x 按 ANSI 解码导致 parser 失败）。修复后 `powershell` (PS 5.x) 与 `pwsh` (PS 7) 均可运行。
+- **设计文档字段审计**：[phase-2-visual-settings-design.md](phase-2-visual-settings-design.md) 5.0 节中 5 组 settings 全部字段已逐一对照实现，UI / 数据模型 / 持久化三方一致。
+
+---
+
+## 修复清单（本次提交）
+
+| 文件 | 修复 | 风险等级 |
+|---|---|---|
+| `src/multiview-instance.cpp` | LabelSettings 字体/边距上界 clamp | HIGH |
+| `src/multiview-instance.cpp` | VuMeterSettings dB 区间 clamp + 顺序约束 | MED |
+| `src/multiview-window.cpp` | bg_images_ / overlay_images_ 缩容时纹理泄漏 | MED |
+| `src/multiview-window.cpp` | release_volmeters() 锁保护 cell_volmeters_ | HIGH |
+| `src/config-manager.{hpp,cpp}` | CURRENT_CONFIG_VERSION 升到 2，加迁移日志 | LOW |

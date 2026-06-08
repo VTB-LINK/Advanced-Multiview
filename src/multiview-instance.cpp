@@ -339,16 +339,26 @@ LabelSettings LabelSettings::from_obs_data(obs_data_t *data)
 	s.displayMode = label_display_mode_from_str(obs_data_get_string(data, "displayMode"));
 	s.position = label_position_from_str(obs_data_get_string(data, "position"));
 	s.fontFamily = obs_data_get_string(data, "fontFamily");
+	/* Defensive: clamp fontFamily length to prevent pathological strings
+	 * from a manually edited config from breaking Qt font enumeration. */
+	if (s.fontFamily.size() > 128)
+		s.fontFamily.resize(128);
 	s.fontSize = (int)obs_data_get_int(data, "fontSize");
 	if (s.fontSize < 1)
 		s.fontSize = 14;
+	if (s.fontSize > 200)
+		s.fontSize = 200;
 	s.fontScaleMode = font_scale_mode_from_str(obs_data_get_string(data, "fontScaleMode"));
 	s.minFontSize = (int)obs_data_get_int(data, "minFontSize");
 	if (s.minFontSize < 1)
 		s.minFontSize = 8;
+	if (s.minFontSize > 200)
+		s.minFontSize = 200;
 	s.maxFontSize = (int)obs_data_get_int(data, "maxFontSize");
 	if (s.maxFontSize < s.minFontSize)
-		s.maxFontSize = 48;
+		s.maxFontSize = s.minFontSize;
+	if (s.maxFontSize > 400)
+		s.maxFontSize = 400;
 	s.textColor = (uint32_t)obs_data_get_int(data, "textColor");
 	if (!obs_data_has_user_value(data, "textColor"))
 		s.textColor = 0xFFFFFFFF;
@@ -363,6 +373,10 @@ LabelSettings LabelSettings::from_obs_data(obs_data_t *data)
 	s.margin = (int)obs_data_get_int(data, "margin");
 	if (!obs_data_has_user_value(data, "margin"))
 		s.margin = 4;
+	if (s.margin < 0)
+		s.margin = 0;
+	if (s.margin > 200)
+		s.margin = 200;
 	return s;
 }
 
@@ -450,9 +464,20 @@ VuMeterSettings VuMeterSettings::from_obs_data(obs_data_t *data)
 	s.warningDB = obs_data_get_double(data, "warningDB");
 	if (!obs_data_has_user_value(data, "warningDB"))
 		s.warningDB = -20.0;
+	if (s.warningDB < -96.0)
+		s.warningDB = -96.0;
+	if (s.warningDB > 0.0)
+		s.warningDB = 0.0;
 	s.errorDB = obs_data_get_double(data, "errorDB");
 	if (!obs_data_has_user_value(data, "errorDB"))
 		s.errorDB = -9.0;
+	if (s.errorDB < -96.0)
+		s.errorDB = -96.0;
+	if (s.errorDB > 0.0)
+		s.errorDB = 0.0;
+	/* Ensure errorDB >= warningDB (red zone above yellow zone on dB axis) */
+	if (s.errorDB < s.warningDB)
+		s.errorDB = s.warningDB;
 	s.decayRate = vu_meter_decay_from_str(obs_data_get_string(data, "decayRate"));
 	s.alignment = vu_meter_alignment_from_str(obs_data_get_string(data, "alignment"));
 	return s;

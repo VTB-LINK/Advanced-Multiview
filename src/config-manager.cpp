@@ -106,9 +106,19 @@ bool ConfigManager::load_from_file(const std::string &path)
 		return false;
 	}
 
-	/* configVersion for future migration */
+	/* configVersion: tracks structural changes for future migration.
+	 * v1 = Phase 1 baseline. v2 = Phase 2 (adds visualSettings across
+	 * global / instance / cell). Missing visualSettings on v1 configs
+	 * is safe-fallback via per-struct from_obs_data() defaults; we just
+	 * log the upgrade so user / support can trace it. */
 	int version = (int)obs_data_get_int(data, "configVersion");
-	(void)version; /* reserved for future migration logic */
+	if (version > 0 && version < CURRENT_CONFIG_VERSION) {
+		obs_log(LOG_INFO, "upgrading config from v%d to v%d (Phase 2 visual settings)", version,
+			CURRENT_CONFIG_VERSION);
+	} else if (version > CURRENT_CONFIG_VERSION) {
+		obs_log(LOG_WARNING, "config v%d is newer than supported v%d; some fields may be ignored or reset",
+			version, CURRENT_CONFIG_VERSION);
+	}
 
 	/* global settings */
 	obs_data_t *gs = obs_data_get_obj(data, "globalSettings");
