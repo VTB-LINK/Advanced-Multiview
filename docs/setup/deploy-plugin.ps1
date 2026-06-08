@@ -1,4 +1,4 @@
-# 部署插件到 OBS
+﻿# 部署插件到 OBS
 # 使用方法：
 #   .\docs\setup\deploy-plugin.ps1              # 部署 Debug 版本
 #   .\docs\setup\deploy-plugin.ps1 RelWithDebInfo  # 部署 RelWithDebInfo 版本

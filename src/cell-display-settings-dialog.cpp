@@ -18,7 +18,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "cell-display-settings-dialog.hpp"
 
+#include <QApplication>
+#include <QColorDialog>
 #include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFont>
+#include <QFontDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -26,6 +32,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
+
+#include <functional>
 
 /* ---- Inheritance combo helper ---- */
 
@@ -69,6 +77,152 @@ static uint32_t hex_to_color(const QString &hex, uint32_t fallback = 0xFFFFFFFF)
 	if (!ok)
 		return fallback;
 	return 0xFF000000 | rgb;
+}
+
+/* ---- Color picker widget: line edit + colored swatch button ----
+ * Uses Qt's native QColorDialog (the same picker OBS uses internally
+ * for its properties view). */
+static QWidget *build_color_picker(QLineEdit *edit, QWidget *parent, const QString &title)
+{
+	auto *container = new QWidget(parent);
+	auto *h = new QHBoxLayout(container);
+	h->setContentsMargins(0, 0, 0, 0);
+	h->setSpacing(4);
+
+	edit->setParent(container);
+	edit->setMaximumWidth(100);
+	h->addWidget(edit);
+
+	auto *swatch = new QPushButton(container);
+	swatch->setFixedSize(28, 22);
+	swatch->setCursor(Qt::PointingHandCursor);
+	swatch->setToolTip(QObject::tr("Pick color"));
+
+	auto refresh_swatch = [swatch, edit]() {
+		QString hex = edit->text().trimmed();
+		if (!hex.startsWith('#'))
+			hex = '#' + hex;
+		QColor c(hex);
+		if (!c.isValid())
+			c = Qt::black;
+		swatch->setStyleSheet(
+			QStringLiteral(
+				"QPushButton { background-color: %1; border: 1px solid #555; border-radius: 2px; }"
+				"QPushButton:hover { border: 1px solid #888; }")
+				.arg(c.name(QColor::HexRgb)));
+	};
+	refresh_swatch();
+
+	QObject::connect(edit, &QLineEdit::textChanged, swatch,
+			 [refresh_swatch](const QString &) { refresh_swatch(); });
+
+	QObject::connect(swatch, &QPushButton::clicked, swatch, [edit, parent, title]() {
+		QString hex = edit->text().trimmed();
+		if (!hex.startsWith('#'))
+			hex = '#' + hex;
+		QColor initial(hex);
+		if (!initial.isValid())
+			initial = Qt::white;
+		QColor chosen = QColorDialog::getColor(initial, parent, title);
+		if (chosen.isValid())
+			edit->setText(chosen.name(QColor::HexRgb).toUpper());
+	});
+
+	h->addWidget(swatch);
+	h->addStretch();
+	return container;
+}
+
+/* ---- File picker widget: line edit + Browse button ----
+ * Allows both direct path input and a native file picker. */
+static QWidget *build_file_picker(QLineEdit *edit, QWidget *parent, const QString &title)
+{
+	auto *container = new QWidget(parent);
+	auto *h = new QHBoxLayout(container);
+	h->setContentsMargins(0, 0, 0, 0);
+	h->setSpacing(4);
+
+	edit->setParent(container);
+	h->addWidget(edit, 1);
+
+	auto *browse = new QPushButton(QObject::tr("Browse..."), container);
+	browse->setCursor(Qt::PointingHandCursor);
+
+	QObject::connect(browse, &QPushButton::clicked, browse, [edit, parent, title]() {
+		QString current = edit->text().trimmed();
+		QString startDir;
+		if (!current.isEmpty()) {
+			QFileInfo fi(current);
+			startDir = fi.exists() ? fi.absolutePath() : current;
+		}
+		QString fn = QFileDialog::getOpenFileName(parent, title, startDir, QObject::tr("All Files (*)"));
+		if (!fn.isEmpty())
+			edit->setText(fn);
+	});
+
+	h->addWidget(browse);
+	return container;
+}
+
+/* ---- Font picker button (mimics OBS's text_gdiplus / obs_properties_add_font widget,
+ * which uses QFontDialog::getFont() internally). The button itself is rendered using
+ * the selected font as a live preview, exactly like OBS's font property. ----
+ *
+ * The selected font family name is stored on the button via dynamic property
+ * "fontFamily" so set/get_*_settings() can read/write it without an extra member.
+ * The on_changed callback is invoked when the user picks a new font.
+ */
+static void font_picker_refresh(QPushButton *btn)
+{
+	QString family = btn->property("fontFamily").toString();
+	QFont f = btn->font();
+	if (family.isEmpty()) {
+		btn->setText(QObject::tr("Select Font (system default)"));
+		f.setFamily(QApplication::font().family());
+	} else {
+		btn->setText(family);
+		f.setFamily(family);
+	}
+	btn->setFont(f);
+}
+
+static QPushButton *build_font_picker(QWidget *parent, std::function<void()> on_changed)
+{
+	auto *btn = new QPushButton(parent);
+	btn->setCursor(Qt::PointingHandCursor);
+	btn->setProperty("fontFamily", QString());
+	font_picker_refresh(btn);
+
+	QObject::connect(btn, &QPushButton::clicked, btn, [btn, parent, on_changed]() {
+		QString current = btn->property("fontFamily").toString();
+		QFont initial;
+		if (!current.isEmpty())
+			initial.setFamily(current);
+
+		bool ok = false;
+		QFont chosen = QFontDialog::getFont(&ok, initial, parent, QObject::tr("Pick a Font"));
+		if (!ok)
+			return;
+		if (chosen.family() == current)
+			return;
+		btn->setProperty("fontFamily", chosen.family());
+		font_picker_refresh(btn);
+		if (on_changed)
+			on_changed();
+	});
+
+	return btn;
+}
+
+static QString font_picker_get(QPushButton *btn)
+{
+	return btn->property("fontFamily").toString();
+}
+
+static void font_picker_set(QPushButton *btn, const QString &family)
+{
+	btn->setProperty("fontFamily", family);
+	font_picker_refresh(btn);
 }
 
 /* ---- Constructor ---- */
@@ -190,8 +344,8 @@ QGroupBox *CellDisplaySettingsDialog::create_background_group()
 	form->addRow(QStringLiteral("Color Enabled:"), chk_bg_color_enabled_);
 
 	edit_bg_color_ = new QLineEdit(QStringLiteral("#000000"), grp_background_);
-	edit_bg_color_->setMaximumWidth(100);
-	form->addRow(QStringLiteral("Color (#RRGGBB):"), edit_bg_color_);
+	form->addRow(QStringLiteral("Color:"),
+		     build_color_picker(edit_bg_color_, grp_background_, QStringLiteral("Background Color")));
 
 	cmb_bg_fill_mode_ = new QComboBox(grp_background_);
 	cmb_bg_fill_mode_->addItem(QStringLiteral("Fill Signal Only"), (int)BackgroundFillMode::FillSignalOnly);
@@ -202,7 +356,8 @@ QGroupBox *CellDisplaySettingsDialog::create_background_group()
 	form->addRow(QStringLiteral("Image Enabled:"), chk_bg_image_enabled_);
 
 	edit_bg_image_path_ = new QLineEdit(grp_background_);
-	form->addRow(QStringLiteral("Image Path:"), edit_bg_image_path_);
+	form->addRow(QStringLiteral("Image Path:"), build_file_picker(edit_bg_image_path_, grp_background_,
+								      QStringLiteral("Select Background Image")));
 
 	cmb_bg_image_fit_ = new QComboBox(grp_background_);
 	cmb_bg_image_fit_->addItem(QStringLiteral("Fit"), (int)ImageFitMode::Fit);
@@ -255,6 +410,12 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 	cmb_label_position_->addItem(QStringLiteral("Bottom"), (int)LabelPosition::Bottom);
 	form->addRow(QStringLiteral("Position:"), cmb_label_position_);
 
+	btn_label_font_ = build_font_picker(grp_label_, [this]() {
+		dirty_ = true;
+		emit settings_changed();
+	});
+	form->addRow(QStringLiteral("Font Family:"), btn_label_font_);
+
 	spin_label_font_size_ = new QSpinBox(grp_label_);
 	spin_label_font_size_->setRange(6, 96);
 	form->addRow(QStringLiteral("Font Size:"), spin_label_font_size_);
@@ -273,14 +434,17 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 	form->addRow(QStringLiteral("Max Font Size:"), spin_label_max_font_);
 
 	edit_label_text_color_ = new QLineEdit(QStringLiteral("#FFFFFF"), grp_label_);
-	edit_label_text_color_->setMaximumWidth(100);
-	form->addRow(QStringLiteral("Text Color:"), edit_label_text_color_);
+	form->addRow(QStringLiteral("Text Color:"),
+		     build_color_picker(edit_label_text_color_, grp_label_, QStringLiteral("Label Text Color")));
 
 	spin_label_bg_opacity_ = new QDoubleSpinBox(grp_label_);
 	spin_label_bg_opacity_->setRange(0.0, 1.0);
 	spin_label_bg_opacity_->setSingleStep(0.05);
 	spin_label_bg_opacity_->setDecimals(2);
 	form->addRow(QStringLiteral("BG Opacity:"), spin_label_bg_opacity_);
+
+	chk_label_bg_rounded_ = new QCheckBox(grp_label_);
+	form->addRow(QStringLiteral("BG Rounded:"), chk_label_bg_rounded_);
 
 	spin_label_margin_ = new QSpinBox(grp_label_);
 	spin_label_margin_->setRange(0, 32);
@@ -299,6 +463,7 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 	HOOK_SPIN(spin_label_max_font_);
 	HOOK_EDIT(edit_label_text_color_);
 	HOOK_DSPIN(spin_label_bg_opacity_);
+	HOOK_CHECK(chk_label_bg_rounded_);
 	HOOK_SPIN(spin_label_margin_);
 	HOOK_CHECK(chk_bg_label_fill_);
 
@@ -332,8 +497,8 @@ QGroupBox *CellDisplaySettingsDialog::create_safe_area_group()
 	form->addRow(QStringLiteral("Enabled:"), chk_safe_area_enabled_);
 
 	edit_safe_area_color_ = new QLineEdit(QStringLiteral("#D0D0D0"), grp_safe_area_);
-	edit_safe_area_color_->setMaximumWidth(100);
-	form->addRow(QStringLiteral("Color:"), edit_safe_area_color_);
+	form->addRow(QStringLiteral("Color:"),
+		     build_color_picker(edit_safe_area_color_, grp_safe_area_, QStringLiteral("Safe Area Color")));
 
 	spin_safe_area_opacity_ = new QDoubleSpinBox(grp_safe_area_);
 	spin_safe_area_opacity_->setRange(0.0, 1.0);
@@ -476,7 +641,8 @@ QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
 	form->addRow(QStringLiteral("Enabled:"), chk_overlay_enabled_);
 
 	edit_overlay_path_ = new QLineEdit(grp_overlay_);
-	form->addRow(QStringLiteral("Image Path:"), edit_overlay_path_);
+	form->addRow(QStringLiteral("Image Path:"),
+		     build_file_picker(edit_overlay_path_, grp_overlay_, QStringLiteral("Select Overlay Image")));
 
 	spin_overlay_opacity_ = new QDoubleSpinBox(grp_overlay_);
 	spin_overlay_opacity_->setRange(0.0, 1.0);
@@ -561,11 +727,13 @@ void CellDisplaySettingsDialog::set_global_settings(const GlobalVisualSettings &
 	cmb_label_display_->setCurrentIndex((int)gs.label.displayMode);
 	cmb_label_position_->setCurrentIndex((int)gs.label.position);
 	spin_label_font_size_->setValue(gs.label.fontSize);
+	font_picker_set(btn_label_font_, QString::fromStdString(gs.label.fontFamily));
 	cmb_label_scale_mode_->setCurrentIndex((int)gs.label.fontScaleMode);
 	spin_label_min_font_->setValue(gs.label.minFontSize);
 	spin_label_max_font_->setValue(gs.label.maxFontSize);
 	edit_label_text_color_->setText(color_to_hex(gs.label.textColor));
 	spin_label_bg_opacity_->setValue(gs.label.backgroundOpacity);
+	chk_label_bg_rounded_->setChecked(gs.label.backgroundRounded);
 	spin_label_margin_->setValue(gs.label.margin);
 
 	/* Safe Area */
@@ -614,11 +782,13 @@ GlobalVisualSettings CellDisplaySettingsDialog::get_global_settings() const
 	gs.label.displayMode = (LabelDisplayMode)cmb_label_display_->currentIndex();
 	gs.label.position = (LabelPosition)cmb_label_position_->currentIndex();
 	gs.label.fontSize = spin_label_font_size_->value();
+	gs.label.fontFamily = font_picker_get(btn_label_font_).toStdString();
 	gs.label.fontScaleMode = (FontScaleMode)cmb_label_scale_mode_->currentIndex();
 	gs.label.minFontSize = spin_label_min_font_->value();
 	gs.label.maxFontSize = spin_label_max_font_->value();
 	gs.label.textColor = hex_to_color(edit_label_text_color_->text(), 0xFFFFFFFF);
 	gs.label.backgroundOpacity = spin_label_bg_opacity_->value();
+	gs.label.backgroundRounded = chk_label_bg_rounded_->isChecked();
 	gs.label.margin = spin_label_margin_->value();
 
 	/* Safe Area */
@@ -676,11 +846,13 @@ void CellDisplaySettingsDialog::set_instance_settings(const InstanceVisualSettin
 	cmb_label_display_->setCurrentIndex((int)is.label.displayMode);
 	cmb_label_position_->setCurrentIndex((int)is.label.position);
 	spin_label_font_size_->setValue(is.label.fontSize);
+	font_picker_set(btn_label_font_, QString::fromStdString(is.label.fontFamily));
 	cmb_label_scale_mode_->setCurrentIndex((int)is.label.fontScaleMode);
 	spin_label_min_font_->setValue(is.label.minFontSize);
 	spin_label_max_font_->setValue(is.label.maxFontSize);
 	edit_label_text_color_->setText(color_to_hex(is.label.textColor));
 	spin_label_bg_opacity_->setValue(is.label.backgroundOpacity);
+	chk_label_bg_rounded_->setChecked(is.label.backgroundRounded);
 	spin_label_margin_->setValue(is.label.margin);
 
 	chk_safe_area_enabled_->setChecked(is.safeArea.enabled);
@@ -738,11 +910,13 @@ InstanceVisualSettings CellDisplaySettingsDialog::get_instance_settings() const
 	is.label.displayMode = (LabelDisplayMode)cmb_label_display_->currentIndex();
 	is.label.position = (LabelPosition)cmb_label_position_->currentIndex();
 	is.label.fontSize = spin_label_font_size_->value();
+	is.label.fontFamily = font_picker_get(btn_label_font_).toStdString();
 	is.label.fontScaleMode = (FontScaleMode)cmb_label_scale_mode_->currentIndex();
 	is.label.minFontSize = spin_label_min_font_->value();
 	is.label.maxFontSize = spin_label_max_font_->value();
 	is.label.textColor = hex_to_color(edit_label_text_color_->text(), 0xFFFFFFFF);
 	is.label.backgroundOpacity = spin_label_bg_opacity_->value();
+	is.label.backgroundRounded = chk_label_bg_rounded_->isChecked();
 	is.label.margin = spin_label_margin_->value();
 
 	/* Safe Area */
@@ -800,11 +974,13 @@ void CellDisplaySettingsDialog::set_cell_settings(const CellVisualSettings &cs)
 	cmb_label_display_->setCurrentIndex((int)cs.label.displayMode);
 	cmb_label_position_->setCurrentIndex((int)cs.label.position);
 	spin_label_font_size_->setValue(cs.label.fontSize);
+	font_picker_set(btn_label_font_, QString::fromStdString(cs.label.fontFamily));
 	cmb_label_scale_mode_->setCurrentIndex((int)cs.label.fontScaleMode);
 	spin_label_min_font_->setValue(cs.label.minFontSize);
 	spin_label_max_font_->setValue(cs.label.maxFontSize);
 	edit_label_text_color_->setText(color_to_hex(cs.label.textColor));
 	spin_label_bg_opacity_->setValue(cs.label.backgroundOpacity);
+	chk_label_bg_rounded_->setChecked(cs.label.backgroundRounded);
 	spin_label_margin_->setValue(cs.label.margin);
 
 	chk_safe_area_enabled_->setChecked(cs.safeArea.enabled);
@@ -864,11 +1040,13 @@ CellVisualSettings CellDisplaySettingsDialog::get_cell_settings() const
 	cs.label.displayMode = (LabelDisplayMode)cmb_label_display_->currentIndex();
 	cs.label.position = (LabelPosition)cmb_label_position_->currentIndex();
 	cs.label.fontSize = spin_label_font_size_->value();
+	cs.label.fontFamily = font_picker_get(btn_label_font_).toStdString();
 	cs.label.fontScaleMode = (FontScaleMode)cmb_label_scale_mode_->currentIndex();
 	cs.label.minFontSize = spin_label_min_font_->value();
 	cs.label.maxFontSize = spin_label_max_font_->value();
 	cs.label.textColor = hex_to_color(edit_label_text_color_->text(), 0xFFFFFFFF);
 	cs.label.backgroundOpacity = spin_label_bg_opacity_->value();
+	cs.label.backgroundRounded = chk_label_bg_rounded_->isChecked();
 	cs.label.margin = spin_label_margin_->value();
 
 	/* Safe Area */

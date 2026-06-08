@@ -29,6 +29,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 class QLabel;
 class QGroupBox;
+class QPushButton;
 class QVBoxLayout;
 
 class CellDisplaySettingsDialog : public QDialog {
@@ -92,12 +93,14 @@ private:
 	QGroupBox *grp_label_ = nullptr;
 	QComboBox *cmb_label_display_ = nullptr;
 	QComboBox *cmb_label_position_ = nullptr;
+	QPushButton *btn_label_font_ = nullptr;
 	QSpinBox *spin_label_font_size_ = nullptr;
 	QComboBox *cmb_label_scale_mode_ = nullptr;
 	QSpinBox *spin_label_min_font_ = nullptr;
 	QSpinBox *spin_label_max_font_ = nullptr;
 	QLineEdit *edit_label_text_color_ = nullptr;
 	QDoubleSpinBox *spin_label_bg_opacity_ = nullptr;
+	QCheckBox *chk_label_bg_rounded_ = nullptr;
 	QSpinBox *spin_label_margin_ = nullptr;
 
 	/* Safe Area group */
