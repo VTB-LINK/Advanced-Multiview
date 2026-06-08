@@ -541,6 +541,28 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 	chk_vu_enabled_ = new QCheckBox(grp_vu_meter_);
 	form->addRow(QStringLiteral("Enabled:"), chk_vu_enabled_);
 
+	/* Track selection: which mixer track determines source visibility +
+	 * audio routing for the meter. AutoFollowStreaming follows OBS
+	 * Settings → Output → Streaming Audio Track. Manual pins to a
+	 * specific Track 1..6 regardless of streaming config. */
+	cmb_vu_track_mode_ = new QComboBox(grp_vu_meter_);
+	cmb_vu_track_mode_->addItem(QStringLiteral("Auto-follow Streaming"),
+				    (int)VuMeterTrackMode::AutoFollowStreaming);
+	cmb_vu_track_mode_->addItem(QStringLiteral("Manual"), (int)VuMeterTrackMode::Manual);
+	form->addRow(QStringLiteral("Track Source:"), cmb_vu_track_mode_);
+
+	spin_vu_manual_track_ = new QSpinBox(grp_vu_meter_);
+	spin_vu_manual_track_->setRange(1, 6);
+	spin_vu_manual_track_->setPrefix(QStringLiteral("Track "));
+	form->addRow(QStringLiteral("Manual Track:"), spin_vu_manual_track_);
+
+	/* Manual track spinbox is only meaningful when mode == Manual.
+	 * Gray out otherwise to clarify the inactive field. */
+	connect(cmb_vu_track_mode_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+		bool manual = cmb_vu_track_mode_->currentData().toInt() == (int)VuMeterTrackMode::Manual;
+		spin_vu_manual_track_->setEnabled(manual);
+	});
+
 	cmb_vu_position_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_position_->addItem(QStringLiteral("Left"), (int)VuMeterPosition::Left);
 	cmb_vu_position_->addItem(QStringLiteral("Right"), (int)VuMeterPosition::Right);
@@ -600,6 +622,8 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 	layout->addLayout(form);
 
 	HOOK_CHECK(chk_vu_enabled_);
+	HOOK_COMBO(cmb_vu_track_mode_);
+	HOOK_SPIN(spin_vu_manual_track_);
 	HOOK_COMBO(cmb_vu_position_);
 	HOOK_COMBO(cmb_vu_anchor_);
 	HOOK_SPIN(spin_vu_width_);
@@ -708,6 +732,14 @@ void CellDisplaySettingsDialog::update_inheritance_visibility()
 	toggle_group(grp_safe_area_, cmb_safe_area_inherit_);
 	toggle_group(grp_vu_meter_, cmb_vu_meter_inherit_);
 	toggle_group(grp_overlay_, cmb_overlay_inherit_);
+
+	/* Cross-control rule: manual track spinbox is only meaningful when
+	 * trackMode == Manual. toggle_group above unconditionally enables all
+	 * children of the override group, so re-apply this narrower rule. */
+	if (cmb_vu_track_mode_ && spin_vu_manual_track_ && cmb_vu_track_mode_->isEnabled()) {
+		bool manual = cmb_vu_track_mode_->currentData().toInt() == (int)VuMeterTrackMode::Manual;
+		spin_vu_manual_track_->setEnabled(manual);
+	}
 }
 
 /* ---- Get/Set: Global ---- */
@@ -743,6 +775,9 @@ void CellDisplaySettingsDialog::set_global_settings(const GlobalVisualSettings &
 
 	/* VU Meter */
 	chk_vu_enabled_->setChecked(gs.vuMeter.enabled);
+	cmb_vu_track_mode_->setCurrentIndex(cmb_vu_track_mode_->findData((int)gs.vuMeter.trackMode));
+	spin_vu_manual_track_->setValue(gs.vuMeter.manualTrackIndex);
+	spin_vu_manual_track_->setEnabled(gs.vuMeter.trackMode == VuMeterTrackMode::Manual);
 	cmb_vu_position_->setCurrentIndex(cmb_vu_position_->findData((int)gs.vuMeter.position));
 	cmb_vu_anchor_->setCurrentIndex((int)gs.vuMeter.anchor);
 	spin_vu_width_->setValue(gs.vuMeter.width);
@@ -798,6 +833,8 @@ GlobalVisualSettings CellDisplaySettingsDialog::get_global_settings() const
 
 	/* VU Meter */
 	gs.vuMeter.enabled = chk_vu_enabled_->isChecked();
+	gs.vuMeter.trackMode = (VuMeterTrackMode)cmb_vu_track_mode_->currentData().toInt();
+	gs.vuMeter.manualTrackIndex = spin_vu_manual_track_->value();
 	gs.vuMeter.position = (VuMeterPosition)cmb_vu_position_->currentData().toInt();
 	gs.vuMeter.anchor = (VuMeterAnchorMode)cmb_vu_anchor_->currentIndex();
 	gs.vuMeter.width = spin_vu_width_->value();
@@ -860,6 +897,9 @@ void CellDisplaySettingsDialog::set_instance_settings(const InstanceVisualSettin
 	spin_safe_area_opacity_->setValue(is.safeArea.opacity);
 
 	chk_vu_enabled_->setChecked(is.vuMeter.enabled);
+	cmb_vu_track_mode_->setCurrentIndex(cmb_vu_track_mode_->findData((int)is.vuMeter.trackMode));
+	spin_vu_manual_track_->setValue(is.vuMeter.manualTrackIndex);
+	spin_vu_manual_track_->setEnabled(is.vuMeter.trackMode == VuMeterTrackMode::Manual);
 	cmb_vu_position_->setCurrentIndex(cmb_vu_position_->findData((int)is.vuMeter.position));
 	cmb_vu_anchor_->setCurrentIndex((int)is.vuMeter.anchor);
 	spin_vu_width_->setValue(is.vuMeter.width);
@@ -926,6 +966,8 @@ InstanceVisualSettings CellDisplaySettingsDialog::get_instance_settings() const
 
 	/* VU Meter */
 	is.vuMeter.enabled = chk_vu_enabled_->isChecked();
+	is.vuMeter.trackMode = (VuMeterTrackMode)cmb_vu_track_mode_->currentData().toInt();
+	is.vuMeter.manualTrackIndex = spin_vu_manual_track_->value();
 	is.vuMeter.position = (VuMeterPosition)cmb_vu_position_->currentData().toInt();
 	is.vuMeter.anchor = (VuMeterAnchorMode)cmb_vu_anchor_->currentIndex();
 	is.vuMeter.width = spin_vu_width_->value();
@@ -988,6 +1030,9 @@ void CellDisplaySettingsDialog::set_cell_settings(const CellVisualSettings &cs)
 	spin_safe_area_opacity_->setValue(cs.safeArea.opacity);
 
 	chk_vu_enabled_->setChecked(cs.vuMeter.enabled);
+	cmb_vu_track_mode_->setCurrentIndex(cmb_vu_track_mode_->findData((int)cs.vuMeter.trackMode));
+	spin_vu_manual_track_->setValue(cs.vuMeter.manualTrackIndex);
+	spin_vu_manual_track_->setEnabled(cs.vuMeter.trackMode == VuMeterTrackMode::Manual);
 	cmb_vu_position_->setCurrentIndex(cmb_vu_position_->findData((int)cs.vuMeter.position));
 	cmb_vu_anchor_->setCurrentIndex((int)cs.vuMeter.anchor);
 	spin_vu_width_->setValue(cs.vuMeter.width);
@@ -1056,6 +1101,8 @@ CellVisualSettings CellDisplaySettingsDialog::get_cell_settings() const
 
 	/* VU Meter */
 	cs.vuMeter.enabled = chk_vu_enabled_->isChecked();
+	cs.vuMeter.trackMode = (VuMeterTrackMode)cmb_vu_track_mode_->currentData().toInt();
+	cs.vuMeter.manualTrackIndex = spin_vu_manual_track_->value();
 	cs.vuMeter.position = (VuMeterPosition)cmb_vu_position_->currentData().toInt();
 	cs.vuMeter.anchor = (VuMeterAnchorMode)cmb_vu_anchor_->currentIndex();
 	cs.vuMeter.width = spin_vu_width_->value();

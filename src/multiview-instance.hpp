@@ -48,6 +48,11 @@ enum class VuMeterDecayRate { Fast, Medium, Slow };
 
 enum class VuMeterAlignment { Start, Center };
 
+/* Track selection mode for VU meter audio routing.
+ * AutoFollowStreaming: follow OBS streaming output's mixer track (first set bit).
+ * Manual: user picks a fixed track (1..6) via manualTrackIndex. */
+enum class VuMeterTrackMode { AutoFollowStreaming, Manual };
+
 enum class OverlayFitMode { Fit, Stretch };
 
 enum class OverlayAnchorMode { Cell, Signal };
@@ -109,6 +114,16 @@ struct VuMeterSettings {
 	double errorDB = -9.0;    /* yellow->red threshold */
 	VuMeterDecayRate decayRate = VuMeterDecayRate::Fast;
 	VuMeterAlignment alignment = VuMeterAlignment::Center;
+
+	/* Track routing — controls which mixer track determines source visibility.
+	 * AutoFollowStreaming: follow streaming output's first mixer bit (default,
+	 * matches "what audience hears" semantics).
+	 * Manual: pin to manualTrackIndex (1..6).
+	 *
+	 * Sources whose audio_mixers bitmask does NOT intersect the active track
+	 * are auto-excluded from the VU meter (they contribute zero audio to PGM). */
+	VuMeterTrackMode trackMode = VuMeterTrackMode::AutoFollowStreaming;
+	int manualTrackIndex = 1; /* 1..6, only used when trackMode == Manual */
 
 	obs_data_t *to_obs_data() const;
 	static VuMeterSettings from_obs_data(obs_data_t *data);

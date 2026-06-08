@@ -234,6 +234,25 @@ static VuMeterAlignment vu_meter_alignment_from_str(const char *s)
 	return VuMeterAlignment::Center;
 }
 
+static const char *vu_meter_track_mode_to_str(VuMeterTrackMode m)
+{
+	switch (m) {
+	case VuMeterTrackMode::Manual:
+		return "manual";
+	default:
+		return "auto_follow_streaming";
+	}
+}
+
+static VuMeterTrackMode vu_meter_track_mode_from_str(const char *s)
+{
+	if (!s)
+		return VuMeterTrackMode::AutoFollowStreaming;
+	if (strcmp(s, "manual") == 0)
+		return VuMeterTrackMode::Manual;
+	return VuMeterTrackMode::AutoFollowStreaming;
+}
+
 static const char *vu_meter_style_to_str(VuMeterStyle st)
 {
 	(void)st;
@@ -429,6 +448,8 @@ obs_data_t *VuMeterSettings::to_obs_data() const
 	obs_data_set_double(data, "errorDB", errorDB);
 	obs_data_set_string(data, "decayRate", vu_meter_decay_to_str(decayRate));
 	obs_data_set_string(data, "alignment", vu_meter_alignment_to_str(alignment));
+	obs_data_set_string(data, "trackMode", vu_meter_track_mode_to_str(trackMode));
+	obs_data_set_int(data, "manualTrackIndex", manualTrackIndex);
 	return data;
 }
 
@@ -480,6 +501,16 @@ VuMeterSettings VuMeterSettings::from_obs_data(obs_data_t *data)
 		s.errorDB = s.warningDB;
 	s.decayRate = vu_meter_decay_from_str(obs_data_get_string(data, "decayRate"));
 	s.alignment = vu_meter_alignment_from_str(obs_data_get_string(data, "alignment"));
+	/* Track routing — added Phase 2 / VU redesign. Old configs without these
+	 * fields fall back to AutoFollowStreaming + Track 1 (the v1 behavior is to
+	 * pre-existing). */
+	s.trackMode = vu_meter_track_mode_from_str(obs_data_get_string(data, "trackMode"));
+	if (obs_data_has_user_value(data, "manualTrackIndex"))
+		s.manualTrackIndex = (int)obs_data_get_int(data, "manualTrackIndex");
+	if (s.manualTrackIndex < 1)
+		s.manualTrackIndex = 1;
+	if (s.manualTrackIndex > 6)
+		s.manualTrackIndex = 6;
 	return s;
 }
 

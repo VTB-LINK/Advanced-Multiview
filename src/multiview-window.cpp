@@ -411,6 +411,11 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 	if (has_pgm_cell_ || has_prvw_cell_)
 		check_scene_change_for_volmeters();
 
+	/* Handle deferred rebuild requested from non-render threads
+	 * (audio_mixers signal) and poll for AutoFollow streaming-track changes
+	 * (no event fires on Settings → Output → Streaming Audio Track edits). */
+	check_active_track_change();
+
 	/* Compute canvas-aspect-ratio viewport (centered, with black borders) */
 	double windowAspect = (double)cx / (double)cy;
 	int vpX = 0, vpY = 0;
@@ -1507,39 +1512,171 @@ void MultiviewWindow::volmeter_callback(void *data, const float magnitude[MAX_AU
 	sv->last_callback_ns = os_gettime_ns();
 }
 
-/* Helper: collect all audio sources within a scene into a vector */
+/* "mute" signal handler. Fires on Mixer mute toggle (user_muted, set via
+ * obs_source_set_muted). Note: this does NOT include PTT/PTM transient mute
+ * (push_to_mute_enabled), which OBS handles by zeroing volmeter audio buffers
+ * before the volmeter callback. UI mute on the other hand leaves the volmeter
+ * data unchanged, so we must zero the display ourselves to keep WYSIWYG with
+ * what audience hears. */
+void MultiviewWindow::source_mute_callback(void *data, calldata_t *cd)
+{
+	auto *sv = static_cast<SingleVolmeter *>(data);
+	bool muted = calldata_bool(cd, "muted");
+	sv->user_muted.store(muted, std::memory_order_relaxed);
+}
+
+/* "audio_mixers" signal handler. Fires when a source's enabled mixer track
+ * bitmask changes. Since this affects which sources are visible (sources with
+ * audio_mixers & active_track_bit == 0 are excluded), request a deferred
+ * rebuild — actual rebuild happens on the next render frame via
+ * check_active_track_change() to coalesce bursts and stay on the render thread. */
+void MultiviewWindow::source_audio_mixers_callback(void *data, calldata_t *cd)
+{
+	UNUSED_PARAMETER(cd);
+	auto *self = static_cast<MultiviewWindow *>(data);
+	self->volmeters_rebuild_requested_.store(true, std::memory_order_release);
+}
+
+/* Compute the active mixer track bit based on VuMeterSettings.
+ *
+ * For VuMeterTrackMode::Manual: bit = 1 << (manualTrackIndex - 1).
+ * For VuMeterTrackMode::AutoFollowStreaming: read OBS streaming output's
+ *   mixer mask and pick the first set bit (single-track semantics per design).
+ *
+ * Reads the instance-level VuMeterSettings from the config. Note: cell-level
+ * override of trackMode is deferred to M2.6; v1 uses one bit for the whole
+ * window so all cells share the same "what audience hears" semantics.
+ *
+ * Fallback chain when AutoFollow can't resolve a mask:
+ *   streaming output missing OR mixers == 0 → Track 1 (bit 0).
+ * Per OBS UI invariant, Settings → Output → Streaming Audio Track requires
+ * at least 1 of 6 selected, so mixers == 0 should be unreachable in practice. */
+uint32_t MultiviewWindow::compute_active_track_bit()
+{
+	MultiviewInstance *inst = config_ ? config_->find_instance(uuid_) : nullptr;
+	VuMeterSettings vm;
+	if (inst) {
+		EffectiveCellVisualSettings eff = resolve_effective_visual_settings(
+			config_->global_settings().visualSettings, inst->visualSettings, nullptr);
+		vm = eff.vuMeter;
+	}
+
+	if (vm.trackMode == VuMeterTrackMode::Manual) {
+		int idx = vm.manualTrackIndex;
+		if (idx < 1)
+			idx = 1;
+		if (idx > 6)
+			idx = 6;
+		return 1u << (idx - 1);
+	}
+
+	/* AutoFollow: query streaming output mixer mask.
+	 * obs_frontend_get_streaming_output() returns +1 ref; release after use. */
+	obs_output_t *so = obs_frontend_get_streaming_output();
+	uint32_t mask = 0;
+	if (so) {
+		mask = (uint32_t)obs_output_get_mixers(so);
+		obs_output_release(so);
+	}
+	if (mask == 0)
+		return 0x1; /* Track 1 fallback */
+	/* Lowest set bit only (single track semantics) */
+	return mask & (~mask + 1);
+}
+
+/* Helper: collect all audio sources within a scene into a vector.
+ *
+ * Recursively descends into:
+ *   - Groups (via obs_sceneitem_group_enum_items)
+ *   - Nested scenes (Scene sources whose underlying source IS a scene)
+ *
+ * Skips invisible sceneitems (OBS mutes audio when sceneitem is hidden).
+ * Dedupes by source pointer so that the same source referenced from multiple
+ * places in the tree is only attached once per cell.
+ *
+ * Filters out sources whose audio_mixers bitmask does not intersect
+ * track_bit. This implements "what audience hears" semantics — sources that
+ * don't route to the active streaming track contribute 0 to PGM, so they're
+ * excluded from the multiview VU meter.
+ *
+ * MAX_DEPTH guards against pathological nesting (OBS prevents true cycles
+ * at scene-link time, but defense in depth is cheap).
+ */
 struct AudioCollectCtx {
 	std::vector<obs_source_t *> sources;
+	uint32_t track_bit = 0xFFFFFFFF; /* default: no filtering */
+	int depth = 0;
+	static constexpr int MAX_DEPTH = 8;
 };
 
 static bool collect_audio_sources_cb(obs_scene_t *, obs_sceneitem_t *item, void *param)
 {
+	if (!obs_sceneitem_visible(item))
+		return true;
 	obs_source_t *itemSrc = obs_sceneitem_get_source(item);
 	if (!itemSrc)
 		return true;
-	if (!obs_sceneitem_visible(item))
+
+	auto *ctx = static_cast<AudioCollectCtx *>(param);
+	if (ctx->depth >= AudioCollectCtx::MAX_DEPTH)
 		return true;
+
+	/* Recurse into groups: groups themselves do not produce audio,
+	 * their child items do. */
+	if (obs_sceneitem_is_group(item)) {
+		ctx->depth++;
+		obs_sceneitem_group_enum_items(item, collect_audio_sources_cb, ctx);
+		ctx->depth--;
+		return true;
+	}
+
+	/* Recurse into nested scene sources: scene sources do not directly
+	 * produce audio (OBS_SOURCE_AUDIO flag is on their inner items). */
+	obs_scene_t *nested = obs_scene_from_source(itemSrc);
+	if (nested) {
+		ctx->depth++;
+		obs_scene_enum_items(nested, collect_audio_sources_cb, ctx);
+		ctx->depth--;
+		return true;
+	}
+
 	uint32_t flags = obs_source_get_output_flags(itemSrc);
 	if (flags & OBS_SOURCE_AUDIO) {
-		auto *ctx = static_cast<AudioCollectCtx *>(param);
+		/* Track filter: skip sources that don't route to the active streaming
+		 * mixer track. obs_source_get_audio_mixers returns a 6-bit mask;
+		 * bit i = Track (i+1). Result 0 means "not in any track" which OBS
+		 * uses for sources fed exclusively into spectrum-analyzer style filters. */
+		uint32_t am = obs_source_get_audio_mixers(itemSrc);
+		if ((am & ctx->track_bit) == 0)
+			return true;
+		/* Dedup: same source can legitimately appear multiple times
+		 * across nested scenes; we only want one volmeter per source. */
+		for (auto *existing : ctx->sources) {
+			if (existing == itemSrc)
+				return true;
+		}
 		ctx->sources.push_back(obs_source_get_ref(itemSrc));
 	}
 	return true; /* continue enumeration */
 }
 
-static void collect_audio_sources(obs_source_t *src, std::vector<obs_source_t *> &out)
+static void collect_audio_sources(obs_source_t *src, std::vector<obs_source_t *> &out, uint32_t track_bit)
 {
 	if (!src)
 		return;
 
 	uint32_t flags = obs_source_get_output_flags(src);
 	if (flags & OBS_SOURCE_AUDIO) {
-		/* Source itself produces audio */
+		/* Source itself produces audio (e.g. media source assigned
+		 * directly to a cell). Apply track filter consistently. */
+		uint32_t am = obs_source_get_audio_mixers(src);
+		if ((am & track_bit) == 0)
+			return;
 		out.push_back(obs_source_get_ref(src));
 		return;
 	}
 
-	/* Try to interpret as scene and collect audio sources inside */
+	/* Interpret as scene or group and collect audio sources inside. */
 	obs_scene_t *scene = obs_scene_from_source(src);
 	if (!scene)
 		scene = obs_group_from_source(src);
@@ -1547,6 +1684,7 @@ static void collect_audio_sources(obs_source_t *src, std::vector<obs_source_t *>
 		return;
 
 	AudioCollectCtx ctx;
+	ctx.track_bit = track_bit;
 	obs_scene_enum_items(scene, collect_audio_sources_cb, &ctx);
 	for (auto *s : ctx.sources)
 		out.push_back(s);
@@ -1557,6 +1695,10 @@ void MultiviewWindow::rebuild_volmeters()
 	release_volmeters();
 
 	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+
+	/* Refresh the active track bit before collecting sources so that
+	 * track-filtered enumeration uses the up-to-date mask. */
+	current_track_bit_ = compute_active_track_bit();
 
 	size_t count = cell_sources_.size();
 	cell_volmeters_.resize(count, nullptr);
@@ -1578,6 +1720,16 @@ void MultiviewWindow::rebuild_volmeters()
 			has_pgm_cell_ = true;
 		} else if (cs.type == "prvw") {
 			cellSrc = obs_frontend_get_current_preview_scene();
+			if (!cellSrc) {
+				/* Studio Mode disabled: PRVW has no separate scene, so it
+				 * 100% mirrors PGM (matches render() fallback). Treat the
+				 * cell as PGM for VU purposes — also enables the global
+				 * channel 1..5 sweep below. */
+				cellSrc = obs_frontend_get_current_scene();
+				isPgm = (cellSrc != nullptr);
+				if (isPgm)
+					has_pgm_cell_ = true;
+			}
 			has_prvw_cell_ = true;
 		} else {
 			OBSSourceAutoRelease strong = OBSGetStrongRef(cs.weak_ref);
@@ -1589,18 +1741,28 @@ void MultiviewWindow::rebuild_volmeters()
 		if (!cellSrc)
 			continue;
 
-		/* Collect all audio sources from the cell's source/scene */
+		/* Collect all audio sources from the cell's source/scene, filtered
+		 * by the active mixer track bit (per-cell semantics are identical
+		 * in v1: instance-level setting drives all cells uniformly). */
 		std::vector<obs_source_t *> audioSources;
-		collect_audio_sources(cellSrc, audioSources);
+		collect_audio_sources(cellSrc, audioSources, current_track_bit_);
 		obs_source_release(cellSrc);
 
 		/* For PGM cells, also include global audio devices (Desktop Audio, Mic/Aux)
-		 * which are always mixed into the program output but not part of any scene */
+		 * which are always mixed into the program output but not part of any scene.
+		 * OBS exposes audio devices on output channels 1..5 (channel 0 is the
+		 * current scene). Channels 6+ are unused by stock OBS. Apply the same
+		 * track filter so sources with audio_mixers & active_bit == 0 are hidden. */
 		if (isPgm) {
-			for (int ch = 1; ch <= 6; ch++) {
+			for (int ch = 1; ch <= 5; ch++) {
 				obs_source_t *globalSrc = obs_get_output_source(ch);
 				if (!globalSrc)
 					continue;
+				uint32_t am = obs_source_get_audio_mixers(globalSrc);
+				if ((am & current_track_bit_) == 0) {
+					obs_source_release(globalSrc);
+					continue;
+				}
 				/* Avoid duplicates: check if already collected */
 				bool dup = false;
 				for (auto *existing : audioSources) {
@@ -1623,29 +1785,42 @@ void MultiviewWindow::rebuild_volmeters()
 		auto *cellVm = new CellVolmeter();
 		cellVm->meters.reserve(audioSources.size());
 
-		/* Single pass with reserve: push_back won't reallocate, so
-		 * &meters.back() remains stable for callback registration */
 		for (auto *audioSrc : audioSources) {
-			SingleVolmeter sv;
+			auto sv = std::make_unique<SingleVolmeter>();
 			for (int c = 0; c < MAX_AUDIO_CHANNELS; c++) {
-				sv.magnitude[c] = VU_SILENCE_DB;
-				sv.peak[c] = VU_SILENCE_DB;
+				sv->magnitude[c] = VU_SILENCE_DB;
+				sv->peak[c] = VU_SILENCE_DB;
 			}
-			sv.volmeter = obs_volmeter_create(OBS_FADER_LOG);
-			if (!sv.volmeter) {
+			sv->volmeter = obs_volmeter_create(OBS_FADER_LOG);
+			if (!sv->volmeter) {
 				obs_source_release(audioSrc);
 				continue;
 			}
 			const char *name = obs_source_get_name(audioSrc);
-			sv.name = name ? name : "";
-			cellVm->meters.push_back(sv);
+			sv->name = name ? name : "";
 
-			SingleVolmeter *svPtr = &cellVm->meters.back();
+			/* Seed initial mute state from current source value; the "mute"
+			 * signal will keep it in sync after connection. */
+			sv->user_muted.store(obs_source_muted(audioSrc), std::memory_order_relaxed);
+			sv->source_weak = OBSGetWeakRef(audioSrc);
+
+			SingleVolmeter *svPtr = sv.get();
 			obs_volmeter_add_callback(svPtr->volmeter, volmeter_callback, svPtr);
 			obs_volmeter_attach_source(svPtr->volmeter, audioSrc);
 			svPtr->channels = obs_volmeter_get_nr_channels(svPtr->volmeter);
 
+			/* Subscribe to per-source signals so we react to:
+			 *   - mute/unmute (UI Mixer toggle)              → zero VU
+			 *   - audio_mixers change (Source > Advanced > Tracks)
+			 *     → schedule rebuild so source enters/leaves visibility */
+			signal_handler_t *sh = obs_source_get_signal_handler(audioSrc);
+			if (sh) {
+				signal_handler_connect(sh, "mute", source_mute_callback, svPtr);
+				signal_handler_connect(sh, "audio_mixers", source_audio_mixers_callback, this);
+			}
+
 			obs_log(LOG_INFO, "VU meter cell %d: attached '%s'", (int)i, svPtr->name.c_str());
+			cellVm->meters.push_back(std::move(sv));
 			obs_source_release(audioSrc);
 		}
 
@@ -1655,6 +1830,20 @@ void MultiviewWindow::rebuild_volmeters()
 		}
 		cell_volmeters_[i] = cellVm;
 	}
+
+	/* Drain any rebuild flag set during construction (e.g. by audio_mixers
+	 * signal firing while we were attaching) — we just rebuilt, so it's
+	 * already absorbed. */
+	volmeters_rebuild_requested_.store(false, std::memory_order_relaxed);
+
+	/* Refresh the active-source snapshot used by the polling pathway in
+	 * check_active_track_change(). Recompute (instead of populating from
+	 * the loop above) to ensure it reflects the same dedup+filter logic
+	 * the poll uses, so subsequent equality compares are stable. */
+	collect_active_source_pointers(last_active_sources_, current_track_bit_);
+	/* Reset poll timestamp so the first poll after a rebuild waits the
+	 * full interval (no immediate redundant rebuild). */
+	last_track_poll_ns_ = os_gettime_ns();
 
 	/* Track current PGM/PRVW scenes for change detection */
 	if (has_pgm_cell_) {
@@ -1688,6 +1877,132 @@ void MultiviewWindow::check_scene_change_for_volmeters()
 		rebuild_volmeters();
 }
 
+/* Combined poll + deferred-rebuild handler called once per render frame.
+ *
+ * Triggers (in priority order):
+ *   1. volmeters_rebuild_requested_ flag set by source_audio_mixers_callback
+ *      from any thread (signal fires when a source's Track 1..6 checkboxes
+ *      change). We absorb the flag and rebuild on the render thread.
+ *      NOTE: this signal only fires for sources we already attached. Sources
+ *      that were filtered out (audio_mixers & active_bit == 0) have no
+ *      subscriber, so the polling pathway below is required for them.
+ *   2. ~1Hz polling of the active source pointer set. Catches:
+ *        - newly-visible sources (Mic just got Track 1 ticked)
+ *        - newly-added sceneitems (added a nested scene with audio)
+ *        - newly-removed sceneitems
+ *        - scene tree edits anywhere in the recursion path
+ *      Cheap: O(N_audio_sources) tree walk, no allocations beyond the
+ *      candidate vector, no signal subscriptions to manage.
+ *   3. AutoFollow streaming-track mask change (Settings → Output → Streaming
+ *      Audio Track has no event), checked alongside the source set poll. */
+void MultiviewWindow::check_active_track_change()
+{
+	if (volmeters_rebuild_requested_.exchange(false, std::memory_order_acquire)) {
+		rebuild_volmeters();
+		return; /* rebuild already refreshed current_track_bit_ + last_active_sources_ */
+	}
+
+	uint64_t now = os_gettime_ns();
+	const uint64_t POLL_INTERVAL_NS = 1000000000ULL; /* 1 second */
+	if (last_track_poll_ns_ != 0 && (now - last_track_poll_ns_) < POLL_INTERVAL_NS)
+		return;
+	last_track_poll_ns_ = now;
+
+	uint32_t newBit = compute_active_track_bit();
+	if (newBit != current_track_bit_) {
+		rebuild_volmeters();
+		return;
+	}
+
+	/* Compare the currently-eligible source set against the snapshot from
+	 * the last rebuild. Any difference (gained/lost source) means a rebuild
+	 * is needed. This is the catch-all for cases where signal-based
+	 * notification is missing (Mic gaining Track 1 from outside, scene
+	 * tree edits, etc.). */
+	std::vector<void *> currentActive;
+	collect_active_source_pointers(currentActive, newBit);
+	if (currentActive != last_active_sources_)
+		rebuild_volmeters();
+}
+
+/* Enumerate the set of audio source pointers that *would* be attached if we
+ * rebuilt right now, given the active track bit. Identity-only — does not
+ * retain references; we acquire/release internally to keep parity with
+ * collect_audio_sources(). Result vector is sorted+deduped for set compare.
+ *
+ * Called from:
+ *   - rebuild_volmeters() to record the snapshot used by polling
+ *   - check_active_track_change() to compare against that snapshot
+ */
+void MultiviewWindow::collect_active_source_pointers(std::vector<void *> &out, uint32_t track_bit)
+{
+	out.clear();
+	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+
+	for (size_t i = 0; i < cell_sources_.size(); i++) {
+		const auto &cs = cell_sources_[i];
+		if (cs.type.empty())
+			continue;
+
+		obs_source_t *cellSrc = nullptr;
+		bool isPgm = false;
+		if (cs.type == "pgm") {
+			cellSrc = obs_frontend_get_current_scene();
+			isPgm = true;
+		} else if (cs.type == "prvw") {
+			cellSrc = obs_frontend_get_current_preview_scene();
+			if (!cellSrc) {
+				/* Studio Mode off: PRVW mirrors PGM. Match rebuild path so
+				 * the polling-based set comparison stays consistent across
+				 * studio-mode toggles. */
+				cellSrc = obs_frontend_get_current_scene();
+				isPgm = (cellSrc != nullptr);
+			}
+		} else {
+			OBSSourceAutoRelease strong = OBSGetStrongRef(cs.weak_ref);
+			if (strong)
+				cellSrc = obs_source_get_ref(strong);
+		}
+		if (!cellSrc)
+			continue;
+
+		std::vector<obs_source_t *> srcs;
+		collect_audio_sources(cellSrc, srcs, track_bit);
+		obs_source_release(cellSrc);
+
+		/* PGM-only global devices (channel 1..5), filtered by track. */
+		if (isPgm) {
+			for (int ch = 1; ch <= 5; ch++) {
+				obs_source_t *g = obs_get_output_source(ch);
+				if (!g)
+					continue;
+				uint32_t am = obs_source_get_audio_mixers(g);
+				if ((am & track_bit) != 0) {
+					/* Dedup against scene-collected sources by pointer. */
+					bool dup = false;
+					for (auto *existing : srcs) {
+						if (existing == g) {
+							dup = true;
+							break;
+						}
+					}
+					if (!dup)
+						out.push_back(g);
+				}
+				obs_source_release(g);
+			}
+		}
+
+		for (auto *s : srcs) {
+			out.push_back(s);
+			obs_source_release(s); /* identity-only, drop the +1 ref */
+		}
+	}
+
+	std::sort(out.begin(), out.end());
+	out.erase(std::unique(out.begin(), out.end()), out.end());
+}
+
 void MultiviewWindow::release_volmeters()
 {
 	/* Protect cell_volmeters_ vector against concurrent read from
@@ -1699,10 +2014,24 @@ void MultiviewWindow::release_volmeters()
 		if (!cellVm)
 			continue;
 		for (auto &sv : cellVm->meters) {
-			if (sv.volmeter) {
-				obs_volmeter_remove_callback(sv.volmeter, volmeter_callback, &sv);
-				obs_volmeter_detach_source(sv.volmeter);
-				obs_volmeter_destroy(sv.volmeter);
+			if (!sv)
+				continue;
+			/* Disconnect per-source signal handlers BEFORE destroying
+			 * the volmeter so the callbacks can no longer fire on the
+			 * about-to-be-freed SingleVolmeter / window pointer. */
+			OBSSourceAutoRelease src = OBSGetStrongRef(sv->source_weak);
+			if (src) {
+				signal_handler_t *sh = obs_source_get_signal_handler(src);
+				if (sh) {
+					signal_handler_disconnect(sh, "mute", source_mute_callback, sv.get());
+					signal_handler_disconnect(sh, "audio_mixers", source_audio_mixers_callback,
+								  this);
+				}
+			}
+			if (sv->volmeter) {
+				obs_volmeter_remove_callback(sv->volmeter, volmeter_callback, sv.get());
+				obs_volmeter_detach_source(sv->volmeter);
+				obs_volmeter_destroy(sv->volmeter);
 			}
 		}
 		delete cellVm;
@@ -1733,13 +2062,21 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 
 	float peakMax = VU_SILENCE_DB;
 	for (auto &sv : cellVm->meters) {
+		if (!sv)
+			continue;
+		/* User muted via Mixer: contribute zero to PGM → zero to VU.
+		 * volmeter callback keeps streaming raw post-fader peak even when
+		 * UI-muted (only PTT/PTM auto-mute zeroes it inside OBS), so we
+		 * enforce WYSIWYG here. */
+		if (sv->user_muted.load(std::memory_order_relaxed))
+			continue;
 		/* Check if this meter's data is stale */
-		if (sv.last_callback_ns == 0 || (now - sv.last_callback_ns) > STALE_THRESHOLD_NS)
+		if (sv->last_callback_ns == 0 || (now - sv->last_callback_ns) > STALE_THRESHOLD_NS)
 			continue;
 
-		int ch = sv.channels > 0 ? sv.channels : 2;
+		int ch = sv->channels > 0 ? sv->channels : 2;
 		for (int c = 0; c < ch && c < MAX_AUDIO_CHANNELS; c++) {
-			float p = sv.peak[c];
+			float p = sv->peak[c];
 			if (std::isfinite(p) && p > peakMax)
 				peakMax = p;
 		}

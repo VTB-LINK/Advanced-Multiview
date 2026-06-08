@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QWindow>
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -176,20 +177,39 @@ private:
 		float peak[MAX_AUDIO_CHANNELS];
 		int channels = 0;
 		uint64_t last_callback_ns = 0; /* timestamp of last callback */
+
+		/* Weak ref kept for signal disconnect + late muted re-query.
+		 * Audio source itself outlives this struct (we hold a +1 ref while
+		 * attached), so source pointer in callbacks is always valid. */
+		OBSWeakSource source_weak;
+		/* user_muted reflects UI mute (Mixer mute button). Updated by
+		 * "mute" signal callback on the source's signal handler.
+		 * Read on render thread, written from arbitrary OBS threads → atomic. */
+		std::atomic<bool> user_muted{false};
+
+		SingleVolmeter() = default;
+		SingleVolmeter(const SingleVolmeter &) = delete;
+		SingleVolmeter &operator=(const SingleVolmeter &) = delete;
 	};
 	struct CellVolmeter {
-		std::vector<SingleVolmeter> meters;
+		std::vector<std::unique_ptr<SingleVolmeter>> meters;
 		uint64_t last_update_ts = 0;
 		float displayPeak = -200.0f; /* smoothed display value in dB */
 		uint64_t last_render_ns = 0; /* for ballistics time delta */
 	};
 	std::vector<CellVolmeter *> cell_volmeters_;
+	/* Active mixer track bit (1 << (track_index - 1)). Recomputed in
+	 * rebuild_volmeters() based on VuMeterSettings.trackMode. */
+	uint32_t current_track_bit_ = 0x1;
+	uint32_t compute_active_track_bit();
 	void rebuild_volmeters();
 	void release_volmeters();
 	void render_vu_meter(int cellIndex, const CellRect &cell, int vpX, int vpY, int sigX, int sigY, int sigW,
 			     int sigH);
 	static void volmeter_callback(void *data, const float magnitude[MAX_AUDIO_CHANNELS],
 				      const float peak[MAX_AUDIO_CHANNELS], const float inputPeak[MAX_AUDIO_CHANNELS]);
+	static void source_mute_callback(void *data, calldata_t *cd);
+	static void source_audio_mixers_callback(void *data, calldata_t *cd);
 
 	/* Scene change detection for PGM/PRVW volmeter rebuild */
 	OBSWeakSource last_pgm_scene_;
@@ -197,6 +217,24 @@ private:
 	bool has_pgm_cell_ = false;
 	bool has_prvw_cell_ = false;
 	void check_scene_change_for_volmeters();
+	/* AutoFollow polling: checks streaming output mixer mask change between
+	 * frames (no event fires on Settings → Output → Streaming Track change). */
+	uint64_t last_track_poll_ns_ = 0;
+	void check_active_track_change();
+	/* Snapshot of the source pointers attached during the last rebuild,
+	 * sorted for O(N) set comparison. Used by check_active_track_change()
+	 * to detect any change in the currently-visible audio source set:
+	 *   - a source's audio_mixers gained the active track bit (e.g. user
+	 *     ticks Track 1 on Mic in Advanced Audio Properties)
+	 *   - a scene was added/removed inside the watched scene (sceneitem
+	 *     add/remove signals are not subscribed per-source)
+	 *   - a previously-attached source disappeared
+	 * Stored as void* identity (no deref); released-then-recreated sources
+	 * are safe because new pointers won't match old ones. */
+	std::vector<void *> last_active_sources_;
+	void collect_active_source_pointers(std::vector<void *> &out, uint32_t track_bit);
+	/* Queued rebuild request from non-Qt thread (e.g. audio_mixers signal). */
+	std::atomic<bool> volmeters_rebuild_requested_{false};
 };
 
 /* Global functions (defined in plugin-main) */
