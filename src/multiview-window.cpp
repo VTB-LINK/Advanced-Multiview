@@ -1554,12 +1554,14 @@ void MultiviewWindow::source_audio_mixers_callback(void *data, calldata_t *cd)
 uint32_t MultiviewWindow::compute_active_track_bit()
 {
 	MultiviewInstance *inst = config_ ? config_->find_instance(uuid_) : nullptr;
+
+	/* Read instance-level VuMeterSettings directly. Track selection is a
+	 * window-wide knob in v1 (per-cell trackMode override is deferred);
+	 * resolving the full effective settings would only end up reading these
+	 * same two fields from the instance layer. */
 	VuMeterSettings vm;
-	if (inst) {
-		EffectiveCellVisualSettings eff = resolve_effective_visual_settings(
-			config_->global_settings().visualSettings, inst->visualSettings, nullptr);
-		vm = eff.vuMeter;
-	}
+	if (inst)
+		vm = inst->visualSettings.vuMeter;
 
 	if (vm.trackMode == VuMeterTrackMode::Manual) {
 		int idx = vm.manualTrackIndex;
@@ -1606,6 +1608,7 @@ struct AudioCollectCtx {
 	std::vector<obs_source_t *> sources;
 	uint32_t track_bit = 0xFFFFFFFF; /* default: no filtering */
 	int depth = 0;
+	bool depth_exceeded = false; /* set when MAX_DEPTH was reached at least once */
 	static constexpr int MAX_DEPTH = 8;
 };
 
@@ -1618,8 +1621,10 @@ static bool collect_audio_sources_cb(obs_scene_t *, obs_sceneitem_t *item, void 
 		return true;
 
 	auto *ctx = static_cast<AudioCollectCtx *>(param);
-	if (ctx->depth >= AudioCollectCtx::MAX_DEPTH)
+	if (ctx->depth >= AudioCollectCtx::MAX_DEPTH) {
+		ctx->depth_exceeded = true;
 		return true;
+	}
 
 	/* Recurse into groups: groups themselves do not produce audio,
 	 * their child items do. */
@@ -1686,6 +1691,16 @@ static void collect_audio_sources(obs_source_t *src, std::vector<obs_source_t *>
 	AudioCollectCtx ctx;
 	ctx.track_bit = track_bit;
 	obs_scene_enum_items(scene, collect_audio_sources_cb, &ctx);
+	if (ctx.depth_exceeded) {
+		/* Log once per top-level call, not per recursion site, to avoid
+		 * spamming when a pathological scene is referenced from many cells.
+		 * MAX_DEPTH guards a runaway recursion that should not occur with
+		 * OBS's normal scene-link cycle prevention; if a user sees this it
+		 * usually means an unusually deep nested-scene chain. */
+		obs_log(LOG_WARNING,
+			"VU meter audio collection hit MAX_DEPTH=%d in source '%s'; some nested sources may be skipped",
+			AudioCollectCtx::MAX_DEPTH, obs_source_get_name(src) ? obs_source_get_name(src) : "(unnamed)");
+	}
 	for (auto *s : ctx.sources)
 		out.push_back(s);
 }
@@ -1705,6 +1720,12 @@ void MultiviewWindow::rebuild_volmeters()
 
 	has_pgm_cell_ = false;
 	has_prvw_cell_ = false;
+
+	/* Aggregate counters for a single summary log line at the end —
+	 * per-source LOG_INFO would spam the OBS log under the 1Hz active-source
+	 * polling, especially on dense grids with frequent scene mutations. */
+	int cells_with_meters = 0;
+	int total_attached = 0;
 
 	for (size_t i = 0; i < count; i++) {
 		const auto &cs = cell_sources_[i];
@@ -1819,8 +1840,8 @@ void MultiviewWindow::rebuild_volmeters()
 				signal_handler_connect(sh, "audio_mixers", source_audio_mixers_callback, this);
 			}
 
-			obs_log(LOG_INFO, "VU meter cell %d: attached '%s'", (int)i, svPtr->name.c_str());
 			cellVm->meters.push_back(std::move(sv));
+			total_attached++;
 			obs_source_release(audioSrc);
 		}
 
@@ -1829,6 +1850,7 @@ void MultiviewWindow::rebuild_volmeters()
 			continue;
 		}
 		cell_volmeters_[i] = cellVm;
+		cells_with_meters++;
 	}
 
 	/* Drain any rebuild flag set during construction (e.g. by audio_mixers
@@ -1854,6 +1876,13 @@ void MultiviewWindow::rebuild_volmeters()
 		OBSSourceAutoRelease prvw = obs_frontend_get_current_preview_scene();
 		last_prvw_scene_ = prvw ? OBSGetWeakRef(prvw) : nullptr;
 	}
+
+	/* Single summary line — replaces the per-source LOG_INFO that used to
+	 * fire inside the attach loop. With 1Hz active-source polling triggering
+	 * rebuilds on any scene-tree mutation, per-source logs flooded the OBS
+	 * log; one line per rebuild is sufficient for diagnostics. */
+	obs_log(LOG_INFO, "VU meters rebuilt: cells=%d sources=%d track_bit=0x%x", cells_with_meters, total_attached,
+		current_track_bit_);
 }
 
 void MultiviewWindow::check_scene_change_for_volmeters()
@@ -2018,7 +2047,12 @@ void MultiviewWindow::release_volmeters()
 				continue;
 			/* Disconnect per-source signal handlers BEFORE destroying
 			 * the volmeter so the callbacks can no longer fire on the
-			 * about-to-be-freed SingleVolmeter / window pointer. */
+			 * about-to-be-freed SingleVolmeter / window pointer.
+			 *
+			 * If OBSGetStrongRef returns null the source has already
+			 * been destroyed, in which case its signal_handler_t was
+			 * destroyed with it — handlers cannot fire, so skipping
+			 * disconnect is safe by construction. */
 			OBSSourceAutoRelease src = OBSGetStrongRef(sv->source_weak);
 			if (src) {
 				signal_handler_t *sh = obs_source_get_signal_handler(src);

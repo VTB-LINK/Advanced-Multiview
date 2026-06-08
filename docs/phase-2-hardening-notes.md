@@ -112,3 +112,51 @@
 | `src/multiview-window.cpp` | bg_images_ / overlay_images_ 缩容时纹理泄漏 | MED |
 | `src/multiview-window.cpp` | release_volmeters() 锁保护 cell_volmeters_ | HIGH |
 | `src/config-manager.{hpp,cpp}` | CURRENT_CONFIG_VERSION 升到 2，加迁移日志 | LOW |
+
+---
+
+## 第二轮硬化（VU 动态更新 / Track Source UI 之后）
+
+本轮覆盖 commit `821d623` 引入的代码：per-source 信号订阅（`mute` / `audio_mixers`）、
+1 Hz 活跃源指针集合轮询、`compute_active_track_bit()`、PRVW Studio Mode OFF → PGM 回退、
+Track Source / Manual Track UI 控件。
+
+### MultiviewWindow（追加已修复）
+
+- **`rebuild_volmeters()` per-source LOG_INFO 日志风暴**：[multiview-window.cpp](../src/multiview-window.cpp)
+  - 原实现在 attach 循环内对每个源 `obs_log(LOG_INFO, "VU meter cell %d: attached '%s'", ...)`；
+  - 与本轮新增的 1 Hz 活跃源轮询叠加后，任何场景树变更（重命名 / 加滤镜 / 切轨道）都会触发 rebuild，
+    10×10 grid + 嵌套场景下单次 rebuild 可产生上百条日志，淹没 OBS 日志窗口；
+  - 修复：循环内不再 LOG_INFO，rebuild 末尾输出 **单行 summary**：
+    `VU meters rebuilt: cells=%d sources=%d track_bit=0x%x`。
+- **`collect_audio_sources_cb` MAX_DEPTH 静默截断**：
+  - 原实现达到 `MAX_DEPTH=8` 时直接 `return true`，无任何日志；
+  - 病态嵌套场景下用户看到部分源缺失却找不到原因；
+  - 修复：`AudioCollectCtx` 增加 `depth_exceeded` 一次性标志，由 `collect_audio_sources()`（顶层调度）在该 flag 为真时输出 **单条** `LOG_WARNING`，包含源名。"每次 collect 调用最多一条" 避免递归点放大成日志风暴。
+- **`compute_active_track_bit()` 多余的 effective 解析**：
+  - 原实现为读 `trackMode` / `manualTrackIndex` 调用了完整的 `resolve_effective_visual_settings()`（涉及结构体拷贝 + 继承 3 层 walk）；
+  - 该函数在 1 Hz 轮询路径上调用，且 v1 中 trackMode 只在 instance 层有意义（不存在 per-cell 覆盖）；
+  - 修复：直接读 `inst->visualSettings.vuMeter`，节省每秒一次的多余分配 / 拷贝。
+- **`release_volmeters()` disconnect 路径的安全保证文档化**：
+  - 通过 `OBSGetStrongRef` 取强引用做 disconnect；若源已被销毁返回 null，跳过 disconnect；
+  - 此分支看起来"漏掉了" disconnect，实际上 OBS 源销毁时其 `signal_handler_t` 一起销毁，已注册的 handler 不可能再触发，**by construction 安全**；
+  - 补充注释明确这一不变式，避免后续误以为是 bug。
+
+### MultiviewWindow（追加观察项）
+
+- **1 Hz 活跃源轮询在窗口隐藏时仍运行**：与已有的"窗口隐藏时 VU meter 仍在工作"观察项同源。`obs_display_*` 回调在窗口最小化 / 隐藏时仍会触发，轮询会继续遍历场景树。监视器场景下窗口常开，影响有限；如需修复可在 `hideEvent` 暂停轮询、`showEvent` 立即 rebuild。
+- **`last_active_sources_` 指针集合比较的 freed-then-reallocated 边界**：
+  - 比较的是 `void*`，理论上"源 A 销毁 → 同地址被源 B 复用"会被识别为"未变化"，跳过 rebuild；
+  - 实际上场景树发生这种变化必然伴随 `obs_source_create` / `_destroy`，而 OBS 自身的 scene-item 信号会触发 `refresh_sources()` 走另一条 rebuild 路径；纯 1 Hz 比较只是兜底，极端 race 下最多延迟 1 秒；
+  - 不修，记录在案。
+- **`Track Source = Manual` + streaming output 未包含该 track**：用户主动选择，PGM cell 在 manual track 上可能没有任何源 → VU 全空。属正常行为（与 OBS 本身"切换到没人录的轨道"语义一致），不视为 bug。
+
+### 修复清单（本轮提交）
+
+| 文件 | 修复 | 风险等级 |
+|---|---|---|
+| `src/multiview-window.cpp` | rebuild_volmeters per-source LOG_INFO → 单行 summary | MED（可读性） |
+| `src/multiview-window.cpp` | collect_audio_sources MAX_DEPTH 命中时 LOG_WARNING（一次性） | LOW（可诊断） |
+| `src/multiview-window.cpp` | compute_active_track_bit 直接读 instance 设置，去掉 effective 解析 | LOW（性能） |
+| `src/multiview-window.cpp` | release_volmeters disconnect 安全不变式补注释 | LOW（可维护性） |
+
