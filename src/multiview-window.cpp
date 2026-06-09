@@ -61,6 +61,34 @@ static inline void endRegion()
 	gs_projection_pop();
 }
 
+/* ---- PGM/PRVW tree collection helpers ----
+ *
+ * obs_source_enum_active_tree walks all active (rendered) sources reachable
+ * from a root scene, including nested scenes, source filters' inputs, and
+ * any other compositional dependencies. It performs cycle detection
+ * internally, so a self-referencing scene group will not infinite-recurse.
+ *
+ * We only keep raw pointer identity for set-membership testing — we never
+ * dereference these pointers. The parent scene holds strong references to
+ * everything in the tree for the duration of the frame, so the pointers
+ * remain unique and valid for the lookup window. */
+static void collect_tree_cb(obs_source_t * /*parent*/, obs_source_t *child, void *param)
+{
+	auto *out = static_cast<std::unordered_set<obs_source_t *> *>(param);
+	if (child)
+		out->insert(child);
+}
+
+static void collect_tree_sources(obs_source_t *root, std::unordered_set<obs_source_t *> &out)
+{
+	if (!root)
+		return;
+	/* Include the root itself so a cell whose source IS the PGM/PRVW scene
+	 * gets classified correctly by the same set membership lookup. */
+	out.insert(root);
+	obs_source_enum_active_tree(root, collect_tree_cb, &out);
+}
+
 static inline QSize GetPixelSize(QWidget *widget)
 {
 	return widget->size() * widget->devicePixelRatioF();
@@ -411,6 +439,14 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 	if (has_pgm_cell_ || has_prvw_cell_)
 		check_scene_change_for_volmeters();
 
+	/* Snapshot PGM / PRVW scene trees once per frame for cell-highlight
+	 * classification. We always do this (independent of has_pgm_cell_ /
+	 * has_prvw_cell_) because a regular "scene" cell can be highlighted
+	 * when its source happens to be the current PGM/PRVW scene or is
+	 * nested inside one. Studio Mode OFF → prvw_tree_set_ stays empty
+	 * → no green borders anywhere, automatically. */
+	refresh_highlight_tree_sets();
+
 	/* Handle deferred rebuild requested from non-render threads
 	 * (audio_mixers signal) and poll for AutoFollow streaming-track changes
 	 * (no event fires on Settings → Output → Streaming Audio Track edits). */
@@ -726,6 +762,17 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		/* Render safe area guides (anchored to SignalRect, after video, before overlay) */
 		if (hasSignalRect)
 			render_safe_area(i, vrX, vrY, vrW, vrH);
+
+		/* Render PGM/PRVW cell highlight border. Drawn on top of video/bg
+		 * content but underneath label / VU meter so those overlays stay
+		 * readable when a cell is highlighted. Returns immediately if the
+		 * cell has no PGM/PRVW relationship or highlight is disabled. */
+		{
+			HighlightKind hk = compute_cell_highlight(i);
+			if (hk != HighlightKind::None && i < (int)effective_visuals_.size()) {
+				render_cell_highlight(cell, vpX, vpY, hk, effective_visuals_[i].highlight);
+			}
+		}
 
 		/* Render foreground overlay image if available */
 		if (i < (int)overlay_images_.size() && overlay_images_[i].texture) {
@@ -2336,6 +2383,209 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 	}
 
 	gs_blend_state_pop();
+}
+
+/* ---- PGM / PRVW cell highlight borders ----
+ *
+ * Strategy: each frame we snapshot the recursive active-source trees of the
+ * current PGM and PRVW scenes into raw-pointer hash sets. For each rendered
+ * cell, the cell's resolved source is classified by:
+ *   1. cell.type == "pgm"  → PgmDirect (uses obs_render_main_texture)
+ *   2. cell.type == "prvw" → PrvwDirect when Studio Mode is on, else PgmDirect
+ *      (PRVW visually falls back to PGM, so the highlight should follow suit)
+ *   3. scene/source cell whose pointer == current PGM scene → PgmDirect
+ *   4. scene/source cell whose pointer == current PRVW scene → PrvwDirect
+ *   5. scene/source cell whose pointer is in pgm_tree_set_ → PgmNested
+ *   6. scene/source cell whose pointer is in prvw_tree_set_ → PrvwNested
+ *
+ * Priority: PgmDirect > PrvwDirect > PgmNested > PrvwNested. Direct matches
+ * always render as solid borders; nested matches render as dashed when
+ * HighlightSettings.nestedDashed is true, solid otherwise.
+ *
+ * Border geometry: thickness defaults to gutter_px_ so the border fills the
+ * gutter (matches OBS native multiview look). When gutter == 0, we fall back
+ * to a thin inner inset of HighlightSettings.minThicknessPx so the border
+ * remains visible without spilling outside the cell.
+ *
+ * No per-cell override: highlight is a window-wide concept driven by the
+ * scene-tree of the OBS frontend, so the resolve chain in
+ * resolve_effective_visual_settings only considers Global + Instance. */
+
+void MultiviewWindow::refresh_highlight_tree_sets()
+{
+	pgm_tree_set_.clear();
+	prvw_tree_set_.clear();
+	OBSSourceAutoRelease pgm = obs_frontend_get_current_scene();
+	if (pgm)
+		collect_tree_sources(pgm, pgm_tree_set_);
+	OBSSourceAutoRelease prvw = obs_frontend_get_current_preview_scene();
+	if (prvw)
+		collect_tree_sources(prvw, prvw_tree_set_);
+}
+
+MultiviewWindow::HighlightKind MultiviewWindow::compute_cell_highlight(int cellIndex)
+{
+	if (cellIndex < 0 || cellIndex >= (int)cell_sources_.size())
+		return HighlightKind::None;
+
+	const auto &cs = cell_sources_[cellIndex];
+
+	/* PGM cell: always direct PGM. */
+	if (cs.type == "pgm")
+		return HighlightKind::PgmDirect;
+
+	/* PRVW cell: direct PRVW when studio mode is on; otherwise the cell
+	 * visually shows PGM content (fallback path in render loop), so the
+	 * highlight should match — direct PGM. */
+	if (cs.type == "prvw") {
+		OBSSourceAutoRelease prvw = obs_frontend_get_current_preview_scene();
+		if (prvw)
+			return HighlightKind::PrvwDirect;
+		return HighlightKind::PgmDirect;
+	}
+
+	/* Scene/source cell: resolve to a raw pointer for set comparison.
+	 * We pull a strong ref to ensure the pointer is valid while compared,
+	 * and release it at scope end. */
+	if (cs.type.empty() || !cs.weak_ref)
+		return HighlightKind::None;
+
+	OBSSourceAutoRelease cellHolder = OBSGetStrongRef(cs.weak_ref);
+	obs_source_t *cellSrc = cellHolder;
+	if (!cellSrc)
+		return HighlightKind::None;
+
+	OBSSourceAutoRelease pgm = obs_frontend_get_current_scene();
+	OBSSourceAutoRelease prvw = obs_frontend_get_current_preview_scene();
+
+	if (pgm && cellSrc == pgm.Get())
+		return HighlightKind::PgmDirect;
+	if (prvw && cellSrc == prvw.Get())
+		return HighlightKind::PrvwDirect;
+	/* PGM nested check first so PGM outranks PRVW when both contain the
+	 * same source nested inside. */
+	if (pgm_tree_set_.find(cellSrc) != pgm_tree_set_.end())
+		return HighlightKind::PgmNested;
+	if (prvw_tree_set_.find(cellSrc) != prvw_tree_set_.end())
+		return HighlightKind::PrvwNested;
+	return HighlightKind::None;
+}
+
+void MultiviewWindow::render_cell_highlight(const CellRect &cell, int vpX, int vpY, HighlightKind kind,
+					    const HighlightSettings &hs)
+{
+	if (kind == HighlightKind::None || !hs.enabled)
+		return;
+
+	uint32_t color = (kind == HighlightKind::PgmDirect || kind == HighlightKind::PgmNested) ? hs.pgmColor
+												: hs.prvwColor;
+
+	const bool nested = (kind == HighlightKind::PgmNested || kind == HighlightKind::PrvwNested);
+	const bool dashed = nested && hs.nestedDashed;
+
+	int cellX = cell.x + vpX;
+	int cellY = cell.y + vpY;
+	int cellW = cell.w;
+	int cellH = cell.h;
+	if (cellW <= 0 || cellH <= 0)
+		return;
+
+	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
+	gs_eparam_t *colorParam = gs_effect_get_param_by_name(solid, "color");
+	gs_effect_set_color(colorParam, color);
+
+	/* draw_rect: emit a single filled rectangle in absolute viewport coords.
+	 * Mirrors the pattern used by the gutter fill, label background, and
+	 * PRVW fallback yellow bar above. */
+	auto draw_rect = [&](int x, int y, int w, int h) {
+		if (w <= 0 || h <= 0)
+			return;
+		startRegion(x, y, w, h, 0.0f, (float)w, 0.0f, (float)h);
+		while (gs_effect_loop(solid, "Solid"))
+			gs_draw_sprite(nullptr, 0, w, h);
+		endRegion();
+	};
+
+	/* Determine geometry mode:
+	 *   gutter_px_ > 0  → "gutter fill" mode: border occupies the
+	 *                     gutter zone OUTSIDE the cell rect (matches
+	 *                     OBS native multiview).
+	 *   gutter_px_ == 0 → "inset" mode: border drawn INSIDE the cell
+	 *                     at thickness = hs.minThicknessPx so it
+	 *                     remains visible with zero-gutter layouts.
+	 *
+	 * In both modes we draw 4 rectangles (top/bottom/left/right) for
+	 * solid borders. Dashed borders walk each side and emit a series
+	 * of small rectangles separated by `dashGapPx`. */
+	int t;
+	int outerX, outerY, outerW, outerH; /* full outer bounding box */
+	bool insideMode;
+	if (gutter_px_ > 0) {
+		t = gutter_px_;
+		outerX = cellX - t;
+		outerY = cellY - t;
+		outerW = cellW + 2 * t;
+		outerH = cellH + 2 * t;
+		insideMode = false;
+	} else {
+		t = hs.minThicknessPx > 0 ? hs.minThicknessPx : 1;
+		outerX = cellX;
+		outerY = cellY;
+		outerW = cellW;
+		outerH = cellH;
+		insideMode = true;
+		(void)insideMode; /* unused but documents intent */
+	}
+
+	if (!dashed) {
+		/* Solid 4-rect border. Side strips overlap at corners but
+		 * that's harmless for opaque fills. */
+		draw_rect(outerX, outerY, outerW, t);                          /* top */
+		draw_rect(outerX, outerY + outerH - t, outerW, t);             /* bottom */
+		draw_rect(outerX, outerY + t, t, outerH - 2 * t);              /* left */
+		draw_rect(outerX + outerW - t, outerY + t, t, outerH - 2 * t); /* right */
+		return;
+	}
+
+	/* Dashed border: walk each side and emit short rects of length
+	 * dashLengthPx separated by dashGapPx. The last dash on a side is
+	 * truncated if it would overshoot the side length \u2014 keeps the corner
+	 * geometry tight and avoids drawing past the outer box. */
+	int dash = hs.dashLengthPx > 0 ? hs.dashLengthPx : 1;
+	int gap = hs.dashGapPx > 0 ? hs.dashGapPx : 1;
+	int period = dash + gap;
+
+	/* Top side: along x from outerX to outerX+outerW */
+	for (int off = 0; off < outerW; off += period) {
+		int segLen = dash;
+		if (off + segLen > outerW)
+			segLen = outerW - off;
+		draw_rect(outerX + off, outerY, segLen, t);
+	}
+	/* Bottom side */
+	for (int off = 0; off < outerW; off += period) {
+		int segLen = dash;
+		if (off + segLen > outerW)
+			segLen = outerW - off;
+		draw_rect(outerX + off, outerY + outerH - t, segLen, t);
+	}
+	/* Left side: along y in the inner strip (skip corners already covered
+	 * by top/bottom) */
+	int innerY = outerY + t;
+	int innerH = outerH - 2 * t;
+	for (int off = 0; off < innerH; off += period) {
+		int segLen = dash;
+		if (off + segLen > innerH)
+			segLen = innerH - off;
+		draw_rect(outerX, innerY + off, t, segLen);
+	}
+	/* Right side */
+	for (int off = 0; off < innerH; off += period) {
+		int segLen = dash;
+		if (off + segLen > innerH)
+			segLen = innerH - off;
+		draw_rect(outerX + outerW - t, innerY + off, t, segLen);
+	}
 }
 
 /* ---- Events ---- */

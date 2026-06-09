@@ -174,3 +174,77 @@ Track Source / Manual Track UI 控件。
 |---|---|---|
 | `src/multiview-window.cpp` | VU 日志加 instance + per-cell 标识；MAX_DEPTH 警告聚合 | LOW（可观测性） |
 
+
+
+---
+
+## PGM / PRVW Highlight Borders 引入（OBS 原生风格）
+
+继 VU 动态更新硬化之后引入的新功能：MultiviewWindow 现在为每个 cell 绘制
+OBS 原生风格的 PGM/PRVW 高亮边框，并扩展为 4 种状态（直接 / 嵌套 × PGM / PRVW），
+直接对接 OBS Studio Mode 切换。
+
+### 设计要点
+
+- **4 种高亮状态 + 优先级**：`PgmDirect > PrvwDirect > PgmNested > PrvwNested`
+  - Direct：cell 源 == 当前 PGM/PRVW scene
+  - Nested：cell 源被 PGM/PRVW scene tree 间接引用（任意嵌套深度）
+  - PGM 优先于 PRVW；Direct 优先于 Nested
+- **Studio Mode OFF 自动无绿色**：`prvw_tree_set_` 在 OFF 时为空，所有
+  PRVW 分支自然 fall through 到 None；PRVW 类型的 cell 走"PRVW fallback to PGM"
+  路径 → 在 `compute_cell_highlight` 内映射为 PgmDirect，与已有的黄色底栏并存。
+- **嵌套检测用 OBS 内建 API**：`obs_source_enum_active_tree` 自带防环，
+  无需 MAX_DEPTH 兜底（与 VU 路径不同，那里用 manual recurse + depth guard）。
+- **每帧重建 tree set**：成本 = 单次 PGM walk + 单次 PRVW walk；典型场景树
+  几十节点级别，与每帧渲染相比可忽略。
+- **几何**：thickness 默认 = `gutter_px_`，边框正好填满 gutter；
+  当 gutter == 0 时退化为 cell 内侧 `HighlightSettings.minThicknessPx` 描边。
+- **虚线实现选型**：评估了 GS_LINES vertex buffer，最终采用现有 `startRegion`
+  + `gs_draw_sprite` 多矩形模式（与 gutter 填充、PRVW 黄底、label bg、
+  VU 段一致），原因：
+  - 避免每帧 `gs_vertbuffer_t` 创建/销毁的潜在内存碎片与 leak 风险；
+  - 矩形数量 = 4 × (cell 周长 / dash period) ≈ 100~200/cell，draw 调用开销可忽略；
+  - 维护一致性：codebase 已有 4 处填充矩形渲染均用相同模式。
+
+### 数据模型
+
+- 新增 `HighlightSettings`（第 6 视觉组）：
+  `enabled / pgmColor / prvwColor / nestedDashed / dashLengthPx / dashGapPx / minThicknessPx`
+- 序列化字段在 `from_obs_data` 中**逐字段 `obs_data_has_user_value` 检查**，
+  保证旧配置（无 `highlight` 对象）加载后所有字段为构造默认值（`enabled=true`），
+  无须升 `CURRENT_CONFIG_VERSION`。
+- `EffectiveCellVisualSettings.highlight` **仅从 Global / Instance 解析**，
+  per-cell 不参与 — `CellVisualSettings` 故意不持有 `highlight` 字段。
+
+### Cell scope UI 处理
+
+- `cell-display-settings-dialog.cpp` 在 Cell 模式下：
+  - 不创建 inheritance combo；
+  - 替换为静态斜体灰色 label "Highlight is instance-level"；
+  - `update_inheritance_visibility()` 末尾在 Cell scope 下**强制 disable 整组**
+    （所有 `findChildren<QWidget*>` 都 setEnabled(false)），label 单独保持
+    enabled 以便阅读。
+- 与 `VuMeterSettings.trackMode` 的设计先例一致（instance-only，per-cell
+  不参与）。
+
+### 已确认的非问题
+
+- **per-cell HighlightSettings 不存在**：用户决策记录在 plan，故意省略。
+  `resolve_effective_visual_settings` 的 Cell 分支不读取 highlight，
+  `CellVisualSettings` 也不持有该字段。从设计上消除了"per-cell override
+  与 window-wide 视觉概念冲突"的风险。
+- **dashed 边框无 vertex buffer**：见上文"虚线实现选型"。后续如有性能需求
+  再切换到 GS_LINES，当前 sprite 方案足够。
+- **嵌套深度 N 性能**：`obs_source_enum_active_tree` 走 OBS 内部图，每个
+  source 只访问一次（防环 + 去重），所以 set 大小 ≤ 场景总源数，不会随
+  嵌套深度爆炸。
+- **PRVW fallback cell 既画红实线又画黄底栏**：双重提示，用户决策保留。
+
+### 修复 / 引入清单
+
+| 文件 | 改动 | 风险等级 |
+|---|---|---|
+| `src/multiview-instance.{hpp,cpp}` | 新增 HighlightSettings 数据模型 + Global/Instance 序列化 + resolve_effective | LOW（新增字段，向后兼容） |
+| `src/multiview-window.{hpp,cpp}` | tree set 每帧重算 + compute_cell_highlight + render_cell_highlight + 渲染管线接入 | MED（绘制管线插入） |
+| `src/cell-display-settings-dialog.{hpp,cpp}` | create_highlight_group + Cell scope 强制 disable + label 文案 | LOW（纯 UI） |
+

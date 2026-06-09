@@ -546,6 +546,59 @@ OverlaySettings OverlaySettings::from_obs_data(obs_data_t *data)
 	return s;
 }
 
+/* ========== HighlightSettings ========== */
+
+obs_data_t *HighlightSettings::to_obs_data() const
+{
+	obs_data_t *data = obs_data_create();
+	obs_data_set_bool(data, "enabled", enabled);
+	obs_data_set_int(data, "pgmColor", pgmColor);
+	obs_data_set_int(data, "prvwColor", prvwColor);
+	obs_data_set_bool(data, "nestedDashed", nestedDashed);
+	obs_data_set_int(data, "dashLengthPx", dashLengthPx);
+	obs_data_set_int(data, "dashGapPx", dashGapPx);
+	obs_data_set_int(data, "minThicknessPx", minThicknessPx);
+	return data;
+}
+
+HighlightSettings HighlightSettings::from_obs_data(obs_data_t *data)
+{
+	HighlightSettings s;
+	if (!data)
+		return s;
+	/* `enabled` defaults to true; only override if the key is present so that
+	 * legacy configs (no "highlight" obj at all) keep the default-on behavior. */
+	if (obs_data_has_user_value(data, "enabled"))
+		s.enabled = obs_data_get_bool(data, "enabled");
+	if (obs_data_has_user_value(data, "pgmColor"))
+		s.pgmColor = (uint32_t)obs_data_get_int(data, "pgmColor");
+	if (obs_data_has_user_value(data, "prvwColor"))
+		s.prvwColor = (uint32_t)obs_data_get_int(data, "prvwColor");
+	if (obs_data_has_user_value(data, "nestedDashed"))
+		s.nestedDashed = obs_data_get_bool(data, "nestedDashed");
+	if (obs_data_has_user_value(data, "dashLengthPx"))
+		s.dashLengthPx = (int)obs_data_get_int(data, "dashLengthPx");
+	if (obs_data_has_user_value(data, "dashGapPx"))
+		s.dashGapPx = (int)obs_data_get_int(data, "dashGapPx");
+	if (obs_data_has_user_value(data, "minThicknessPx"))
+		s.minThicknessPx = (int)obs_data_get_int(data, "minThicknessPx");
+	/* Clamps: match the UI spin ranges so an out-of-range value in disk config
+	 * cannot crash GS draw paths or produce zero-length dashes. */
+	if (s.dashLengthPx < 4)
+		s.dashLengthPx = 4;
+	if (s.dashLengthPx > 32)
+		s.dashLengthPx = 32;
+	if (s.dashGapPx < 2)
+		s.dashGapPx = 2;
+	if (s.dashGapPx > 16)
+		s.dashGapPx = 16;
+	if (s.minThicknessPx < 1)
+		s.minThicknessPx = 1;
+	if (s.minThicknessPx > 8)
+		s.minThicknessPx = 8;
+	return s;
+}
+
 /* ========== GlobalVisualSettings ========== */
 
 obs_data_t *GlobalVisualSettings::to_obs_data() const
@@ -571,6 +624,10 @@ obs_data_t *GlobalVisualSettings::to_obs_data() const
 	obs_data_t *ov = overlay.to_obs_data();
 	obs_data_set_obj(data, "overlay", ov);
 	obs_data_release(ov);
+
+	obs_data_t *hl = highlight.to_obs_data();
+	obs_data_set_obj(data, "highlight", hl);
+	obs_data_release(hl);
 
 	return data;
 }
@@ -606,6 +663,11 @@ GlobalVisualSettings GlobalVisualSettings::from_obs_data(obs_data_t *data)
 	if (ov)
 		obs_data_release(ov);
 
+	obs_data_t *hl = obs_data_get_obj(data, "highlight");
+	vs.highlight = HighlightSettings::from_obs_data(hl);
+	if (hl)
+		obs_data_release(hl);
+
 	return vs;
 }
 
@@ -639,6 +701,11 @@ obs_data_t *InstanceVisualSettings::to_obs_data() const
 	obs_data_t *ov = overlay.to_obs_data();
 	obs_data_set_obj(data, "overlay", ov);
 	obs_data_release(ov);
+
+	obs_data_set_string(data, "highlightMode", inheritance_mode_to_str(highlightMode));
+	obs_data_t *hl = highlight.to_obs_data();
+	obs_data_set_obj(data, "highlight", hl);
+	obs_data_release(hl);
 
 	return data;
 }
@@ -678,6 +745,12 @@ InstanceVisualSettings InstanceVisualSettings::from_obs_data(obs_data_t *data)
 	vs.overlay = OverlaySettings::from_obs_data(ov);
 	if (ov)
 		obs_data_release(ov);
+
+	vs.highlightMode = inheritance_mode_from_str(obs_data_get_string(data, "highlightMode"));
+	obs_data_t *hl = obs_data_get_obj(data, "highlight");
+	vs.highlight = HighlightSettings::from_obs_data(hl);
+	if (hl)
+		obs_data_release(hl);
 
 	return vs;
 }
@@ -807,6 +880,17 @@ EffectiveCellVisualSettings resolve_effective_visual_settings(const GlobalVisual
 		eff.overlay = instance.overlay;
 	else
 		eff.overlay = global.overlay;
+
+	/* Highlight
+	 *
+	 * Per-cell override intentionally not supported — highlight is a
+	 * window-wide concept driven by PGM/PRVW scene-tree containment. The
+	 * Cell Display Settings dialog disables this group entirely. Resolution
+	 * is thus a 2-step chain: instance (if override) -> global. */
+	if (instance.highlightMode == InheritanceMode::Override)
+		eff.highlight = instance.highlight;
+	else
+		eff.highlight = global.highlight;
 
 	return eff;
 }

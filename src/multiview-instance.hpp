@@ -140,6 +140,27 @@ struct OverlaySettings {
 	static OverlaySettings from_obs_data(obs_data_t *data);
 };
 
+/* PGM / PRVW cell highlight border (OBS native-style red/green borders).
+ *
+ * Scope is intentionally window-wide (Global + Instance only): per-cell
+ * override is meaningless because the highlight is driven entirely by the
+ * cell's *relationship* to the active PGM/PRVW scene tree. Per-cell tab in
+ * the dialog disables this group. Cells nested inside PGM/PRVW (e.g. cell
+ * shows scene X which is contained in current PGM) draw a dashed border in
+ * the same color as the direct match — `nestedDashed` toggles the dashing. */
+struct HighlightSettings {
+	bool enabled = true;
+	uint32_t pgmColor = 0xFFD00000;  /* ARGB red — matches OBS native */
+	uint32_t prvwColor = 0xFF00D000; /* ARGB green — matches OBS native */
+	bool nestedDashed = true;        /* nested matches use dashed border */
+	int dashLengthPx = 12;           /* [4, 32] */
+	int dashGapPx = 6;               /* [2, 16] */
+	int minThicknessPx = 2;          /* fallback when gutter == 0; [1, 8] */
+
+	obs_data_t *to_obs_data() const;
+	static HighlightSettings from_obs_data(obs_data_t *data);
+};
+
 /* ========== Visual Settings Containers ========== */
 
 struct GlobalVisualSettings {
@@ -148,6 +169,7 @@ struct GlobalVisualSettings {
 	SafeAreaSettings safeArea;
 	VuMeterSettings vuMeter;
 	OverlaySettings overlay;
+	HighlightSettings highlight;
 
 	obs_data_t *to_obs_data() const;
 	static GlobalVisualSettings from_obs_data(obs_data_t *data);
@@ -164,6 +186,8 @@ struct InstanceVisualSettings {
 	VuMeterSettings vuMeter;
 	InheritanceMode overlayMode = InheritanceMode::Inherit;
 	OverlaySettings overlay;
+	InheritanceMode highlightMode = InheritanceMode::Inherit;
+	HighlightSettings highlight;
 
 	obs_data_t *to_obs_data() const;
 	static InstanceVisualSettings from_obs_data(obs_data_t *data);
@@ -193,6 +217,7 @@ struct EffectiveCellVisualSettings {
 	SafeAreaSettings safeArea;
 	VuMeterSettings vuMeter;
 	OverlaySettings overlay;
+	HighlightSettings highlight; /* always resolved from instance/global (no per-cell) */
 };
 
 /* Resolve effective visual settings via group-level inheritance chain:

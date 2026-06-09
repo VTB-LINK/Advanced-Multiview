@@ -65,6 +65,7 @@ private:
 	QGroupBox *create_safe_area_group();
 	QGroupBox *create_vu_meter_group();
 	QGroupBox *create_overlay_group();
+	QGroupBox *create_highlight_group();
 	void update_inheritance_visibility();
 
 	Mode mode_;
@@ -78,6 +79,7 @@ private:
 	QComboBox *cmb_safe_area_inherit_ = nullptr;
 	QComboBox *cmb_vu_meter_inherit_ = nullptr;
 	QComboBox *cmb_overlay_inherit_ = nullptr;
+	QComboBox *cmb_highlight_inherit_ = nullptr;
 
 	/* Background group */
 	QGroupBox *grp_background_ = nullptr;
@@ -132,6 +134,22 @@ private:
 	QDoubleSpinBox *spin_overlay_opacity_ = nullptr;
 	QComboBox *cmb_overlay_fit_ = nullptr;
 	QComboBox *cmb_overlay_anchor_ = nullptr;
+
+	/* Highlight group (PGM/PRVW cell borders).
+	 *
+	 * Highlight is intentionally a window-wide concept driven by the OBS
+	 * frontend scene tree, so this group is editable only in Global and
+	 * Instance scopes. In Cell scope the group is force-disabled and
+	 * accompanied by an explanatory label. */
+	QGroupBox *grp_highlight_ = nullptr;
+	QLabel *lbl_highlight_cell_note_ = nullptr;
+	QCheckBox *chk_highlight_enabled_ = nullptr;
+	QLineEdit *edit_highlight_pgm_color_ = nullptr;
+	QLineEdit *edit_highlight_prvw_color_ = nullptr;
+	QCheckBox *chk_highlight_nested_dashed_ = nullptr;
+	QSpinBox *spin_highlight_dash_length_ = nullptr;
+	QSpinBox *spin_highlight_dash_gap_ = nullptr;
+	QSpinBox *spin_highlight_min_thickness_ = nullptr;
 
 	/* Copy/Paste/Reset */
 	static QByteArray s_clipboard_; /* shared clipboard for copy/paste */

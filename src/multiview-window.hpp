@@ -30,6 +30,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class MultiviewWindow : public QWidget {
@@ -235,6 +236,30 @@ private:
 	void collect_active_source_pointers(std::vector<void *> &out, uint32_t track_bit);
 	/* Queued rebuild request from non-Qt thread (e.g. audio_mixers signal). */
 	std::atomic<bool> volmeters_rebuild_requested_{false};
+
+	/* ---------- PGM / PRVW cell highlight borders (OBS-native style) ----------
+	 *
+	 * Each frame we snapshot the active PGM / PRVW source trees (recursively,
+	 * via obs_source_enum_active_tree) into pointer sets. A cell is then
+	 * classified as one of:
+	 *   PgmDirect  — cell source == current PGM scene
+	 *   PrvwDirect — cell source == current PRVW scene (Studio Mode only)
+	 *   PgmNested  — cell source is reachable inside the PGM scene tree
+	 *   PrvwNested — cell source is reachable inside the PRVW scene tree
+	 *   None       — no relation, no border drawn
+	 *
+	 * Direct outranks nested; PGM outranks PRVW. Borders use solid fill rects
+	 * for direct matches and dashed segments (GS_LINES vertex buffer) for
+	 * nested matches. Color is window-scoped (Global+Instance only, no per-cell
+	 * override). When Studio Mode is off, prvw_tree_set_ is left empty so the
+	 * window automatically produces no green borders. */
+	enum class HighlightKind { None, PgmDirect, PrvwDirect, PgmNested, PrvwNested };
+	std::unordered_set<obs_source_t *> pgm_tree_set_;
+	std::unordered_set<obs_source_t *> prvw_tree_set_;
+	void refresh_highlight_tree_sets();
+	HighlightKind compute_cell_highlight(int cellIndex);
+	void render_cell_highlight(const CellRect &cell, int vpX, int vpY, HighlightKind kind,
+				   const HighlightSettings &hs);
 };
 
 /* Global functions (defined in plugin-main) */

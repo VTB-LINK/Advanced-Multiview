@@ -275,6 +275,7 @@ void CellDisplaySettingsDialog::setup_ui()
 	scrollLayout->addWidget(create_safe_area_group());
 	scrollLayout->addWidget(create_vu_meter_group());
 	scrollLayout->addWidget(create_overlay_group());
+	scrollLayout->addWidget(create_highlight_group());
 	scrollLayout->addStretch();
 
 	scrollArea->setWidget(scrollWidget);
@@ -695,6 +696,86 @@ QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
 	return grp_overlay_;
 }
 
+/* ---- Highlight Group (PGM / PRVW cell borders) ----
+ *
+ * UI mirrors the other 5 groups: optional inheritance combo for non-Global
+ * scopes, followed by per-property editors in a form layout. The Cell scope
+ * is treated specially: instead of an inheritance combo it shows a static
+ * notice ("Highlight is instance-level") and disables every editor, because
+ * highlight is intrinsically a window-wide concept driven by the OBS scene
+ * tree — per-cell override has no useful semantics. */
+QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
+{
+	grp_highlight_ = new QGroupBox(QStringLiteral("Highlight (PGM / PRVW)"), this);
+	auto *layout = new QVBoxLayout(grp_highlight_);
+
+	if (mode_ == Mode::Cell) {
+		/* Cell scope: replace inheritance combo with informational label.
+		 * Wording is deliberate — "instance-level" tells the user where
+		 * to go to actually edit it (Instance Settings dialog), not just
+		 * that it's disabled here. */
+		lbl_highlight_cell_note_ = new QLabel(QStringLiteral("Highlight is instance-level"), grp_highlight_);
+		lbl_highlight_cell_note_->setStyleSheet(QStringLiteral("QLabel { color: #888; font-style: italic; }"));
+		layout->addWidget(lbl_highlight_cell_note_);
+	} else if (mode_ == Mode::Instance) {
+		auto *inh_row = new QHBoxLayout();
+		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_highlight_));
+		cmb_highlight_inherit_ = create_inherit_combo(grp_highlight_);
+		inh_row->addWidget(cmb_highlight_inherit_);
+		inh_row->addStretch();
+		layout->addLayout(inh_row);
+		connect(cmb_highlight_inherit_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+			update_inheritance_visibility();
+			dirty_ = true;
+			emit settings_changed();
+		});
+	}
+
+	auto *form = new QFormLayout();
+
+	chk_highlight_enabled_ = new QCheckBox(grp_highlight_);
+	form->addRow(QStringLiteral("Enabled:"), chk_highlight_enabled_);
+
+	edit_highlight_pgm_color_ = new QLineEdit(QStringLiteral("#D00000"), grp_highlight_);
+	form->addRow(QStringLiteral("PGM Color:"),
+		     build_color_picker(edit_highlight_pgm_color_, grp_highlight_, QStringLiteral("PGM Border Color")));
+
+	edit_highlight_prvw_color_ = new QLineEdit(QStringLiteral("#00D000"), grp_highlight_);
+	form->addRow(QStringLiteral("PRVW Color:"), build_color_picker(edit_highlight_prvw_color_, grp_highlight_,
+								       QStringLiteral("PRVW Border Color")));
+
+	chk_highlight_nested_dashed_ = new QCheckBox(grp_highlight_);
+	form->addRow(QStringLiteral("Nested cells use dashed border:"), chk_highlight_nested_dashed_);
+
+	spin_highlight_dash_length_ = new QSpinBox(grp_highlight_);
+	spin_highlight_dash_length_->setRange(4, 32);
+	spin_highlight_dash_length_->setSuffix(QStringLiteral(" px"));
+	form->addRow(QStringLiteral("Dash Length:"), spin_highlight_dash_length_);
+
+	spin_highlight_dash_gap_ = new QSpinBox(grp_highlight_);
+	spin_highlight_dash_gap_->setRange(2, 16);
+	spin_highlight_dash_gap_->setSuffix(QStringLiteral(" px"));
+	form->addRow(QStringLiteral("Dash Gap:"), spin_highlight_dash_gap_);
+
+	spin_highlight_min_thickness_ = new QSpinBox(grp_highlight_);
+	spin_highlight_min_thickness_->setRange(1, 8);
+	spin_highlight_min_thickness_->setSuffix(QStringLiteral(" px"));
+	spin_highlight_min_thickness_->setToolTip(QStringLiteral("Inner border thickness used when gutter width is 0"));
+	form->addRow(QStringLiteral("Min Thickness:"), spin_highlight_min_thickness_);
+
+	layout->addLayout(form);
+
+	HOOK_CHECK(chk_highlight_enabled_);
+	HOOK_EDIT(edit_highlight_pgm_color_);
+	HOOK_EDIT(edit_highlight_prvw_color_);
+	HOOK_CHECK(chk_highlight_nested_dashed_);
+	HOOK_SPIN(spin_highlight_dash_length_);
+	HOOK_SPIN(spin_highlight_dash_gap_);
+	HOOK_SPIN(spin_highlight_min_thickness_);
+
+	return grp_highlight_;
+}
+
 /* ---- Inheritance visibility ---- */
 
 void CellDisplaySettingsDialog::update_inheritance_visibility()
@@ -732,6 +813,17 @@ void CellDisplaySettingsDialog::update_inheritance_visibility()
 	toggle_group(grp_safe_area_, cmb_safe_area_inherit_);
 	toggle_group(grp_vu_meter_, cmb_vu_meter_inherit_);
 	toggle_group(grp_overlay_, cmb_overlay_inherit_);
+	toggle_group(grp_highlight_, cmb_highlight_inherit_);
+
+	/* Cell scope: highlight has no per-cell override at all, so force-disable
+	 * the entire group regardless of any inheritance combo state. The note
+	 * label set in create_highlight_group() already explains why. */
+	if (mode_ == Mode::Cell && grp_highlight_) {
+		for (auto *w : grp_highlight_->findChildren<QWidget *>())
+			w->setEnabled(false);
+		if (lbl_highlight_cell_note_)
+			lbl_highlight_cell_note_->setEnabled(true); /* keep note readable */
+	}
 
 	/* Cross-control rule: manual track spinbox is only meaningful when
 	 * trackMode == Manual. toggle_group above unconditionally enables all
@@ -796,6 +888,15 @@ void CellDisplaySettingsDialog::set_global_settings(const GlobalVisualSettings &
 	cmb_overlay_fit_->setCurrentIndex((int)gs.overlay.fitMode);
 	cmb_overlay_anchor_->setCurrentIndex((int)gs.overlay.anchorMode);
 
+	/* Highlight */
+	chk_highlight_enabled_->setChecked(gs.highlight.enabled);
+	edit_highlight_pgm_color_->setText(color_to_hex(gs.highlight.pgmColor));
+	edit_highlight_prvw_color_->setText(color_to_hex(gs.highlight.prvwColor));
+	chk_highlight_nested_dashed_->setChecked(gs.highlight.nestedDashed);
+	spin_highlight_dash_length_->setValue(gs.highlight.dashLengthPx);
+	spin_highlight_dash_gap_->setValue(gs.highlight.dashGapPx);
+	spin_highlight_min_thickness_->setValue(gs.highlight.minThicknessPx);
+
 	dirty_ = false;
 }
 
@@ -852,6 +953,15 @@ GlobalVisualSettings CellDisplaySettingsDialog::get_global_settings() const
 	gs.overlay.opacity = spin_overlay_opacity_->value();
 	gs.overlay.fitMode = (OverlayFitMode)cmb_overlay_fit_->currentIndex();
 	gs.overlay.anchorMode = (OverlayAnchorMode)cmb_overlay_anchor_->currentIndex();
+
+	/* Highlight (window-wide; Global owns the canonical defaults) */
+	gs.highlight.enabled = chk_highlight_enabled_->isChecked();
+	gs.highlight.pgmColor = hex_to_color(edit_highlight_pgm_color_->text(), 0xFFD00000);
+	gs.highlight.prvwColor = hex_to_color(edit_highlight_prvw_color_->text(), 0xFF00D000);
+	gs.highlight.nestedDashed = chk_highlight_nested_dashed_->isChecked();
+	gs.highlight.dashLengthPx = spin_highlight_dash_length_->value();
+	gs.highlight.dashGapPx = spin_highlight_dash_gap_->value();
+	gs.highlight.minThicknessPx = spin_highlight_min_thickness_->value();
 
 	return gs;
 }
@@ -916,6 +1026,17 @@ void CellDisplaySettingsDialog::set_instance_settings(const InstanceVisualSettin
 	spin_overlay_opacity_->setValue(is.overlay.opacity);
 	cmb_overlay_fit_->setCurrentIndex((int)is.overlay.fitMode);
 	cmb_overlay_anchor_->setCurrentIndex((int)is.overlay.anchorMode);
+
+	/* Highlight */
+	if (cmb_highlight_inherit_)
+		set_inherit_combo(cmb_highlight_inherit_, is.highlightMode);
+	chk_highlight_enabled_->setChecked(is.highlight.enabled);
+	edit_highlight_pgm_color_->setText(color_to_hex(is.highlight.pgmColor));
+	edit_highlight_prvw_color_->setText(color_to_hex(is.highlight.prvwColor));
+	chk_highlight_nested_dashed_->setChecked(is.highlight.nestedDashed);
+	spin_highlight_dash_length_->setValue(is.highlight.dashLengthPx);
+	spin_highlight_dash_gap_->setValue(is.highlight.dashGapPx);
+	spin_highlight_min_thickness_->setValue(is.highlight.minThicknessPx);
 
 	update_inheritance_visibility();
 	dirty_ = false;
@@ -986,6 +1107,17 @@ InstanceVisualSettings CellDisplaySettingsDialog::get_instance_settings() const
 	is.overlay.fitMode = (OverlayFitMode)cmb_overlay_fit_->currentIndex();
 	is.overlay.anchorMode = (OverlayAnchorMode)cmb_overlay_anchor_->currentIndex();
 
+	/* Highlight */
+	if (cmb_highlight_inherit_)
+		is.highlightMode = get_inherit_combo(cmb_highlight_inherit_);
+	is.highlight.enabled = chk_highlight_enabled_->isChecked();
+	is.highlight.pgmColor = hex_to_color(edit_highlight_pgm_color_->text(), 0xFFD00000);
+	is.highlight.prvwColor = hex_to_color(edit_highlight_prvw_color_->text(), 0xFF00D000);
+	is.highlight.nestedDashed = chk_highlight_nested_dashed_->isChecked();
+	is.highlight.dashLengthPx = spin_highlight_dash_length_->value();
+	is.highlight.dashGapPx = spin_highlight_dash_gap_->value();
+	is.highlight.minThicknessPx = spin_highlight_min_thickness_->value();
+
 	return is;
 }
 
@@ -1049,6 +1181,20 @@ void CellDisplaySettingsDialog::set_cell_settings(const CellVisualSettings &cs)
 	spin_overlay_opacity_->setValue(cs.overlay.opacity);
 	cmb_overlay_fit_->setCurrentIndex((int)cs.overlay.fitMode);
 	cmb_overlay_anchor_->setCurrentIndex((int)cs.overlay.anchorMode);
+
+	/* Highlight — no per-cell value exists. Show the default struct so the
+	 * disabled controls look sane rather than empty/zero. update_inheritance_
+	 * visibility() unconditionally disables this group in Cell mode. */
+	{
+		HighlightSettings hd;
+		chk_highlight_enabled_->setChecked(hd.enabled);
+		edit_highlight_pgm_color_->setText(color_to_hex(hd.pgmColor));
+		edit_highlight_prvw_color_->setText(color_to_hex(hd.prvwColor));
+		chk_highlight_nested_dashed_->setChecked(hd.nestedDashed);
+		spin_highlight_dash_length_->setValue(hd.dashLengthPx);
+		spin_highlight_dash_gap_->setValue(hd.dashGapPx);
+		spin_highlight_min_thickness_->setValue(hd.minThicknessPx);
+	}
 
 	update_inheritance_visibility();
 	dirty_ = false;
