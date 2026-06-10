@@ -69,4 +69,3 @@
 - ~~**复制网格 UUID 入口（用户向）**：~~ Phase 1 不需要；未来如需要，可放到高级 / debug 区域。
 - ~~**字段级 Visual Settings 继承**：~~ Phase 2 决策为分组级继承（Background / Label / SafeArea / VuMeter / Overlay 各自独立 `InheritanceMode`），避免 UI 碎片化。
 - ~~**Per-cell Highlight override**：~~ Highlight 由 cell 与 PGM/PRVW scene tree 的关系驱动，per-cell override 无语义。Highlight scope 限定在 Global / Instance。
-

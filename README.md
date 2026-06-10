@@ -5,24 +5,28 @@
 ## 项目文档
 
 ### 开发相关
+
 - **[开发工作流](docs/DEVELOPMENT.md)** ⭐ — **开发完成后必读**：构建配置、提交前检查、发布流程
 - **[开发环境配置](docs/setup/README.md)** — 完整的开发环境搭建指南
   - [详细配置步骤](docs/setup/SETUP.md)
   - [故障排除](docs/setup/TROUBLESHOOTING.md)
   - [插件分发](docs/setup/DISTRIBUTION.md)
-  
+
 ### 项目规划
+
 - **[项目计划](plan.md)** ⭐ — 完整的项目开发计划与当前阶段状态
 - **[术语统一规范](docs/TERMINOLOGY.md)** ⭐ — Phase / Milestone 命名权威基准（所有新文档必须遵循）
 - **[UI 设计](docs/ui-ascii-wireframes.md)** — UI 界面设计线框图
 - **[已知限制](docs/known-limitations.md)** — 当前版本的已知功能缺失与设计边界
 
 ### Phase 1（M0~M3，已完成）
+
 - **[第一阶段开发任务](docs/phase-1-development-breakdown.md)** — 详细的开发任务分解
 - **[Phase 1 验收清单](docs/phase-1-acceptance-checklist.md)** — Milestone 0~3 验收依据
 - **[Phase 1 代码硬化记录](docs/phase-1-hardening-notes.md)** — Phase 1 已修复项与观察项
 
 ### Phase 2（M4，主体已完成；Phase 2.5 进行中）
+
 - **[Phase 2 视觉参数设计](docs/phase-2-visual-settings-design.md)** ⭐ — 三层 Visual Settings、Label、Background、Overlay、Safe Area、VU Meter 设计基准
 - **[Phase 2 代码硬化记录](docs/phase-2-hardening-notes.md)** — Phase 2 已修复项与观察项
 
