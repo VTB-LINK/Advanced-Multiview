@@ -12,9 +12,21 @@
   - [插件分发](docs/setup/DISTRIBUTION.md)
   
 ### 项目规划
-- **[项目计划](plan.md)** — 完整的项目开发计划和路线图
+- **[项目计划](plan.md)** ⭐ — 完整的项目开发计划与当前阶段状态
+- **[术语统一规范](docs/TERMINOLOGY.md)** ⭐ — Phase / Milestone 命名权威基准（所有新文档必须遵循）
 - **[UI 设计](docs/ui-ascii-wireframes.md)** — UI 界面设计线框图
+- **[已知限制](docs/known-limitations.md)** — 当前版本的已知功能缺失与设计边界
+
+### Phase 1（M0~M3，已完成）
 - **[第一阶段开发任务](docs/phase-1-development-breakdown.md)** — 详细的开发任务分解
+- **[Phase 1 验收清单](docs/phase-1-acceptance-checklist.md)** — Milestone 0~3 验收依据
+- **[Phase 1 代码硬化记录](docs/phase-1-hardening-notes.md)** — Phase 1 已修复项与观察项
+
+### Phase 2（M4，主体已完成；Phase 2.5 进行中）
+- **[Phase 2 视觉参数设计](docs/phase-2-visual-settings-design.md)** ⭐ — 三层 Visual Settings、Label、Background、Overlay、Safe Area、VU Meter 设计基准
+- **[Phase 2 代码硬化记录](docs/phase-2-hardening-notes.md)** — Phase 2 已修复项与观察项
+
+> Phase 2.5（M4 收尾 / Phase 3 准备）目标：文档重基线、术语统一、Phase 2 验收清单、VU meter polish 设计。详见 [plan.md](plan.md) 顶部状态表与 §7。
 
 ## 快速开始
 
