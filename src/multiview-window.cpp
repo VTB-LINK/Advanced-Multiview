@@ -1149,7 +1149,7 @@ void MultiviewWindow::rebuild_scale_label_sources()
 
 #ifdef _WIN32
 		obs_data_t *fontObj = obs_data_create();
-		obs_data_set_int(fontObj, "size", 10);
+		obs_data_set_int(fontObj, "size", 24);
 		obs_data_set_string(fontObj, "face", "Arial");
 		obs_data_set_int(fontObj, "flags", 0);
 
@@ -1165,7 +1165,7 @@ void MultiviewWindow::rebuild_scale_label_sources()
 		obs_data_release(fontObj);
 #else
 		obs_data_t *fontObj = obs_data_create();
-		obs_data_set_int(fontObj, "size", 10);
+		obs_data_set_int(fontObj, "size", 24);
 #ifdef __APPLE__
 		obs_data_set_string(fontObj, "face", "Helvetica");
 #else
@@ -2413,10 +2413,8 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		smoothedPeak = maxDB;
 	float level = (smoothedPeak - minDB) / (maxDB - minDB);
 
-	if (level <= 0.0f && holdLevel <= 0.0f)
-		return;
-
-	/* Determine bar geometry based on position and anchor mode */
+	/* Determine bar geometry based on position and anchor mode.
+	 * Computed before the early-return so that scale ticks can always render. */
 	int barW = vmSettings.width;
 	int anchorX, anchorY, anchorW, anchorH;
 
@@ -2507,96 +2505,102 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		return;
 	}
 
-	for (int s = 0; s < 3; s++) {
-		float segStart = segments[s].start;
-		float segEnd = segments[s].end;
+	/* Only draw bar segments and peak hold when there is actual signal.
+	 * Scale ticks/labels always render (below this block). */
+	if (level > 0.0f || holdLevel > 0.0f) {
 
-		/* Clip segment to actual level */
-		if (level <= segStart)
-			break;
-		float drawEnd = (level < segEnd) ? level : segEnd;
+		for (int s = 0; s < 3; s++) {
+			float segStart = segments[s].start;
+			float segEnd = segments[s].end;
 
-		int pixStart = (int)(segStart * (float)barFullLen + 0.5f);
-		int pixEnd = (int)(drawEnd * (float)barFullLen + 0.5f);
-		int pixLen = pixEnd - pixStart;
-		if (pixLen <= 0)
-			continue;
+			/* Clip segment to actual level */
+			if (level <= segStart)
+				break;
+			float drawEnd = (level < segEnd) ? level : segEnd;
 
-		gs_effect_set_color(colorParam, segments[s].color);
+			int pixStart = (int)(segStart * (float)barFullLen + 0.5f);
+			int pixEnd = (int)(drawEnd * (float)barFullLen + 0.5f);
+			int pixLen = pixEnd - pixStart;
+			if (pixLen <= 0)
+				continue;
 
-		if (isHorizontal) {
-			int drawX;
-			if (vmSettings.flip) {
-				/* Flip: 0dB on left, -∞ on right */
-				drawX = barX + barFullLen - pixEnd;
+			gs_effect_set_color(colorParam, segments[s].color);
+
+			if (isHorizontal) {
+				int drawX;
+				if (vmSettings.flip) {
+					/* Flip: 0dB on left, -∞ on right */
+					drawX = barX + barFullLen - pixEnd;
+				} else {
+					/* Normal: -∞ on left, 0dB on right */
+					drawX = barX + pixStart;
+				}
+				startRegion(drawX, barY, pixLen, barW, 0.0f, (float)pixLen, 0.0f, (float)barW);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, pixLen, barW);
+				endRegion();
 			} else {
-				/* Normal: -∞ on left, 0dB on right */
-				drawX = barX + pixStart;
+				int drawY;
+				if (vmSettings.flip) {
+					/* Flip: 0dB on top, -∞ on bottom */
+					drawY = barY + pixStart;
+				} else {
+					/* Normal: -∞ on top (bottom-up), 0dB at bottom */
+					drawY = barY + barFullLen - pixEnd;
+				}
+				startRegion(barX, drawY, barW, pixLen, 0.0f, (float)barW, 0.0f, (float)pixLen);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, barW, pixLen);
+				endRegion();
 			}
-			startRegion(drawX, barY, pixLen, barW, 0.0f, (float)pixLen, 0.0f, (float)barW);
-			while (gs_effect_loop(solid, "Solid"))
-				gs_draw_sprite(nullptr, 0, pixLen, barW);
-			endRegion();
-		} else {
-			int drawY;
-			if (vmSettings.flip) {
-				/* Flip: 0dB on top, -∞ on bottom */
-				drawY = barY + pixStart;
+		}
+
+		/* ---- Peak Hold marker ---- */
+		if (vmSettings.peakHoldEnabled && holdLevel > 0.0f) {
+			int holdWidthPx = vmSettings.peakHoldWidthPx;
+			int holdPos = (int)(holdLevel * (float)barFullLen + 0.5f);
+			if (holdPos > barFullLen)
+				holdPos = barFullLen;
+
+			/* Determine color from dB zone */
+			uint32_t holdColor;
+			if (holdLevel >= errorNorm)
+				holdColor = redColor;
+			else if (holdLevel >= warningNorm)
+				holdColor = yellowColor;
+			else
+				holdColor = greenColor;
+
+			gs_effect_set_color(colorParam, holdColor);
+
+			if (isHorizontal) {
+				int hx;
+				if (vmSettings.flip)
+					hx = barX + barFullLen - holdPos;
+				else
+					hx = barX + holdPos - holdWidthPx;
+				if (hx < barX)
+					hx = barX;
+				startRegion(hx, barY, holdWidthPx, barW, 0.0f, (float)holdWidthPx, 0.0f, (float)barW);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, holdWidthPx, barW);
+				endRegion();
 			} else {
-				/* Normal: -∞ on top (bottom-up), 0dB at bottom */
-				drawY = barY + barFullLen - pixEnd;
+				int hy;
+				if (vmSettings.flip)
+					hy = barY + holdPos - holdWidthPx;
+				else
+					hy = barY + barFullLen - holdPos;
+				if (hy < barY)
+					hy = barY;
+				startRegion(barX, hy, barW, holdWidthPx, 0.0f, (float)barW, 0.0f, (float)holdWidthPx);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, barW, holdWidthPx);
+				endRegion();
 			}
-			startRegion(barX, drawY, barW, pixLen, 0.0f, (float)barW, 0.0f, (float)pixLen);
-			while (gs_effect_loop(solid, "Solid"))
-				gs_draw_sprite(nullptr, 0, barW, pixLen);
-			endRegion();
 		}
-	}
 
-	/* ---- Peak Hold marker ---- */
-	if (vmSettings.peakHoldEnabled && holdLevel > 0.0f) {
-		int holdWidthPx = vmSettings.peakHoldWidthPx;
-		int holdPos = (int)(holdLevel * (float)barFullLen + 0.5f);
-		if (holdPos > barFullLen)
-			holdPos = barFullLen;
-
-		/* Determine color from dB zone */
-		uint32_t holdColor;
-		if (holdLevel >= errorNorm)
-			holdColor = redColor;
-		else if (holdLevel >= warningNorm)
-			holdColor = yellowColor;
-		else
-			holdColor = greenColor;
-
-		gs_effect_set_color(colorParam, holdColor);
-
-		if (isHorizontal) {
-			int hx;
-			if (vmSettings.flip)
-				hx = barX + barFullLen - holdPos;
-			else
-				hx = barX + holdPos - holdWidthPx;
-			if (hx < barX)
-				hx = barX;
-			startRegion(hx, barY, holdWidthPx, barW, 0.0f, (float)holdWidthPx, 0.0f, (float)barW);
-			while (gs_effect_loop(solid, "Solid"))
-				gs_draw_sprite(nullptr, 0, holdWidthPx, barW);
-			endRegion();
-		} else {
-			int hy;
-			if (vmSettings.flip)
-				hy = barY + holdPos - holdWidthPx;
-			else
-				hy = barY + barFullLen - holdPos;
-			if (hy < barY)
-				hy = barY;
-			startRegion(barX, hy, barW, holdWidthPx, 0.0f, (float)barW, 0.0f, (float)holdWidthPx);
-			while (gs_effect_loop(solid, "Solid"))
-				gs_draw_sprite(nullptr, 0, barW, holdWidthPx);
-			endRegion();
-		}
-	}
+	} /* end if (level > 0 || holdLevel > 0) — bar + peak hold only */
 
 	/* ---- dB Scale ticks ---- */
 	if (vmSettings.scaleEnabled) {
@@ -2628,8 +2632,8 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 			}
 		}
 
-		/* Scale tick geometry: short lines on the non-bar side */
-		int tickLen = barW / 2;
+		/* Scale tick geometry: tick length matches full bar width */
+		int tickLen = barW;
 		if (tickLen < 2)
 			tickLen = 2;
 
@@ -2711,20 +2715,32 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 					if (tw == 0 || th == 0)
 						break;
 
+					/* Clamp render size to barW so label never exceeds meter width */
+					int renderW = (int)tw;
+					int renderH = (int)th;
+					if (renderW > barW) {
+						renderH = renderH * barW / renderW;
+						renderW = barW;
+					}
+
+					/* Label always below the tick line (vertical bar: below tick,
+					 * horizontal bar: below tick). Centered on tick position. */
 					int lx, ly;
 					if (isHorizontal) {
-						lx = tickDrawX - (int)tw / 2;
+						lx = tickDrawX - renderW / 2;
 						ly = tickDrawY + tickLen + 1;
 					} else {
-						lx = tickDrawX + tickLen + 1;
-						ly = tickDrawY - (int)th / 2;
+						/* For vertical bar: label below the tick line,
+						 * centered horizontally on the tick */
+						lx = tickDrawX + (tickLen - renderW) / 2;
+						ly = tickDrawY + 2;
 					}
 					if (lx < 0)
 						lx = 0;
 					if (ly < 0)
 						ly = 0;
 
-					startRegion(lx, ly, (int)tw, (int)th, 0.0f, (float)tw, 0.0f, (float)th);
+					startRegion(lx, ly, renderW, renderH, 0.0f, (float)tw, 0.0f, (float)th);
 					obs_source_video_render(entry.source);
 					endRegion();
 					break;
