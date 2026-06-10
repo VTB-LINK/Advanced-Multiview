@@ -288,6 +288,7 @@ void MultiviewWindow::refresh_visual_settings()
 	 * render thread (render thread: graphics lock -> source_mutex_). */
 	rebuild_bg_images();
 	rebuild_overlay_images();
+	rebuild_scale_label_sources();
 }
 
 void MultiviewWindow::update_source_refs()
@@ -398,6 +399,9 @@ void MultiviewWindow::release_source_refs()
 
 	/* Release volmeters (no graphics context needed) */
 	release_volmeters();
+
+	/* Release scale label sources */
+	release_scale_label_sources();
 
 	/* Release safe area vertex buffers */
 	obs_enter_graphics();
@@ -1081,6 +1085,115 @@ void MultiviewWindow::rebuild_label_sources()
 				label_sources_[i].fontSize = renderFontSize;
 				label_sources_[i].fontFamily = ls->fontFamily;
 			}
+		}
+	}
+}
+
+/* ---- dB Scale Label Sources ---- */
+
+void MultiviewWindow::release_scale_label_sources()
+{
+	scale_label_cache_.clear();
+}
+
+void MultiviewWindow::rebuild_scale_label_sources()
+{
+	release_scale_label_sources();
+
+	/* Collect all unique dB tick values needed across cells */
+	std::vector<float> allTicks;
+	for (size_t i = 0; i < effective_visuals_.size(); i++) {
+		const VuMeterSettings &vm = effective_visuals_[i].vuMeter;
+		if (!vm.enabled || !vm.scaleEnabled || !vm.scaleShowLabels)
+			continue;
+
+		std::string tickStr = vm.scaleTicks;
+		if (tickStr.empty())
+			tickStr = "-60,-40,-20,-9,0";
+
+		size_t pos = 0;
+		while (pos < tickStr.size()) {
+			size_t comma = tickStr.find(',', pos);
+			if (comma == std::string::npos)
+				comma = tickStr.size();
+			std::string token = tickStr.substr(pos, comma - pos);
+			pos = comma + 1;
+			try {
+				float val = std::stof(token);
+				if (val >= -96.0f && val <= 0.0f)
+					allTicks.push_back(val);
+			} catch (...) {
+			}
+		}
+	}
+
+	/* Deduplicate */
+	std::sort(allTicks.begin(), allTicks.end());
+	allTicks.erase(std::unique(allTicks.begin(), allTicks.end()), allTicks.end());
+
+	if (allTicks.empty())
+		return;
+
+	/* Create one text source per unique dB value */
+	for (float db : allTicks) {
+		int dbTenths = (int)(db * 10.0f + (db < 0 ? -0.5f : 0.5f));
+
+		/* Format label text: integer if whole, one decimal otherwise */
+		char buf[16];
+		if (db == (int)db)
+			snprintf(buf, sizeof(buf), "%d", (int)db);
+		else
+			snprintf(buf, sizeof(buf), "%.1f", db);
+
+		std::string srcName = "adv_mv_scale_" + uuid_ + "_" + std::to_string(dbTenths);
+
+#ifdef _WIN32
+		obs_data_t *fontObj = obs_data_create();
+		obs_data_set_int(fontObj, "size", 10);
+		obs_data_set_string(fontObj, "face", "Arial");
+		obs_data_set_int(fontObj, "flags", 0);
+
+		obs_data_t *settings = obs_data_create();
+		obs_data_set_string(settings, "text", buf);
+		obs_data_set_obj(settings, "font", fontObj);
+		obs_data_set_int(settings, "color", 0xFFFFFFFF);
+		obs_data_set_int(settings, "opacity", 100);
+		obs_data_set_bool(settings, "outline", false);
+
+		obs_source_t *src = obs_source_create_private("text_gdiplus", srcName.c_str(), settings);
+		obs_data_release(settings);
+		obs_data_release(fontObj);
+#else
+		obs_data_t *fontObj = obs_data_create();
+		obs_data_set_int(fontObj, "size", 10);
+#ifdef __APPLE__
+		obs_data_set_string(fontObj, "face", "Helvetica");
+#else
+		obs_data_set_string(fontObj, "face", "Monospace");
+#endif
+		obs_data_set_int(fontObj, "flags", 0);
+
+		obs_data_t *settings = obs_data_create();
+		obs_data_set_string(settings, "text", buf);
+		obs_data_set_obj(settings, "font", fontObj);
+		obs_data_set_int(settings, "color1", 0xFFFFFFFF);
+		obs_data_set_int(settings, "color2", 0xFFFFFFFF);
+		obs_data_set_bool(settings, "outline", false);
+		obs_data_set_bool(settings, "drop_shadow", false);
+
+		obs_source_t *src = obs_source_create_private("text_ft2_source_v2", srcName.c_str(), settings);
+		obs_data_release(settings);
+		obs_data_release(fontObj);
+#endif
+
+		if (src) {
+			ScaleLabelEntry entry;
+			entry.dbTenths = dbTenths;
+			entry.source = src;
+			entry.width = obs_source_get_width(src);
+			entry.height = obs_source_get_height(src);
+			scale_label_cache_.push_back(std::move(entry));
+			obs_source_release(src);
 		}
 	}
 }
@@ -2527,13 +2640,19 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		bool tickOnBarSide = (vmSettings.scaleSide == VuMeterScaleSide::Same);
 		/* For Auto / Opposite: tick on the opposite side of the bar's edge */
 
-		gs_effect_set_color(colorParam, vmSettings.scaleColor);
+		/* Scale ticks and labels always render at full alpha so they remain
+		 * visible when drawn on top of the VU bar (Same side mode). */
+		uint32_t tickColor = (vmSettings.scaleColor & 0x00FFFFFF) | 0xFF000000;
+
+		gs_effect_set_color(colorParam, tickColor);
 
 		for (float tickDB : ticks) {
 			float tickNorm = (tickDB - minDB) / (maxDB - minDB);
 			if (tickNorm < 0.0f || tickNorm > 1.0f)
 				continue;
 			int tickPos = (int)(tickNorm * (float)barFullLen + 0.5f);
+
+			int tickDrawX = 0, tickDrawY = 0;
 
 			if (isHorizontal) {
 				int tx;
@@ -2549,7 +2668,10 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 				}
 				if (ty < 0)
 					ty = 0;
+				tickDrawX = tx;
+				tickDrawY = ty;
 				startRegion(tx, ty, 1, tickLen, 0.0f, 1.0f, 0.0f, (float)tickLen);
+				gs_effect_set_color(colorParam, tickColor);
 				while (gs_effect_loop(solid, "Solid"))
 					gs_draw_sprite(nullptr, 0, 1, tickLen);
 				endRegion();
@@ -2567,10 +2689,46 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 				}
 				if (tx < 0)
 					tx = 0;
+				tickDrawX = tx;
+				tickDrawY = ty;
 				startRegion(tx, ty, tickLen, 1, 0.0f, (float)tickLen, 0.0f, 1.0f);
+				gs_effect_set_color(colorParam, tickColor);
 				while (gs_effect_loop(solid, "Solid"))
 					gs_draw_sprite(nullptr, 0, tickLen, 1);
 				endRegion();
+			}
+
+			/* ---- Render dB label text ---- */
+			if (vmSettings.scaleShowLabels) {
+				int dbTenths = (int)(tickDB * 10.0f + (tickDB < 0 ? -0.5f : 0.5f));
+				for (auto &entry : scale_label_cache_) {
+					if (entry.dbTenths != dbTenths)
+						continue;
+					if (!entry.source)
+						break;
+					uint32_t tw = obs_source_get_width(entry.source);
+					uint32_t th = obs_source_get_height(entry.source);
+					if (tw == 0 || th == 0)
+						break;
+
+					int lx, ly;
+					if (isHorizontal) {
+						lx = tickDrawX - (int)tw / 2;
+						ly = tickDrawY + tickLen + 1;
+					} else {
+						lx = tickDrawX + tickLen + 1;
+						ly = tickDrawY - (int)th / 2;
+					}
+					if (lx < 0)
+						lx = 0;
+					if (ly < 0)
+						ly = 0;
+
+					startRegion(lx, ly, (int)tw, (int)th, 0.0f, (float)tw, 0.0f, (float)th);
+					obs_source_video_render(entry.source);
+					endRegion();
+					break;
+				}
 			}
 		}
 	}

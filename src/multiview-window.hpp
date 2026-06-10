@@ -136,6 +136,17 @@ private:
 	void rebuild_label_sources();
 	void render_label(int cellIndex, const CellRect &cell, int vpX, int vpY);
 
+	/* dB scale label text sources (cached per unique dB value) */
+	struct ScaleLabelEntry {
+		int dbTenths = 0; /* dB * 10, used as key */
+		OBSSource source;
+		uint32_t width = 0;
+		uint32_t height = 0;
+	};
+	std::vector<ScaleLabelEntry> scale_label_cache_;
+	void rebuild_scale_label_sources();
+	void release_scale_label_sources();
+
 	/* Background image textures (one per cell) */
 	struct BgImage {
 		gs_texture_t *texture = nullptr;
