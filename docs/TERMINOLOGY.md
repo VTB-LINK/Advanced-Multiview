@@ -83,8 +83,8 @@ Phase 是对 Milestone 的粗粒度阶段分组，固定如下：
 | 编号 / Phase | 状态 | 推荐表述 |
 | --- | --- | --- |
 | M0 ~ M3 / Phase 1 | 功能闭环已完成；OBS 32.0、tag 构建、Linux/macOS 等验收项未全部确认 | `Phase 1（M0~M3）功能已完成，跨版本/跨平台验收未完全封口` |
-| M4 / Phase 2 | 主体功能已完成（Label/Background/SafeArea/Overlay/VU Meter/Highlight、三层 Visual Settings、动态生效） | `Phase 2（M4）主体功能已完成，进入 Phase 2.5 收尾` |
-| Phase 2.5 | 进行中（文档重基线、术语统一、Phase 2 验收清单、VU meter polish 设计） | `Phase 2.5（M4 收尾 / Phase 3 准备）进行中` |
+| M4 / Phase 2 | 主体功能已完成（Label/Background/SafeArea/Overlay/VU Meter/Highlight、三层 Visual Settings、动态生效） | `Phase 2（M4）主体功能已完成，Phase 2.5 收尾已完成` |
+| Phase 2.5 | 已完成（文档重基线、术语统一、Phase 2 验收清单、VU meter polish 设计/实现） | `Phase 2.5（M4 收尾 / Phase 3 准备）已完成` |
 | M5 / M6 / Phase 3 | 未开始 | `Phase 3（M5~M6）未开始` |
 | M7 / M8 / Phase 4 | 未开始 | `Phase 4（M7~M8）未开始` |
 

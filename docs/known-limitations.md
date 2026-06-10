@@ -1,6 +1,6 @@
 # 已知限制 (Known Limitations)
 
-> 本文档记录当前版本（0.2.x，Phase 2 / M4 主体完成，Phase 2.5 收尾中）已知的功能缺失、设计边界与跨平台验证缺口。
+> 本文档记录当前版本（0.2.x，Phase 2 / M4 主体完成，Phase 2.5 已完成）已知的功能缺失、设计边界与跨平台验证缺口。
 > 术语口径以 [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md) 为准。
 > 这些不是 bug，而是尚未规划或排期到后续阶段的功能；其中部分项被显式标注为 **设计决策不做**，避免被重复提议。
 
@@ -8,7 +8,7 @@
 
 ## 布局与显示（Phase 2.5 范围 / 部分明确不做）
 
-- **Layout Preset 管理 UI**：数据结构（`LayoutPreset`）已预留并持久化，但完整的创建 / 切换 / 删除 / 应用 UI 不属于 Phase 2 主体，需在 Phase 2.5 之后单独规划。
+- **Layout Preset 管理 UI**：数据结构（`LayoutPreset`）已预留并持久化，但完整的创建 / 切换 / 删除 / 应用 UI 不属于 Phase 2 主体，需在 Phase 3/4 规划时单独排期。
 - **Label 位置**：当前 `LabelPosition` 仅 `Top / Bottom`，足以满足 PRD 三种显示模式（`None / Overlay / Below`）。Left / Right / Center / 角落位置 **明确不做**（Phase 2.5 产品决策）。
 - **Background fit 模式**：当前 `ImageFitMode` 仅 `Fit / Stretch`。Fill / Tile 等更多模式 **暂不扩展**，除非未来用户反馈明确。
 - **Overlay 图层栈 / preset 管理**：当前只支持单层自定义 overlay 图片。多 overlay 图层栈、overlay preset 管理 UI、复杂混合模式 **明确不做**；未来内置 safe-zone 等图示通过插件 DLL 旁资源文件夹动态读取，不引入素材管理系统。
