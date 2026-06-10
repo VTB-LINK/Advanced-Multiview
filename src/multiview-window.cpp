@@ -2485,6 +2485,89 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		}
 	}
 
+	/* ---- dB Scale ticks ---- */
+	if (vmSettings.scaleEnabled) {
+		/* Parse scale ticks from CSV string, fallback to default set */
+		std::vector<float> ticks;
+		std::string tickStr = vmSettings.scaleTicks;
+		if (tickStr.empty())
+			tickStr = "-60,-40,-20,-9,0";
+
+		/* Simple CSV parse */
+		{
+			size_t pos = 0;
+			while (pos < tickStr.size()) {
+				size_t comma = tickStr.find(',', pos);
+				if (comma == std::string::npos)
+					comma = tickStr.size();
+				std::string token = tickStr.substr(pos, comma - pos);
+				pos = comma + 1;
+				try {
+					float val = std::stof(token);
+					if (val >= -96.0f && val <= 0.0f)
+						ticks.push_back(val);
+				} catch (...) {
+					/* skip invalid tokens */
+				}
+			}
+			if (ticks.empty()) {
+				ticks = {-60.0f, -40.0f, -20.0f, -9.0f, 0.0f};
+			}
+		}
+
+		/* Scale tick geometry: short lines on the non-bar side */
+		int tickLen = barW / 2;
+		if (tickLen < 2)
+			tickLen = 2;
+
+		gs_effect_set_color(colorParam, vmSettings.scaleColor);
+
+		for (float tickDB : ticks) {
+			float tickNorm = (tickDB - minDB) / (maxDB - minDB);
+			if (tickNorm < 0.0f || tickNorm > 1.0f)
+				continue;
+			int tickPos = (int)(tickNorm * (float)barFullLen + 0.5f);
+
+			if (isHorizontal) {
+				int tx;
+				if (vmSettings.flip)
+					tx = barX + barFullLen - tickPos;
+				else
+					tx = barX + tickPos;
+				/* Draw tick below or above the bar */
+				int ty;
+				if (vmSettings.position == VuMeterPosition::Top)
+					ty = barY + barW; /* below bar */
+				else
+					ty = barY - tickLen; /* above bar */
+				if (ty < 0)
+					ty = 0;
+				startRegion(tx, ty, 1, tickLen, 0.0f, 1.0f, 0.0f, (float)tickLen);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, 1, tickLen);
+				endRegion();
+			} else {
+				int ty;
+				if (vmSettings.flip)
+					ty = barY + tickPos;
+				else
+					ty = barY + barFullLen - tickPos;
+				/* Draw tick left or right of the bar */
+				int tx;
+				if (vmSettings.position == VuMeterPosition::Left)
+					tx = barX + barW; /* right of bar */
+				else
+					tx = barX - tickLen; /* left of bar */
+				if (tx < 0)
+					tx = 0;
+				startRegion(tx, ty, tickLen, 1, 0.0f, (float)tickLen, 0.0f, 1.0f);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, tickLen, 1);
+				endRegion();
+			}
+		}
+	}
+
 	gs_blend_state_pop();
 }
 

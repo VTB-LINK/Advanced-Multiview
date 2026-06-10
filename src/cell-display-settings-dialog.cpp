@@ -871,6 +871,15 @@ void CellDisplaySettingsDialog::update_inheritance_visibility()
 			lbl_highlight_cell_note_->setEnabled(true); /* keep note readable */
 	}
 
+	/* Cell scope: trackMode is instance-level (per-cell override deferred).
+	 * Disable Track Source and Manual Track controls in Cell mode. */
+	if (mode_ == Mode::Cell) {
+		if (cmb_vu_track_mode_)
+			cmb_vu_track_mode_->setEnabled(false);
+		if (spin_vu_manual_track_)
+			spin_vu_manual_track_->setEnabled(false);
+	}
+
 	/* Cross-control rule: manual track spinbox is only meaningful when
 	 * trackMode == Manual. toggle_group above unconditionally enables all
 	 * children of the override group, so re-apply this narrower rule. */
