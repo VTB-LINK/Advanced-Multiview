@@ -53,6 +53,9 @@ target_sources(
           src/multiview-window.cpp
           src/multiview-window-vu.cpp
           src/multiview-window-label.cpp
+          src/multiview-window-image.cpp
+          src/multiview-window-safe-area.cpp
+          src/multiview-window-highlight.cpp
           src/source-picker.hpp
           src/source-picker.cpp)
 
