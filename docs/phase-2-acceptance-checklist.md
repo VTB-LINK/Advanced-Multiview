@@ -98,13 +98,13 @@
 - [x] rebuild summary 单行日志，避免 per-source LOG_INFO 风暴
 - [x] mute 状态 WYSIWYG：UI mute 时贡献为零
 
-### Phase 2.5 polish（设计待定，实现未开始）
+### Phase 2.5 polish（已完成，用户已验收）
 
-- [ ] Peak Hold（含 `peakHoldMs`）
-- [ ] dB 标尺 / 刻度显示（默认 `-60 / -40 / -20 / -9 / 0`）
-- [ ] Scene cell trackMode 语义决策（默认继承 instance）
-- [ ] Source cell trackMode 语义决策（per-cell manual track 是否实现）
-- [ ] PGM/PRVW cell trackMode 文档定案（沿用 AutoFollowStreaming）
+- [x] Peak Hold（`peakHoldEnabled` / `peakHoldMs` / `peakHoldDecayDbPerSec` / `peakHoldWidthPx`）：ballistic + hold marker 渲染 + 硬化
+- [x] dB 标尺 / 刻度显示：`scaleEnabled` / `scaleTicks` CSV / `scaleShowLabels`（text source cache）/ `scaleColor` / `scaleSide`；tick 全宽 + labels below + 全 alpha
+- [x] Scene cell trackMode 语义决策：默认继承 instance，Cell scope 禁用 Track Source/Manual Track
+- [x] Source cell trackMode 语义决策：同上，per-cell override 不做
+- [x] PGM/PRVW cell trackMode 文档定案：沿用 AutoFollowStreaming
 
 ### 明确不做
 
@@ -178,6 +178,6 @@
 - [x] [plan.md](plan.md) M4 状态更新为 "主体已完成"
 - [x] [README.md](README.md) 增加 Phase 1 / Phase 2 文档导航
 - [x] [docs/phase-2-acceptance-checklist.md](docs/phase-2-acceptance-checklist.md) 本文件
-- [ ] [docs/known-limitations.md](docs/known-limitations.md) 清理已过时条目（Phase 2.5 Step 4）
-- [ ] [docs/phase-2-hardening-notes.md](docs/phase-2-hardening-notes.md) 与 [docs/phase-2-visual-settings-design.md](docs/phase-2-visual-settings-design.md) 引用本验收清单
-- [ ] VU meter polish 设计文档（Phase 2.5 Step 7）
+- [x] [docs/known-limitations.md](docs/known-limitations.md) 清理已过时条目（Phase 2.5 完成）
+- [x] [docs/phase-2-hardening-notes.md](docs/phase-2-hardening-notes.md) 交叉引用验收清单（已在顶部 block 链接）
+- [x] VU meter polish 设计文档 [docs/phase-2.5-vu-meter-polish-design.md](docs/phase-2.5-vu-meter-polish-design.md)（已建立并实现）

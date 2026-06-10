@@ -15,13 +15,13 @@
 - **Safe Area preset**：当前仅 `EBU_R95`。SMPTE RP 218、Action Safe / Title Safe 等更多 preset **暂不扩展**；未来更多安全区图示优先作为 overlay 资源提供。
 - **图像资源管理 / 素材库**：**明确不做**。插件核心定位是 multiview，不是素材管理；用户手动选择路径、Background/Overlay 路径直接持久化绝对路径。
 
-## VU Meter（Phase 2.5 polish 设计待定）
+## VU Meter
 
-- **Peak Hold**：尚未实现。Phase 2.5 计划补充 `peakHoldMs` 字段并渲染保持线。
-- **dB 标尺 / 刻度**：尚未实现。Phase 2.5 计划默认渲染 `-60 / -40 / -20 / -9 / 0` 几个刻度。
-- **Per-cell trackMode**：当前 `VuMeterSettings.trackMode` 按 instance/window-wide 计算（[src/multiview-window.cpp](src/multiview-window.cpp) `compute_active_track_bit()` 中明确注释 deferred）；scene/source cell 的 trackMode 语义需 Phase 2.5 单独决策。
+- ~~**Peak Hold**：尚未实现。~~ **已完成**（Phase 2.5）：`peakHoldEnabled`、`peakHoldMs`、`peakHoldDecayDbPerSec`、`peakHoldWidthPx`；渲染 hold marker + 硬化。
+- ~~**dB 标尺 / 刻度**：尚未实现。~~ **已完成**（Phase 2.5）：`scaleEnabled`、`scaleTicks` CSV、`scaleShowLabels`（text source cache）、`scaleColor`、`scaleSide`；tick 全宽 + labels below tick + 全 alpha 可见。
+- ~~**Per-cell trackMode**：需 Phase 2.5 单独决策。~~ **已决策**（Phase 2.5）：不做 per-cell trackMode override；Cell scope 下 Track Source / Manual Track 控件已禁用；字段保留以便未来无破坏扩展。
 - **完整 OBS Mixer 复刻**：**明确不做**。VU meter 定位是监看辅助而非混音器。
-- **5.1 / 7.1 多声道独立 meter**：**低优先级**，Phase 2.5 不做。
+- **5.1 / 7.1 多声道独立 meter**：**低优先级**，当前不做。
 - **外部信号（NDI / Spout / 媒体流）音频 meter**：属于 Phase 3（M6）外部流接入范围。
 
 ## 外部信号（Phase 3 / M6）
