@@ -2520,6 +2520,13 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 		if (tickLen < 2)
 			tickLen = 2;
 
+		/* Determine which side to draw ticks on.
+		 * Auto: opposite side of the bar (away from cell edge).
+		 * Same: overlapping the bar itself.
+		 * Opposite: explicitly on the non-bar side. */
+		bool tickOnBarSide = (vmSettings.scaleSide == VuMeterScaleSide::Same);
+		/* For Auto / Opposite: tick on the opposite side of the bar's edge */
+
 		gs_effect_set_color(colorParam, vmSettings.scaleColor);
 
 		for (float tickDB : ticks) {
@@ -2534,12 +2541,12 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 					tx = barX + barFullLen - tickPos;
 				else
 					tx = barX + tickPos;
-				/* Draw tick below or above the bar */
 				int ty;
-				if (vmSettings.position == VuMeterPosition::Top)
-					ty = barY + barW; /* below bar */
-				else
-					ty = barY - tickLen; /* above bar */
+				if (vmSettings.position == VuMeterPosition::Top) {
+					ty = tickOnBarSide ? barY : barY + barW;
+				} else {
+					ty = tickOnBarSide ? barY + barW - tickLen : barY - tickLen;
+				}
 				if (ty < 0)
 					ty = 0;
 				startRegion(tx, ty, 1, tickLen, 0.0f, 1.0f, 0.0f, (float)tickLen);
@@ -2552,12 +2559,12 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 					ty = barY + tickPos;
 				else
 					ty = barY + barFullLen - tickPos;
-				/* Draw tick left or right of the bar */
 				int tx;
-				if (vmSettings.position == VuMeterPosition::Left)
-					tx = barX + barW; /* right of bar */
-				else
-					tx = barX - tickLen; /* left of bar */
+				if (vmSettings.position == VuMeterPosition::Left) {
+					tx = tickOnBarSide ? barX : barX + barW;
+				} else {
+					tx = tickOnBarSide ? barX + barW - tickLen : barX - tickLen;
+				}
 				if (tx < 0)
 					tx = 0;
 				startRegion(tx, ty, tickLen, 1, 0.0f, (float)tickLen, 0.0f, 1.0f);
