@@ -766,7 +766,7 @@ gutter / 缝隙：
 - 外部流立即重连。
 - artifacts 打包完善。
 
-这些内容应等待 Milestone 3 完成后进入后续阶段详细规划。
+这些内容应在 Phase 2.5 完成后，进入 Phase 3（M5~M6）、Phase 4（M7~M8）时再详细规划，详见 [TERMINOLOGY.md](TERMINOLOGY.md) 与 [../plan.md](../plan.md)。
 
 ---
 
