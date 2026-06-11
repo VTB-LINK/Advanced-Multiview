@@ -34,6 +34,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCloseEvent>
 #include <QMenu>
 #include <QScreen>
+#include <QTimer>
 #include <QWindow>
 
 #include <algorithm>
@@ -290,11 +291,28 @@ void MultiviewWindow::on_source_being_removed(obs_source_t *source)
 		return;
 
 	bool any_match = false;
+	std::vector<std::pair<int, int>> clear_rowcols;
 
 	{
 		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 
-		for (auto &cs : cell_sources_) {
+		/* Build a (cell index -> row,col) lookup once per call so we can
+		 * map a matched cell back to its grid coordinates without a
+		 * second LayoutEngine pass per cell. */
+		std::vector<std::pair<int, int>> idx_to_rowcol;
+		{
+			LayoutEngine tmpEngine;
+			tmpEngine.set_layout(layout_);
+			tmpEngine.set_viewport(800, 600);
+			tmpEngine.compute();
+			const auto &cells = tmpEngine.cells();
+			idx_to_rowcol.reserve(cells.size());
+			for (const auto &cr : cells)
+				idx_to_rowcol.emplace_back(cr.gridRow, cr.gridCol);
+		}
+
+		for (size_t i = 0; i < cell_sources_.size(); i++) {
+			auto &cs = cell_sources_[i];
 			if (cs.type.empty() || cs.type == "pgm" || cs.type == "prvw")
 				continue;
 			if (!cs.weak_ref)
@@ -330,6 +348,19 @@ void MultiviewWindow::on_source_being_removed(obs_source_t *source)
 			cs.state = SignalRuntimeState::MissingInternal;
 			cs.last_active_ns = 0;
 			any_match = true;
+
+			/* Phase 3 / M5.1 ClearCell: if the user explicitly chose
+			 * ClearCell as the InternalMissingBehavior for this cell,
+			 * collect its (row, col) so the Qt main thread can drop
+			 * the assignment + persist after we leave this signal
+			 * handler. We deliberately don't mutate cellAssignments
+			 * here: source_remove can fire on non-UI threads, and
+			 * config save / refresh_sources must run on the UI thread
+			 * (Qt widgets, Frontend API, file IO). */
+			if (cs.effective_lost.internalMissingBehavior == InternalMissingBehavior::ClearCell &&
+			    i < idx_to_rowcol.size()) {
+				clear_rowcols.push_back(idx_to_rowcol[i]);
+			}
 		}
 
 		/* Only kick a volmeter rebuild when this window actually held the
@@ -346,6 +377,15 @@ void MultiviewWindow::on_source_being_removed(obs_source_t *source)
 	 * and the render thread takes (graphics, source_mutex_) in that order. */
 	if (any_match)
 		rebuild_lost_signal_images();
+
+	/* Phase 3 / M5.1 ClearCell: queue persistence onto the UI thread.
+	 * QueuedConnection (via QTimer::singleShot 0ms targeting `this`) means
+	 * the lambda runs on the thread that owns `this` (Qt main thread for
+	 * any QWidget), regardless of which thread fired source_remove. */
+	if (!clear_rowcols.empty()) {
+		auto rowcols_copy = clear_rowcols;
+		QTimer::singleShot(0, this, [this, rowcols_copy]() { apply_clear_cell_for_rowcols(rowcols_copy); });
+	}
 }
 
 void MultiviewWindow::on_source_just_created(obs_source_t *source)
@@ -1917,6 +1957,44 @@ void MultiviewWindow::on_clear_cell(int cellIndex)
 	inst->signalDirty = true;
 	config_->save();
 
+	refresh_sources();
+}
+
+void MultiviewWindow::apply_clear_cell_for_rowcols(const std::vector<std::pair<int, int>> &rowCols)
+{
+	if (rowCols.empty())
+		return;
+
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (!inst)
+		return;
+
+	auto &assignments = inst->cellAssignments;
+	bool any_removed = false;
+	for (const auto &rc : rowCols) {
+		const int r = rc.first;
+		const int c = rc.second;
+		auto before = assignments.size();
+		assignments.erase(std::remove_if(assignments.begin(), assignments.end(),
+						 [r, c](const CellAssignment &a) { return a.row == r && a.col == c; }),
+				  assignments.end());
+		if (assignments.size() != before) {
+			any_removed = true;
+			obs_log(LOG_INFO, "ClearCell: dropped assignment at (row=%d, col=%d) for instance '%s'", r, c,
+				inst->name.c_str());
+		}
+	}
+
+	if (!any_removed)
+		return;
+
+	inst->signalDirty = true;
+	config_->save();
+
+	/* Heavy refresh resizes cell_sources_ + rebuilds label / VU / images,
+	 * matching the manual on_clear_cell flow. ManagerDialog observes the
+	 * same config_ instance so its assignment list will reflect the change
+	 * on its next repaint. */
 	refresh_sources();
 }
 

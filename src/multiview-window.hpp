@@ -82,6 +82,16 @@ public:
 	 * libobs guarantees stays alive for the duration of the signal. */
 	void on_source_being_removed(obs_source_t *source);
 
+	/* Phase 3 / M5.1 ClearCell: invoked from on_source_being_removed when a
+	 * cell with InternalMissingBehavior::ClearCell just lost its source.
+	 * Mutates the instance assignment list and persists, mirroring what the
+	 * right-click "Clear Cell" menu does — but driven by the runtime, not a
+	 * user click. The list of (row, col) pairs is collected synchronously
+	 * under source_mutex_ and then queued onto the Qt main thread because
+	 * source_remove can fire on any thread and config persistence must
+	 * happen on the UI thread. */
+	void apply_clear_cell_for_rowcols(const std::vector<std::pair<int, int>> &rowCols);
+
 	/* Phase 3 / M5.4 hardening: invoked synchronously from the OBS
 	 * `source_create` signal handler. If the new source's name matches a
 	 * cell that is currently in MissingInternal (e.g. user just clicked
