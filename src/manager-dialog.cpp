@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "manager-dialog.hpp"
 #include "cell-display-settings-dialog.hpp"
+#include "signal-lost-settings-dialog.hpp"
 #include "grid-preview-widget.hpp"
 #include "multiview-window.hpp"
 
@@ -720,6 +721,23 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 			chk_safe_area_enabled_->setChecked(config_->global_settings().visualSettings.safeArea.enabled);
 			config_->save();
 			notify_multiview_visual_settings_changed();
+		}
+	});
+
+	/* Phase 3 / M5.2: Global Signal Lost Settings entry. Sits next to the
+	 * existing Global Visual Settings button so users can reach both project-
+	 * wide defaults from the same place. Per-cell overrides live in the
+	 * MultiviewWindow right-click menu (Signal Lost Settings...). */
+	auto *btn_global_signal_lost = new QPushButton(QStringLiteral("Edit Global Signal Lost Settings..."), tab);
+	layout->addWidget(btn_global_signal_lost);
+
+	connect(btn_global_signal_lost, &QPushButton::clicked, this, [this]() {
+		SignalLostSettingsDialog dlg(SignalLostSettingsDialog::Mode::Global, this);
+		dlg.set_global_settings(config_->global_settings().lostSignal);
+		if (dlg.exec() == QDialog::Accepted) {
+			config_->global_settings().lostSignal = dlg.get_global_settings();
+			config_->save();
+			notify_multiview_signal_settings_changed();
 		}
 	});
 

@@ -54,6 +54,22 @@ public:
 	/* Recompute effective visual settings for all cells */
 	void refresh_visual_settings();
 
+	/* Phase 3 / M5: re-resolve cell signal state.
+	 *
+	 * `refresh_signal_settings()` is the no-op-cheap counterpart of
+	 * `refresh_visual_settings()` for Lost Signal config changes — it does
+	 * not rebuild label/bg/overlay/VU sources but does kick the runtime so
+	 * a freshly persisted strategy (image path, fallback assignment, etc.)
+	 * applies on the very next frame.
+	 *
+	 * `force_reconnect_cell()` powers the `Reconnect Now` menu (M5.3): it
+	 * forces a name re-resolve for internal sources and is M6-ready for
+	 * external private-source rebuild. Returns true when a reconnect was
+	 * actually attempted; returns false if the cooldown is still active or
+	 * the cell has nothing to reconnect (Empty / out of range). */
+	void refresh_signal_settings();
+	bool force_reconnect_cell(int cellIndex);
+
 	QPaintEngine *paintEngine() const override { return nullptr; }
 
 signals:
@@ -354,3 +370,4 @@ void open_manager_dialog();
 void notify_multiview_layout_changed(const std::string &uuid = "");
 void notify_multiview_name_changed(const std::string &uuid);
 void notify_multiview_visual_settings_changed(const std::string &uuid = "");
+void notify_multiview_signal_settings_changed(const std::string &uuid = "");

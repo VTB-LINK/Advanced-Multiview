@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "multiview-window.hpp"
 #include "cell-display-settings-dialog.hpp"
+#include "signal-lost-settings-dialog.hpp"
 #include "source-picker.hpp"
 
 #include <obs-module.h>
@@ -289,6 +290,106 @@ void MultiviewWindow::refresh_visual_settings()
 	rebuild_bg_images();
 	rebuild_overlay_images();
 	rebuild_scale_label_sources();
+}
+
+void MultiviewWindow::refresh_signal_settings()
+{
+	/* Phase 3 / M5.5: Lost Signal settings change.
+	 *
+	 * Today this is intentionally cheap. The runtime state is recomputed
+	 * each frame inside render() based on `cell_sources_[i].state` and the
+	 * currently effective LostSignalSettings, so we only need to nudge any
+	 * cached placeholder/signal-lost image loaders. M5.4 will hook the
+	 * actual texture loading here; until then the call is a no-op-with-log.
+	 *
+	 * Future shape (kept here as documentation for the next iteration):
+	 *   - reload placeholder image for cells that just gained one
+	 *   - drop placeholder texture for cells that no longer use it
+	 *   - similarly for signalLostImage
+	 */
+	(void)config_;
+}
+
+bool MultiviewWindow::force_reconnect_cell(int cellIndex)
+{
+	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+
+	if (cellIndex < 0 || cellIndex >= (int)cell_sources_.size())
+		return false;
+	auto &cs = cell_sources_[cellIndex];
+	if (cs.type.empty())
+		return false;
+
+	/* Resolve cooldown from effective Lost Signal settings so users who
+	 * raised the cooldown deliberately (e.g. flaky NDI sources) keep their
+	 * preferred pacing. Falls back to the documented 1s default if the
+	 * instance / global config disappears mid-call. */
+	int cooldownMs = 1000;
+	{
+		MultiviewInstance *inst = config_->find_instance(uuid_);
+		if (inst) {
+			LayoutEngine tmpEngine;
+			tmpEngine.set_layout(inst->layout);
+			tmpEngine.set_viewport(100, 100);
+			tmpEngine.compute();
+			const auto &cells = tmpEngine.cells();
+			if (cellIndex < (int)cells.size()) {
+				int r = cells[cellIndex].gridRow;
+				int c = cells[cellIndex].gridCol;
+				const CellLostSignalSettings *cls = inst->find_cell_lost_signal(r, c);
+				LostSignalSettings eff =
+					resolve_effective_lost_signal(config_->global_settings().lostSignal, cls);
+				cooldownMs = eff.manualReconnectCooldownMs;
+			}
+		}
+	}
+
+	const uint64_t now = os_gettime_ns();
+	if (cs.last_reconnect_ns != 0 && cooldownMs > 0) {
+		uint64_t elapsedMs = (now - cs.last_reconnect_ns) / 1000000ull;
+		if ((int)elapsedMs < cooldownMs) {
+			obs_log(LOG_DEBUG, "reconnect cooldown active for cell %d (%llu/%d ms)", cellIndex,
+				(unsigned long long)elapsedMs, cooldownMs);
+			return false;
+		}
+	}
+	cs.last_reconnect_ns = now;
+	cs.retry_attempt++;
+
+	/* PGM/PRVW are resolved fresh per-frame; nothing to rebuild but we
+	 * still record the attempt so the cooldown applies symmetrically. */
+	if (cs.type == "pgm" || cs.type == "prvw") {
+		cs.state = SignalRuntimeState::Active;
+		return true;
+	}
+
+	/* Internal scene/source: drop the cached weak ref so the very next
+	 * frame falls into the existing lazy re-resolve path with a forced
+	 * lookup (re_resolve_counter_ == 0 isn't required because we go
+	 * straight through obs_get_source_by_name). */
+	if (cs.showing) {
+		OBSSourceAutoRelease oldSrc = OBSGetStrongRef(cs.weak_ref);
+		if (oldSrc)
+			obs_source_dec_showing(oldSrc);
+		cs.showing = false;
+	}
+	cs.weak_ref = nullptr;
+
+	if (!cs.name.empty()) {
+		obs_source_t *resolved = obs_get_source_by_name(cs.name.c_str());
+		if (resolved) {
+			cs.weak_ref = OBSGetWeakRef(resolved);
+			obs_source_inc_showing(resolved);
+			cs.showing = true;
+			cs.state = SignalRuntimeState::Active;
+			obs_source_release(resolved);
+			obs_log(LOG_INFO, "reconnect cell %d: resolved '%s'", cellIndex, cs.name.c_str());
+			return true;
+		}
+	}
+	cs.state = SignalRuntimeState::MissingInternal;
+	obs_log(LOG_INFO, "reconnect cell %d: '%s' still missing", cellIndex, cs.name.c_str());
+	return true;
 }
 
 void MultiviewWindow::update_source_refs()
@@ -572,6 +673,11 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 						cell_sources_[i].showing = true;
 						srcHolder = resolved;
 						obs_source_release(resolved);
+						/* Phase 3 / M5: source just came back (e.g. user undo).
+						 * Kick the volmeter rebuild so audio metering re-attaches
+						 * on the very next frame instead of waiting up to 1s for
+						 * the active-source poll. */
+						volmeters_rebuild_requested_.store(true, std::memory_order_release);
 					}
 				}
 				src = srcHolder;
@@ -592,8 +698,19 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			} else {
 				newState = SignalRuntimeState::MissingInternal;
 			}
-			if (newState != cs.state)
+			if (newState != cs.state) {
+				/* Phase 3 / M5: any cross between Active and a non-Active
+				 * state changes which sources should be metered. Kick a
+				 * deferred volmeter rebuild so the next frame on the
+				 * render thread re-attaches — the 1Hz active-source poll
+				 * can miss this when a removed scene's audio sources are
+				 * still reachable through PGM (e.g. global mic). */
+				const bool was_active = cs.state == SignalRuntimeState::Active;
+				const bool now_active = newState == SignalRuntimeState::Active;
+				if (was_active != now_active)
+					volmeters_rebuild_requested_.store(true, std::memory_order_release);
 				cell_sources_[i].state = newState;
+			}
 			if (newState == SignalRuntimeState::Active) {
 				cell_sources_[i].last_active_ns = os_gettime_ns();
 				cell_sources_[i].retry_attempt = 0;
@@ -1161,6 +1278,64 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 				refresh_visual_settings();
 			}
 		});
+
+		/* Phase 3 / M5.2: Cell-scoped Signal Lost Settings entry. Kept as a
+		 * separate dialog from Cell Display Settings to honor the design
+		 * doc §9 split between visual config and runtime/strategy config. */
+		QAction *signalLostAction = menu.addAction(QStringLiteral("Signal Lost Settings..."));
+		connect(signalLostAction, &QAction::triggered, this, [this, cellIndex]() {
+			MultiviewInstance *inst = config_->find_instance(uuid_);
+			if (!inst)
+				return;
+
+			LayoutEngine tmpEngine;
+			tmpEngine.set_layout(inst->layout);
+			tmpEngine.set_viewport(100, 100);
+			tmpEngine.compute();
+			const auto &cells = tmpEngine.cells();
+			if (cellIndex >= (int)cells.size())
+				return;
+			int row = cells[cellIndex].gridRow;
+			int col = cells[cellIndex].gridCol;
+
+			CellLostSignalSettings working;
+			if (const CellLostSignalSettings *existing = inst->find_cell_lost_signal(row, col)) {
+				working = *existing;
+			} else {
+				working.row = row;
+				working.col = col;
+				working.mode = InheritanceMode::Inherit;
+				working.settings = config_->global_settings().lostSignal;
+			}
+
+			SignalLostSettingsDialog dlg(SignalLostSettingsDialog::Mode::Cell, this);
+			dlg.set_cell_position(row, col);
+			dlg.set_cell_settings(working);
+			if (dlg.exec() != QDialog::Accepted)
+				return;
+
+			CellLostSignalSettings result = dlg.get_cell_settings();
+			result.row = row;
+			result.col = col;
+
+			/* Insert or update in the instance vector. We keep entries even
+			 * when mode == Inherit so the user retains the previously
+			 * configured payload across toggles — the to_obs_data() side
+			 * already filters Inherit-only entries when persisting. */
+			bool found = false;
+			for (auto &c : inst->cellLostSignalSettings) {
+				if (c.row == row && c.col == col) {
+					c = result;
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				inst->cellLostSignalSettings.push_back(result);
+
+			config_->save();
+			notify_multiview_signal_settings_changed(uuid_);
+		});
 	}
 
 	menu.addSeparator();
@@ -1182,6 +1357,27 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			QAction *clearAction = menu.addAction(QStringLiteral("Clear Cell"));
 			connect(clearAction, &QAction::triggered, this,
 				[this, cellIndex]() { on_clear_cell(cellIndex); });
+
+			/* Phase 3 / M5.3: Reconnect Now is enabled only when the cell is
+			 * not already happily Active. Keeps the menu clean for steady
+			 * cells and matches the "manual reconnect cooldown" semantics
+			 * defined in [docs/phase-3-signal-lost-and-external-sources-design.md] §7.4. */
+			bool canReconnect = false;
+			{
+				std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+				if (cellIndex < (int)cell_sources_.size()) {
+					const auto &cs = cell_sources_[cellIndex];
+					canReconnect = cs.state == SignalRuntimeState::MissingInternal ||
+						       cs.state == SignalRuntimeState::Lost ||
+						       cs.state == SignalRuntimeState::Connecting ||
+						       cs.state == SignalRuntimeState::RetryScheduled ||
+						       cs.state == SignalRuntimeState::Error;
+				}
+			}
+			QAction *reconnectAction = menu.addAction(QStringLiteral("Reconnect Now"));
+			reconnectAction->setEnabled(canReconnect);
+			connect(reconnectAction, &QAction::triggered, this,
+				[this, cellIndex]() { (void)force_reconnect_cell(cellIndex); });
 		} else {
 			QAction *addAction = menu.addAction(QStringLiteral("Add Source..."));
 			connect(addAction, &QAction::triggered, this,

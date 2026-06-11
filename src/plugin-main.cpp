@@ -26,6 +26,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "multiview-window.hpp"
 
 #include <QMainWindow>
+#include <QPointer>
+#include <QTimer>
+#include <atomic>
 #include <map>
 
 OBS_DECLARE_MODULE()
@@ -135,6 +138,25 @@ void notify_multiview_visual_settings_changed(const std::string &uuid)
 	}
 }
 
+void notify_multiview_signal_settings_changed(const std::string &uuid)
+{
+	/* Phase 3 / M5.5: Lost Signal settings changes don't touch label/bg/
+	 * overlay/VU — only the runtime resolver and any image loaders that
+	 * read placeholder/signal-lost paths. refresh_signal_settings() is the
+	 * narrow hook for that and avoids the heavier label/source rebuild that
+	 * notify_multiview_visual_settings_changed() triggers. */
+	if (uuid.empty()) {
+		for (auto &[id, window] : open_windows) {
+			if (window)
+				window->refresh_signal_settings();
+		}
+	} else {
+		auto it = open_windows.find(uuid);
+		if (it != open_windows.end() && it->second)
+			it->second->refresh_signal_settings();
+	}
+}
+
 void close_multiview_window(const std::string &uuid)
 {
 	auto it = open_windows.find(uuid);
@@ -157,6 +179,74 @@ static void close_all_multiview_windows()
 		}
 	}
 	open_windows.clear();
+}
+
+/* Phase 3 / M5: bridge OBS core source-list signals to all open MultiviewWindows.
+ *
+ * The render thread re-resolves cell sources every frame, but volmeters and the
+ * `cell_sources_[i].state` snapshot are only refreshed when refresh_sources()
+ * is called. Without these signals a deleted scene/source kept its volmeter
+ * attached until the user happened to switch scene; an undo'd source needed up
+ * to one second (the active-source poll) before VU re-attached.
+ *
+ * Signals fire on arbitrary OBS threads, so we MUST NOT touch any QWidget
+ * directly here. We coalesce a request flag and post a lambda onto the Qt
+ * main thread via QTimer::singleShot — idiomatic Qt cross-thread dispatch
+ * already used by other OBS plugins (e.g. obs-websocket, DistroAV). */
+static std::atomic<bool> source_list_dirty_{false};
+
+static void on_qt_refresh_sources_all()
+{
+	if (!source_list_dirty_.exchange(false, std::memory_order_acquire))
+		return;
+	for (auto &[id, window] : open_windows) {
+		if (window)
+			window->refresh_sources();
+	}
+}
+
+static void schedule_refresh_sources_all()
+{
+	/* Only schedule once per coalesce window. Another signal can fire while
+	 * the timer is pending; the next refresh will pick up the cumulative
+	 * change because refresh_sources() is idempotent. */
+	if (source_list_dirty_.exchange(true, std::memory_order_acq_rel))
+		return;
+
+	QMainWindow *main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+	QObject *ctx = main_window ? static_cast<QObject *>(main_window) : nullptr;
+	/* 50 ms debounce — absorbs bursts from operations like "delete scene"
+	 * which fire source_remove + source_destroy back-to-back, plus child
+	 * sceneitem teardown. Smaller intervals risk hammering refresh_sources()
+	 * from each child source destroy. */
+	QTimer::singleShot(50, ctx, on_qt_refresh_sources_all);
+}
+
+static void on_obs_source_signal(void *, calldata_t *)
+{
+	schedule_refresh_sources_all();
+}
+
+static void register_source_list_signals()
+{
+	signal_handler_t *sh = obs_get_signal_handler();
+	if (!sh)
+		return;
+	signal_handler_connect(sh, "source_create", on_obs_source_signal, nullptr);
+	signal_handler_connect(sh, "source_remove", on_obs_source_signal, nullptr);
+	signal_handler_connect(sh, "source_destroy", on_obs_source_signal, nullptr);
+	signal_handler_connect(sh, "source_rename", on_obs_source_signal, nullptr);
+}
+
+static void unregister_source_list_signals()
+{
+	signal_handler_t *sh = obs_get_signal_handler();
+	if (!sh)
+		return;
+	signal_handler_disconnect(sh, "source_create", on_obs_source_signal, nullptr);
+	signal_handler_disconnect(sh, "source_remove", on_obs_source_signal, nullptr);
+	signal_handler_disconnect(sh, "source_destroy", on_obs_source_signal, nullptr);
+	signal_handler_disconnect(sh, "source_rename", on_obs_source_signal, nullptr);
 }
 
 static void on_frontend_event(enum obs_frontend_event event, void *)
@@ -195,12 +285,14 @@ bool obs_module_load(void)
 	obs_frontend_add_tools_menu_item(obs_module_text("OBSAdvancedMultiview"), on_tools_menu_clicked, nullptr);
 
 	obs_frontend_add_event_callback(on_frontend_event, nullptr);
+	register_source_list_signals();
 
 	return true;
 }
 
 void obs_module_unload(void)
 {
+	unregister_source_list_signals();
 	obs_frontend_remove_event_callback(on_frontend_event, nullptr);
 
 	close_all_multiview_windows();

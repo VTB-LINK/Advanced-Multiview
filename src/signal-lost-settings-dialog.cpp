@@ -1,0 +1,406 @@
+/*
+OBS Advanced Multiview
+Copyright (C) 2025 VTB-LINK
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program. If not, see <https://www.gnu.org/licenses/>
+*/
+
+#include "signal-lost-settings-dialog.hpp"
+
+#include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+/* ---- enum <-> combo helpers ---- */
+
+namespace {
+
+constexpr int kInternalBlackIdx = 0;
+constexpr int kInternalPlaceholderIdx = 1;
+constexpr int kInternalClearIdx = 2;
+
+InternalMissingBehavior internal_from_idx(int idx)
+{
+	switch (idx) {
+	case kInternalPlaceholderIdx:
+		return InternalMissingBehavior::PlaceholderImage;
+	case kInternalClearIdx:
+		return InternalMissingBehavior::ClearCell;
+	default:
+		return InternalMissingBehavior::Black;
+	}
+}
+
+int idx_from_internal(InternalMissingBehavior b)
+{
+	switch (b) {
+	case InternalMissingBehavior::PlaceholderImage:
+		return kInternalPlaceholderIdx;
+	case InternalMissingBehavior::ClearCell:
+		return kInternalClearIdx;
+	default:
+		return kInternalBlackIdx;
+	}
+}
+
+constexpr int kExternalOverlayIdx = 0;
+constexpr int kExternalRetryOnlyIdx = 1;
+constexpr int kExternalRetryFallbackIdx = 2;
+constexpr int kExternalImageIdx = 3;
+
+ExternalLostBehavior external_from_idx(int idx)
+{
+	switch (idx) {
+	case kExternalRetryOnlyIdx:
+		return ExternalLostBehavior::RetryOnly;
+	case kExternalRetryFallbackIdx:
+		return ExternalLostBehavior::RetryWithFallback;
+	case kExternalImageIdx:
+		return ExternalLostBehavior::SignalLostImage;
+	default:
+		return ExternalLostBehavior::SignalLostOverlay;
+	}
+}
+
+int idx_from_external(ExternalLostBehavior b)
+{
+	switch (b) {
+	case ExternalLostBehavior::RetryOnly:
+		return kExternalRetryOnlyIdx;
+	case ExternalLostBehavior::RetryWithFallback:
+		return kExternalRetryFallbackIdx;
+	case ExternalLostBehavior::SignalLostImage:
+		return kExternalImageIdx;
+	default:
+		return kExternalOverlayIdx;
+	}
+}
+
+/* fallbackType uses the same string namespace as CellAssignment.type so that
+ * future M6 work can reuse provider plumbing. The combo just maps display
+ * label <-> token. */
+struct FallbackOption {
+	const char *token;
+	const char *label;
+};
+
+constexpr FallbackOption kFallbackOptions[] = {
+	{"", "None (disabled)"},    {"image", "Static image"}, {"pgm", "Program (PGM)"},
+	{"prvw", "Preview (PRVW)"}, {"scene", "OBS Scene"},    {"source", "OBS Source"},
+};
+
+constexpr int kFallbackOptionCount = sizeof(kFallbackOptions) / sizeof(kFallbackOptions[0]);
+
+int idx_from_fallback_token(const std::string &token)
+{
+	for (int i = 0; i < kFallbackOptionCount; i++) {
+		if (token == kFallbackOptions[i].token)
+			return i;
+	}
+	return 0; /* unknown -> None */
+}
+
+const char *fallback_token_from_idx(int idx)
+{
+	if (idx >= 0 && idx < kFallbackOptionCount)
+		return kFallbackOptions[idx].token;
+	return "";
+}
+
+} // namespace
+
+/* ---- ctor / UI ---- */
+
+SignalLostSettingsDialog::SignalLostSettingsDialog(Mode mode, QWidget *parent) : QDialog(parent), mode_(mode)
+{
+	setWindowTitle(mode_ == Mode::Global ? QStringLiteral("Global Signal Lost Settings")
+					     : QStringLiteral("Cell Signal Lost Settings"));
+	setMinimumWidth(440);
+	build_ui();
+	apply_settings(LostSignalSettings{}); /* initialize controls with defaults */
+	update_enabled_state();
+}
+
+void SignalLostSettingsDialog::build_ui()
+{
+	auto *root = new QVBoxLayout(this);
+
+	/* Inheritance row \u2014 visible only in Cell mode. We still construct it in
+	 * Global mode and hide so widget pointers stay valid. */
+	auto *inherit_row = new QHBoxLayout();
+	inherit_row->addWidget(new QLabel(QStringLiteral("Inheritance:")));
+	cmb_inherit_ = new QComboBox(this);
+	cmb_inherit_->addItem(QStringLiteral("Inherit (use global default)"));
+	cmb_inherit_->addItem(QStringLiteral("Override (use this cell's settings)"));
+	inherit_row->addWidget(cmb_inherit_, 1);
+	root->addLayout(inherit_row);
+	if (mode_ == Mode::Global) {
+		for (int i = 0; i < inherit_row->count(); i++) {
+			QWidget *w = inherit_row->itemAt(i)->widget();
+			if (w)
+				w->hide();
+		}
+	}
+	connect(cmb_inherit_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&SignalLostSettingsDialog::on_inheritance_changed);
+
+	/* Internal source missing group. */
+	auto *grp_internal = new QGroupBox(QStringLiteral("Internal source missing"), this);
+	auto *form_internal = new QFormLayout(grp_internal);
+	cmb_internal_behavior_ = new QComboBox(grp_internal);
+	cmb_internal_behavior_->addItem(QStringLiteral("Black + Missing Source overlay"));
+	cmb_internal_behavior_->addItem(QStringLiteral("Show placeholder image"));
+	cmb_internal_behavior_->addItem(QStringLiteral("Clear cell (release assignment)"));
+	form_internal->addRow(QStringLiteral("On missing"), cmb_internal_behavior_);
+
+	auto *placeholder_row = new QHBoxLayout();
+	edit_placeholder_path_ = new QLineEdit(grp_internal);
+	edit_placeholder_path_->setPlaceholderText(QStringLiteral("Image file path"));
+	placeholder_row->addWidget(edit_placeholder_path_, 1);
+	auto *btn_placeholder = new QToolButton(grp_internal);
+	btn_placeholder->setText(QStringLiteral("..."));
+	connect(btn_placeholder, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_placeholder_image);
+	placeholder_row->addWidget(btn_placeholder);
+	form_internal->addRow(QStringLiteral("Placeholder image"), placeholder_row);
+	root->addWidget(grp_internal);
+
+	connect(cmb_internal_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		[this](int) { update_enabled_state(); });
+
+	/* External source lost group. Reserved scaffolding for M6, but
+	 * persisted now so users can prepare configurations ahead of provider
+	 * landing. */
+	auto *grp_external = new QGroupBox(QStringLiteral("External source lost (Phase 3 / M6)"), this);
+	auto *form_external = new QFormLayout(grp_external);
+	cmb_external_behavior_ = new QComboBox(grp_external);
+	cmb_external_behavior_->addItem(QStringLiteral("Signal Lost overlay"));
+	cmb_external_behavior_->addItem(QStringLiteral("Retry only"));
+	cmb_external_behavior_->addItem(QStringLiteral("Retry + fallback"));
+	cmb_external_behavior_->addItem(QStringLiteral("Show Signal Lost image"));
+	form_external->addRow(QStringLiteral("On lost"), cmb_external_behavior_);
+
+	auto *signal_lost_row = new QHBoxLayout();
+	edit_signal_lost_path_ = new QLineEdit(grp_external);
+	edit_signal_lost_path_->setPlaceholderText(QStringLiteral("Image file path"));
+	signal_lost_row->addWidget(edit_signal_lost_path_, 1);
+	auto *btn_signal_lost = new QToolButton(grp_external);
+	btn_signal_lost->setText(QStringLiteral("..."));
+	connect(btn_signal_lost, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_signal_lost_image);
+	signal_lost_row->addWidget(btn_signal_lost);
+	form_external->addRow(QStringLiteral("Signal Lost image"), signal_lost_row);
+	root->addWidget(grp_external);
+
+	connect(cmb_external_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		[this](int) { update_enabled_state(); });
+
+	/* Fallback group. */
+	auto *grp_fallback = new QGroupBox(QStringLiteral("Fallback (used when configured by behavior above)"), this);
+	auto *form_fallback = new QFormLayout(grp_fallback);
+	cmb_fallback_type_ = new QComboBox(grp_fallback);
+	for (int i = 0; i < kFallbackOptionCount; i++)
+		cmb_fallback_type_->addItem(QString::fromUtf8(kFallbackOptions[i].label));
+	form_fallback->addRow(QStringLiteral("Fallback type"), cmb_fallback_type_);
+
+	auto *fallback_row = new QHBoxLayout();
+	edit_fallback_name_ = new QLineEdit(grp_fallback);
+	edit_fallback_name_->setPlaceholderText(QStringLiteral("Source name or image path"));
+	fallback_row->addWidget(edit_fallback_name_, 1);
+	auto *btn_fallback = new QToolButton(grp_fallback);
+	btn_fallback->setText(QStringLiteral("..."));
+	connect(btn_fallback, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_fallback_image);
+	fallback_row->addWidget(btn_fallback);
+	form_fallback->addRow(QStringLiteral("Name / Path"), fallback_row);
+	root->addWidget(grp_fallback);
+
+	connect(cmb_fallback_type_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&SignalLostSettingsDialog::on_fallback_type_changed);
+
+	/* Backoff timing group. */
+	auto *grp_backoff = new QGroupBox(QStringLiteral("Reconnect timing"), this);
+	auto *form_backoff = new QFormLayout(grp_backoff);
+	spin_retry_initial_ = new QSpinBox(grp_backoff);
+	spin_retry_initial_->setRange(100, 60000);
+	spin_retry_initial_->setSuffix(QStringLiteral(" ms"));
+	form_backoff->addRow(QStringLiteral("Retry initial"), spin_retry_initial_);
+
+	spin_retry_max_ = new QSpinBox(grp_backoff);
+	spin_retry_max_->setRange(100, 600000);
+	spin_retry_max_->setSuffix(QStringLiteral(" ms"));
+	form_backoff->addRow(QStringLiteral("Retry max"), spin_retry_max_);
+
+	spin_manual_cooldown_ = new QSpinBox(grp_backoff);
+	spin_manual_cooldown_->setRange(0, 60000);
+	spin_manual_cooldown_->setSuffix(QStringLiteral(" ms"));
+	form_backoff->addRow(QStringLiteral("Manual reconnect cooldown"), spin_manual_cooldown_);
+	root->addWidget(grp_backoff);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	root->addWidget(buttons);
+}
+
+/* ---- public setters / getters ---- */
+
+void SignalLostSettingsDialog::set_cell_position(int row, int col)
+{
+	cell_row_ = row;
+	cell_col_ = col;
+	if (mode_ == Mode::Cell && row >= 0 && col >= 0)
+		setWindowTitle(QStringLiteral("Cell Signal Lost Settings [%1, %2]").arg(row).arg(col));
+}
+
+void SignalLostSettingsDialog::set_global_settings(const LostSignalSettings &s)
+{
+	apply_settings(s);
+	update_enabled_state();
+}
+
+LostSignalSettings SignalLostSettingsDialog::get_global_settings() const
+{
+	return collect_settings();
+}
+
+void SignalLostSettingsDialog::set_cell_settings(const CellLostSignalSettings &c)
+{
+	cell_row_ = c.row;
+	cell_col_ = c.col;
+	cmb_inherit_->setCurrentIndex(c.mode == InheritanceMode::Override ? 1 : 0);
+	apply_settings(c.settings);
+	update_enabled_state();
+}
+
+CellLostSignalSettings SignalLostSettingsDialog::get_cell_settings() const
+{
+	CellLostSignalSettings c;
+	c.row = cell_row_;
+	c.col = cell_col_;
+	c.mode = cmb_inherit_->currentIndex() == 1 ? InheritanceMode::Override : InheritanceMode::Inherit;
+	c.settings = collect_settings();
+	return c;
+}
+
+/* ---- private helpers ---- */
+
+void SignalLostSettingsDialog::apply_settings(const LostSignalSettings &s)
+{
+	cmb_internal_behavior_->setCurrentIndex(idx_from_internal(s.internalMissingBehavior));
+	edit_placeholder_path_->setText(QString::fromStdString(s.placeholderImagePath));
+
+	cmb_external_behavior_->setCurrentIndex(idx_from_external(s.externalLostBehavior));
+	edit_signal_lost_path_->setText(QString::fromStdString(s.signalLostImagePath));
+
+	cmb_fallback_type_->setCurrentIndex(idx_from_fallback_token(s.fallbackType));
+	edit_fallback_name_->setText(QString::fromStdString(s.fallbackName));
+
+	spin_retry_initial_->setValue(s.retryInitialMs);
+	spin_retry_max_->setValue(s.retryMaxMs);
+	spin_manual_cooldown_->setValue(s.manualReconnectCooldownMs);
+}
+
+LostSignalSettings SignalLostSettingsDialog::collect_settings() const
+{
+	LostSignalSettings s;
+	s.internalMissingBehavior = internal_from_idx(cmb_internal_behavior_->currentIndex());
+	s.placeholderImagePath = edit_placeholder_path_->text().toStdString();
+
+	s.externalLostBehavior = external_from_idx(cmb_external_behavior_->currentIndex());
+	s.signalLostImagePath = edit_signal_lost_path_->text().toStdString();
+
+	s.fallbackType = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
+	s.fallbackName = edit_fallback_name_->text().toStdString();
+
+	s.retryInitialMs = spin_retry_initial_->value();
+	s.retryMaxMs = spin_retry_max_->value();
+	if (s.retryMaxMs < s.retryInitialMs)
+		s.retryMaxMs = s.retryInitialMs;
+	s.manualReconnectCooldownMs = spin_manual_cooldown_->value();
+	return s;
+}
+
+void SignalLostSettingsDialog::update_enabled_state()
+{
+	const bool inherit_locks_form = mode_ == Mode::Cell && cmb_inherit_->currentIndex() == 0;
+
+	const auto setRowEnabled = [&](QWidget *w, bool enabled) {
+		if (w)
+			w->setEnabled(enabled && !inherit_locks_form);
+	};
+
+	setRowEnabled(cmb_internal_behavior_, true);
+	setRowEnabled(edit_placeholder_path_, internal_from_idx(cmb_internal_behavior_->currentIndex()) ==
+						      InternalMissingBehavior::PlaceholderImage);
+
+	setRowEnabled(cmb_external_behavior_, true);
+	setRowEnabled(edit_signal_lost_path_, external_from_idx(cmb_external_behavior_->currentIndex()) ==
+						      ExternalLostBehavior::SignalLostImage);
+
+	setRowEnabled(cmb_fallback_type_, true);
+	setRowEnabled(edit_fallback_name_,
+		      std::string(fallback_token_from_idx(cmb_fallback_type_->currentIndex())) != "");
+
+	setRowEnabled(spin_retry_initial_, true);
+	setRowEnabled(spin_retry_max_, true);
+	setRowEnabled(spin_manual_cooldown_, true);
+}
+
+/* ---- slots ---- */
+
+void SignalLostSettingsDialog::on_inheritance_changed(int)
+{
+	update_enabled_state();
+}
+
+void SignalLostSettingsDialog::on_browse_placeholder_image()
+{
+	QString file =
+		QFileDialog::getOpenFileName(this, QStringLiteral("Select placeholder image"), QString(),
+					     QStringLiteral("Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"));
+	if (!file.isEmpty())
+		edit_placeholder_path_->setText(file);
+}
+
+void SignalLostSettingsDialog::on_browse_signal_lost_image()
+{
+	QString file =
+		QFileDialog::getOpenFileName(this, QStringLiteral("Select Signal Lost image"), QString(),
+					     QStringLiteral("Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"));
+	if (!file.isEmpty())
+		edit_signal_lost_path_->setText(file);
+}
+
+void SignalLostSettingsDialog::on_fallback_type_changed(int)
+{
+	update_enabled_state();
+}
+
+void SignalLostSettingsDialog::on_browse_fallback_image()
+{
+	/* Only meaningful when fallbackType == "image". The browse button
+	 * itself is enabled in the row layout regardless of type to keep the
+	 * widget tree static; if the user browses while another type is
+	 * selected we still apply the path \u2014 it'll just be ignored until
+	 * they switch fallback type back to Image. */
+	QString file =
+		QFileDialog::getOpenFileName(this, QStringLiteral("Select fallback image"), QString(),
+					     QStringLiteral("Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"));
+	if (!file.isEmpty())
+		edit_fallback_name_->setText(file);
+}

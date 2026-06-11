@@ -770,6 +770,17 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 	if (!vmSettings.enabled || vmSettings.opacity <= 0.0)
 		return;
 
+	/* Phase 3 / M5: skip rendering when the cell is not Active so a deleted
+	 * scene/source stops dragging stale meters. cell_volmeters_[i] may still
+	 * hold a volmeter attached to a now-dead source until the next rebuild,
+	 * but state is updated each frame from render() so this branch wins
+	 * immediately — no need to wait for the 1Hz active-source poll. */
+	if (cellIndex < (int)cell_sources_.size()) {
+		const auto &cs = cell_sources_[cellIndex];
+		if (cs.state != SignalRuntimeState::Active)
+			return;
+	}
+
 	if (cellIndex >= (int)cell_volmeters_.size() || !cell_volmeters_[cellIndex])
 		return;
 

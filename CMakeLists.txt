@@ -49,6 +49,8 @@ target_sources(
           src/manager-dialog.cpp
           src/cell-display-settings-dialog.hpp
           src/cell-display-settings-dialog.cpp
+          src/signal-lost-settings-dialog.hpp
+          src/signal-lost-settings-dialog.cpp
           src/multiview-window.hpp
           src/multiview-window.cpp
           src/multiview-window-vu.cpp
