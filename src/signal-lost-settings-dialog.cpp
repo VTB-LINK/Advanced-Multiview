@@ -179,6 +179,14 @@ void SignalLostSettingsDialog::build_ui()
 	connect(btn_placeholder, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_placeholder_image);
 	placeholder_row->addWidget(btn_placeholder);
 	form_internal->addRow(QStringLiteral("Placeholder image"), placeholder_row);
+
+	/* Phase 3 / M5.4: image fit mode for placeholder. Stretch fills the
+	 * cell exactly (default — most placeholder/banner art is authored at
+	 * a known target ratio); Fit preserves aspect with letterbox bars. */
+	cmb_placeholder_fit_ = new QComboBox(grp_internal);
+	cmb_placeholder_fit_->addItem(QStringLiteral("Stretch (fill cell)"));
+	cmb_placeholder_fit_->addItem(QStringLiteral("Fit (preserve aspect)"));
+	form_internal->addRow(QStringLiteral("Placeholder fit"), cmb_placeholder_fit_);
 	root->addWidget(grp_internal);
 
 	connect(cmb_internal_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -205,6 +213,12 @@ void SignalLostSettingsDialog::build_ui()
 	connect(btn_signal_lost, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_signal_lost_image);
 	signal_lost_row->addWidget(btn_signal_lost);
 	form_external->addRow(QStringLiteral("Signal Lost image"), signal_lost_row);
+
+	/* Phase 3 / M6 (preview): fit mode for the Signal Lost image. */
+	cmb_signal_lost_fit_ = new QComboBox(grp_external);
+	cmb_signal_lost_fit_->addItem(QStringLiteral("Stretch (fill cell)"));
+	cmb_signal_lost_fit_->addItem(QStringLiteral("Fit (preserve aspect)"));
+	form_external->addRow(QStringLiteral("Signal Lost fit"), cmb_signal_lost_fit_);
 	root->addWidget(grp_external);
 
 	connect(cmb_external_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -227,6 +241,17 @@ void SignalLostSettingsDialog::build_ui()
 	connect(btn_fallback, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_fallback_image);
 	fallback_row->addWidget(btn_fallback);
 	form_fallback->addRow(QStringLiteral("Name / Path"), fallback_row);
+
+	/* Phase 3 / M5.4: fit mode applies only when fallbackType == "image".
+	 * For OBS source / scene / pgm / prvw fallbacks the renderer always
+	 * uses native obs_source_video_render letterbox to preserve canvas
+	 * pixels, so the fit choice would be ignored — we still keep the row
+	 * always-visible for clarity (greys out automatically when not
+	 * applicable via update_enabled_state). */
+	cmb_fallback_image_fit_ = new QComboBox(grp_fallback);
+	cmb_fallback_image_fit_->addItem(QStringLiteral("Stretch (fill cell)"));
+	cmb_fallback_image_fit_->addItem(QStringLiteral("Fit (preserve aspect)"));
+	form_fallback->addRow(QStringLiteral("Image fit"), cmb_fallback_image_fit_);
 	root->addWidget(grp_fallback);
 
 	connect(cmb_fallback_type_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -303,12 +328,15 @@ void SignalLostSettingsDialog::apply_settings(const LostSignalSettings &s)
 {
 	cmb_internal_behavior_->setCurrentIndex(idx_from_internal(s.internalMissingBehavior));
 	edit_placeholder_path_->setText(QString::fromStdString(s.placeholderImagePath));
+	cmb_placeholder_fit_->setCurrentIndex(s.placeholderImageFitMode == ImageFitMode::Fit ? 1 : 0);
 
 	cmb_external_behavior_->setCurrentIndex(idx_from_external(s.externalLostBehavior));
 	edit_signal_lost_path_->setText(QString::fromStdString(s.signalLostImagePath));
+	cmb_signal_lost_fit_->setCurrentIndex(s.signalLostImageFitMode == ImageFitMode::Fit ? 1 : 0);
 
 	cmb_fallback_type_->setCurrentIndex(idx_from_fallback_token(s.fallbackType));
 	edit_fallback_name_->setText(QString::fromStdString(s.fallbackName));
+	cmb_fallback_image_fit_->setCurrentIndex(s.fallbackImageFitMode == ImageFitMode::Fit ? 1 : 0);
 
 	spin_retry_initial_->setValue(s.retryInitialMs);
 	spin_retry_max_->setValue(s.retryMaxMs);
@@ -320,12 +348,18 @@ LostSignalSettings SignalLostSettingsDialog::collect_settings() const
 	LostSignalSettings s;
 	s.internalMissingBehavior = internal_from_idx(cmb_internal_behavior_->currentIndex());
 	s.placeholderImagePath = edit_placeholder_path_->text().toStdString();
+	s.placeholderImageFitMode = cmb_placeholder_fit_->currentIndex() == 1 ? ImageFitMode::Fit
+									      : ImageFitMode::Stretch;
 
 	s.externalLostBehavior = external_from_idx(cmb_external_behavior_->currentIndex());
 	s.signalLostImagePath = edit_signal_lost_path_->text().toStdString();
+	s.signalLostImageFitMode = cmb_signal_lost_fit_->currentIndex() == 1 ? ImageFitMode::Fit
+									     : ImageFitMode::Stretch;
 
 	s.fallbackType = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
 	s.fallbackName = edit_fallback_name_->text().toStdString();
+	s.fallbackImageFitMode = cmb_fallback_image_fit_->currentIndex() == 1 ? ImageFitMode::Fit
+									      : ImageFitMode::Stretch;
 
 	s.retryInitialMs = spin_retry_initial_->value();
 	s.retryMaxMs = spin_retry_max_->value();
@@ -347,14 +381,21 @@ void SignalLostSettingsDialog::update_enabled_state()
 	setRowEnabled(cmb_internal_behavior_, true);
 	setRowEnabled(edit_placeholder_path_, internal_from_idx(cmb_internal_behavior_->currentIndex()) ==
 						      InternalMissingBehavior::PlaceholderImage);
+	setRowEnabled(cmb_placeholder_fit_, internal_from_idx(cmb_internal_behavior_->currentIndex()) ==
+						    InternalMissingBehavior::PlaceholderImage);
 
 	setRowEnabled(cmb_external_behavior_, true);
 	setRowEnabled(edit_signal_lost_path_, external_from_idx(cmb_external_behavior_->currentIndex()) ==
 						      ExternalLostBehavior::SignalLostImage);
+	setRowEnabled(cmb_signal_lost_fit_, external_from_idx(cmb_external_behavior_->currentIndex()) ==
+						    ExternalLostBehavior::SignalLostImage);
 
 	setRowEnabled(cmb_fallback_type_, true);
-	setRowEnabled(edit_fallback_name_,
-		      std::string(fallback_token_from_idx(cmb_fallback_type_->currentIndex())) != "");
+	const std::string fb_token = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
+	setRowEnabled(edit_fallback_name_, !fb_token.empty());
+	/* Image fit only meaningful for fallbackType == "image"; greyed out
+	 * for OBS-source variants (renderer uses native letterbox there). */
+	setRowEnabled(cmb_fallback_image_fit_, fb_token == "image");
 
 	setRowEnabled(spin_retry_initial_, true);
 	setRowEnabled(spin_retry_max_, true);

@@ -737,6 +737,9 @@ obs_data_t *LostSignalSettings::to_obs_data() const
 	obs_data_set_string(data, "externalLostBehavior", external_lost_behavior_to_str(externalLostBehavior));
 	obs_data_set_string(data, "placeholderImagePath", placeholderImagePath.c_str());
 	obs_data_set_string(data, "signalLostImagePath", signalLostImagePath.c_str());
+	obs_data_set_string(data, "placeholderImageFitMode", image_fit_mode_to_str(placeholderImageFitMode));
+	obs_data_set_string(data, "signalLostImageFitMode", image_fit_mode_to_str(signalLostImageFitMode));
+	obs_data_set_string(data, "fallbackImageFitMode", image_fit_mode_to_str(fallbackImageFitMode));
 	obs_data_set_string(data, "fallbackType", fallbackType.c_str());
 	obs_data_set_string(data, "fallbackName", fallbackName.c_str());
 	obs_data_set_int(data, "retryInitialMs", retryInitialMs);
@@ -755,6 +758,17 @@ LostSignalSettings LostSignalSettings::from_obs_data(obs_data_t *data)
 	s.externalLostBehavior = external_lost_behavior_from_str(obs_data_get_string(data, "externalLostBehavior"));
 	s.placeholderImagePath = obs_data_get_string(data, "placeholderImagePath");
 	s.signalLostImagePath = obs_data_get_string(data, "signalLostImagePath");
+
+	/* Fit modes: missing / unknown values fall back to enum default
+	 * (Stretch) via image_fit_mode_from_str() — consistent with how
+	 * BackgroundSettings handles the same key on legacy configs. */
+	if (obs_data_has_user_value(data, "placeholderImageFitMode"))
+		s.placeholderImageFitMode =
+			image_fit_mode_from_str(obs_data_get_string(data, "placeholderImageFitMode"));
+	if (obs_data_has_user_value(data, "signalLostImageFitMode"))
+		s.signalLostImageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "signalLostImageFitMode"));
+	if (obs_data_has_user_value(data, "fallbackImageFitMode"))
+		s.fallbackImageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "fallbackImageFitMode"));
 
 	/* Whitelist fallbackType so an arbitrary string from disk can never reach
 	 * the runtime. Anything unrecognised becomes "" (disabled) and the

@@ -76,14 +76,17 @@ private:
 	/* Internal missing behavior */
 	QComboBox *cmb_internal_behavior_ = nullptr;
 	QLineEdit *edit_placeholder_path_ = nullptr;
+	QComboBox *cmb_placeholder_fit_ = nullptr;
 
 	/* External lost behavior */
 	QComboBox *cmb_external_behavior_ = nullptr;
 	QLineEdit *edit_signal_lost_path_ = nullptr;
+	QComboBox *cmb_signal_lost_fit_ = nullptr;
 
 	/* Fallback assignment */
 	QComboBox *cmb_fallback_type_ = nullptr;
 	QLineEdit *edit_fallback_name_ = nullptr;
+	QComboBox *cmb_fallback_image_fit_ = nullptr;
 
 	/* Backoff timing */
 	QSpinBox *spin_retry_initial_ = nullptr;

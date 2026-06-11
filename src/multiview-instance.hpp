@@ -190,6 +190,17 @@ struct LostSignalSettings {
 	std::string placeholderImagePath; /* used when internal == PlaceholderImage */
 	std::string signalLostImagePath;  /* used when external == SignalLostImage */
 
+	/* Phase 3 / M5.4: how the placeholder / signal-lost / fallback static
+	 * image is fitted into the cell. Reuses the same enum as background
+	 * images so users get consistent semantics across the plugin. Default
+	 * is Stretch — placeholder + fallback images are usually authored at
+	 * the cell's intended aspect ratio (or a generic 16:9 banner) and the
+	 * user almost always wants them to fill the cell. Fit is preserved as
+	 * an opt-in for users who want the original aspect kept (with bars). */
+	ImageFitMode placeholderImageFitMode = ImageFitMode::Stretch;
+	ImageFitMode signalLostImageFitMode = ImageFitMode::Stretch;
+	ImageFitMode fallbackImageFitMode = ImageFitMode::Stretch;
+
 	/* Fallback signal — Phase 3 first-pass supports static image and OBS
 	 * internal sources only (mirror of CellAssignment). External fallback
 	 * is reserved for later. fallbackType empty == disabled. */

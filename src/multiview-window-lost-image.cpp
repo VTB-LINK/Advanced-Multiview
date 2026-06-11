@@ -208,22 +208,43 @@ void MultiviewWindow::render_lost_signal_image(int cellIndex, int contentX, int 
 	if (!li.texture || li.width == 0 || li.height == 0)
 		return;
 
-	/* Mirror bg-image draw with letterbox so the placeholder / fallback
-	 * image keeps its native aspect ratio inside the cell content area.
-	 * Render target is (contentX, contentY, contentW, contentH) in
-	 * screen-space; texture coords stay normalized to texture size. */
-	double imgAspect = (double)li.width / (double)li.height;
-	double cellAspect = (double)contentW / (double)contentH;
+	/* Phase 3 / M5.4: pick fit mode for the slot the cell is currently
+	 * showing. The slot is determined by exactly the same logic as
+	 * compute_wanted_lost_image_path() but here we only need the *kind*,
+	 * not the path — the texture is already loaded. */
+	ImageFitMode fitMode = ImageFitMode::Stretch;
+	if (cellIndex < (int)cell_sources_.size()) {
+		const auto &cs = cell_sources_[cellIndex];
+		const LostSignalSettings &eff = cs.effective_lost;
+		const bool placeholderActive = cs.state == SignalRuntimeState::MissingInternal &&
+					       eff.internalMissingBehavior ==
+						       InternalMissingBehavior::PlaceholderImage &&
+					       !eff.placeholderImagePath.empty();
+		if (placeholderActive)
+			fitMode = eff.placeholderImageFitMode;
+		else
+			fitMode = eff.fallbackImageFitMode;
+	}
 
 	int drawX = contentX, drawY = contentY, drawW = contentW, drawH = contentH;
-	if (imgAspect > cellAspect) {
-		drawW = contentW;
-		drawH = (int)((double)contentW / imgAspect + 0.5);
-		drawY = contentY + (contentH - drawH) / 2;
+	if (fitMode == ImageFitMode::Stretch) {
+		/* Fill the cell exactly — no bars, may distort aspect. Default
+		 * for placeholder / fallback because most artwork is authored
+		 * for the cell. */
 	} else {
-		drawH = contentH;
-		drawW = (int)((double)contentH * imgAspect + 0.5);
-		drawX = contentX + (contentW - drawW) / 2;
+		/* Fit: preserve image aspect, letterbox / pillarbox as needed. */
+		double imgAspect = (double)li.width / (double)li.height;
+		double cellAspect = (double)contentW / (double)contentH;
+
+		if (imgAspect > cellAspect) {
+			drawW = contentW;
+			drawH = (int)((double)contentW / imgAspect + 0.5);
+			drawY = contentY + (contentH - drawH) / 2;
+		} else {
+			drawH = contentH;
+			drawW = (int)((double)contentH * imgAspect + 0.5);
+			drawX = contentX + (contentW - drawW) / 2;
+		}
 	}
 
 	gs_effect_t *defEffect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
