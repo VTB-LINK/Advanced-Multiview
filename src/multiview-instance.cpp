@@ -1139,6 +1139,171 @@ EffectiveCellVisualSettings resolve_effective_visual_settings(const GlobalVisual
 	return eff;
 }
 
+/* ---------- SignalProviderType ---------- */
+
+const char *signal_provider_to_string(SignalProviderType p)
+{
+	switch (p) {
+	case SignalProviderType::InternalPgm:
+		return "internal_pgm";
+	case SignalProviderType::InternalPrvw:
+		return "internal_prvw";
+	case SignalProviderType::InternalScene:
+		return "internal_scene";
+	case SignalProviderType::InternalSource:
+		return "internal_source";
+	case SignalProviderType::Ffmpeg:
+		return "ffmpeg";
+	case SignalProviderType::Ndi:
+		return "ndi";
+	case SignalProviderType::Spout:
+		return "spout";
+	case SignalProviderType::Vlc:
+		return "vlc";
+	case SignalProviderType::WebRtcReserved:
+		return "webrtc_reserved";
+	case SignalProviderType::Unknown:
+	default:
+		return "unknown";
+	}
+}
+
+SignalProviderType signal_provider_from_string(const char *s)
+{
+	if (!s || !*s)
+		return SignalProviderType::Unknown;
+	if (strcmp(s, "internal_pgm") == 0)
+		return SignalProviderType::InternalPgm;
+	if (strcmp(s, "internal_prvw") == 0)
+		return SignalProviderType::InternalPrvw;
+	if (strcmp(s, "internal_scene") == 0)
+		return SignalProviderType::InternalScene;
+	if (strcmp(s, "internal_source") == 0)
+		return SignalProviderType::InternalSource;
+	if (strcmp(s, "ffmpeg") == 0)
+		return SignalProviderType::Ffmpeg;
+	if (strcmp(s, "ndi") == 0)
+		return SignalProviderType::Ndi;
+	if (strcmp(s, "spout") == 0)
+		return SignalProviderType::Spout;
+	if (strcmp(s, "vlc") == 0)
+		return SignalProviderType::Vlc;
+	if (strcmp(s, "webrtc_reserved") == 0)
+		return SignalProviderType::WebRtcReserved;
+	return SignalProviderType::Unknown;
+}
+
+bool signal_provider_is_internal(SignalProviderType p)
+{
+	switch (p) {
+	case SignalProviderType::InternalPgm:
+	case SignalProviderType::InternalPrvw:
+	case SignalProviderType::InternalScene:
+	case SignalProviderType::InternalSource:
+		return true;
+	default:
+		return false;
+	}
+}
+
+/* ---------- SignalConfig ---------- */
+
+/* OBS does not expose a deep-copy API for obs_data_t, so we round-trip
+ * through JSON. This is the same approach used elsewhere in OBS plugins
+ * for cloning settings objects and is safe for the simple key/value
+ * shapes we expect from provider settings. */
+static obs_data_t *clone_obs_data(obs_data_t *src)
+{
+	if (!src)
+		return nullptr;
+	const char *json = obs_data_get_json(src);
+	if (!json || !*json)
+		return obs_data_create();
+	return obs_data_create_from_json(json);
+}
+
+SignalConfig::SignalConfig(const SignalConfig &other)
+	: provider(other.provider),
+	  displayName(other.displayName),
+	  providerSettings(clone_obs_data(other.providerSettings))
+{
+}
+
+SignalConfig::SignalConfig(SignalConfig &&other) noexcept
+	: provider(other.provider),
+	  displayName(std::move(other.displayName)),
+	  providerSettings(other.providerSettings)
+{
+	other.provider = SignalProviderType::Unknown;
+	other.providerSettings = nullptr;
+}
+
+SignalConfig &SignalConfig::operator=(const SignalConfig &other)
+{
+	if (this == &other)
+		return *this;
+	if (providerSettings)
+		obs_data_release(providerSettings);
+	provider = other.provider;
+	displayName = other.displayName;
+	providerSettings = clone_obs_data(other.providerSettings);
+	return *this;
+}
+
+SignalConfig &SignalConfig::operator=(SignalConfig &&other) noexcept
+{
+	if (this == &other)
+		return *this;
+	if (providerSettings)
+		obs_data_release(providerSettings);
+	provider = other.provider;
+	displayName = std::move(other.displayName);
+	providerSettings = other.providerSettings;
+	other.provider = SignalProviderType::Unknown;
+	other.providerSettings = nullptr;
+	return *this;
+}
+
+SignalConfig::~SignalConfig()
+{
+	if (providerSettings) {
+		obs_data_release(providerSettings);
+		providerSettings = nullptr;
+	}
+}
+
+obs_data_t *SignalConfig::to_obs_data() const
+{
+	obs_data_t *data = obs_data_create();
+	obs_data_set_string(data, "provider", signal_provider_to_string(provider));
+	obs_data_set_string(data, "displayName", displayName.c_str());
+	if (providerSettings) {
+		obs_data_t *snap = clone_obs_data(providerSettings);
+		if (snap) {
+			obs_data_set_obj(data, "settings", snap);
+			obs_data_release(snap);
+		}
+	}
+	return data;
+}
+
+SignalConfig SignalConfig::from_obs_data(obs_data_t *data)
+{
+	SignalConfig cfg;
+	if (!data)
+		return cfg;
+	cfg.provider = signal_provider_from_string(obs_data_get_string(data, "provider"));
+	cfg.displayName = obs_data_get_string(data, "displayName");
+	if (obs_data_has_user_value(data, "settings")) {
+		obs_data_t *inner = obs_data_get_obj(data, "settings");
+		if (inner) {
+			cfg.providerSettings = clone_obs_data(inner);
+			obs_data_release(inner);
+		}
+	}
+	return cfg;
+}
+
 /* ---------- CellAssignment ---------- */
 
 obs_data_t *CellAssignment::to_obs_data() const
@@ -1148,6 +1313,23 @@ obs_data_t *CellAssignment::to_obs_data() const
 	obs_data_set_int(data, "col", col);
 	obs_data_set_string(data, "type", type.c_str());
 	obs_data_set_string(data, "name", name.c_str());
+
+	/* Phase 3 / M6: only persist signalConfig for non-empty external
+	 * cells, plus the forward-compat case where an unknown provider type
+	 * was loaded with settings we don't yet understand (we keep the raw
+	 * payload so a future build can resume it). Internal cells stay
+	 * byte-compatible with M5 v3 configs — no extra keys, no empty
+	 * objects. */
+	const bool persist_signal_config =
+		signalConfig.is_external() ||
+		(signalConfig.provider == SignalProviderType::Unknown && signalConfig.providerSettings != nullptr);
+	if (persist_signal_config) {
+		obs_data_t *cfg = signalConfig.to_obs_data();
+		if (cfg) {
+			obs_data_set_obj(data, "signalConfig", cfg);
+			obs_data_release(cfg);
+		}
+	}
 	return data;
 }
 
@@ -1164,6 +1346,12 @@ CellAssignment CellAssignment::from_obs_data(obs_data_t *data)
 		ca.col = -1;
 	ca.type = obs_data_get_string(data, "type");
 	ca.name = obs_data_get_string(data, "name");
+
+	if (obs_data_has_user_value(data, "signalConfig")) {
+		obs_data_t *cfg = obs_data_get_obj(data, "signalConfig");
+		ca.signalConfig = SignalConfig::from_obs_data(cfg);
+		obs_data_release(cfg);
+	}
 	return ca;
 }
 

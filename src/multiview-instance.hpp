@@ -306,11 +306,88 @@ EffectiveCellVisualSettings resolve_effective_visual_settings(const GlobalVisual
 
 /* ========== Core Data Structs ========== */
 
+/* Phase 3 / M6: signal provider type. The persisted string form is the
+ * single authoritative identifier; never serialize the enum integer. The
+ * internal_* values mirror the M5 `CellAssignment.type` strings exactly so
+ * legacy configs continue to load without an explicit migration step.
+ *
+ * `Unknown` is reserved for forward-compat: a future provider id stored on
+ * disk that this build does not understand resolves to `Unknown`, the cell
+ * stays empty, and the original `signalConfig` payload (kept verbatim) is
+ * preserved on save so the user can keep using a newer build later.
+ */
+enum class SignalProviderType {
+	Unknown,
+	InternalPgm,
+	InternalPrvw,
+	InternalScene,
+	InternalSource,
+	Ffmpeg,
+	Ndi,
+	Spout,
+	Vlc,
+	WebRtcReserved,
+};
+
+const char *signal_provider_to_string(SignalProviderType p);
+SignalProviderType signal_provider_from_string(const char *s);
+
+/* True for `internal_*` providers whose runtime is the existing M5 path
+ * (`CellAssignment.type` + `name` + OBS scene/source weak ref). External
+ * providers own a private OBS source and a richer settings object. */
+bool signal_provider_is_internal(SignalProviderType p);
+
+/* Phase 3 / M6: external provider configuration payload.
+ *
+ * `provider == Unknown` means "no external config / use legacy CellAssignment
+ * type+name semantics". For external providers, `providerSettings` holds the
+ * provider-specific keys (e.g. `ndi_source_name`, `spout_capture` settings,
+ * FFmpeg `input` URL); the registry decides which keys to read.
+ *
+ * Round-trip rules (see CellAssignment::to/from_obs_data for behavior):
+ *  - Internal cells never write `signalConfig` to disk; round-trips stay
+ *    byte-compatible with M5 v3 configs.
+ *  - External cells write `signalConfig` and clear the legacy `type/name`
+ *    string-id semantics; render code reads provider runtime instead.
+ *  - Unknown providers (forward-compat) preserve the raw OBS data so a
+ *    future build can read it back losslessly.
+ */
+struct SignalConfig {
+	SignalProviderType provider = SignalProviderType::Unknown;
+	std::string displayName;                /* user-visible label for SourcePicker / VU label fallback */
+	obs_data_t *providerSettings = nullptr; /* owned; may be nullptr when no settings yet */
+
+	SignalConfig() = default;
+	SignalConfig(const SignalConfig &other);
+	SignalConfig(SignalConfig &&other) noexcept;
+	SignalConfig &operator=(const SignalConfig &other);
+	SignalConfig &operator=(SignalConfig &&other) noexcept;
+	~SignalConfig();
+
+	bool empty() const { return provider == SignalProviderType::Unknown && !providerSettings; }
+	bool is_internal() const { return signal_provider_is_internal(provider); }
+	bool is_external() const { return !empty() && !is_internal(); }
+
+	obs_data_t *to_obs_data() const;
+	static SignalConfig from_obs_data(obs_data_t *data);
+};
+
 struct CellAssignment {
 	int row = -1;     // grid row position (-1 = legacy/unset)
 	int col = -1;     // grid col position (-1 = legacy/unset)
 	std::string type; // "pgm", "prvw", "scene", "source", ""
 	std::string name; // scene/source name, empty for pgm/prvw/empty
+
+	/* Phase 3 / M6: optional external provider config.
+	 *
+	 * For internal cells (pgm/prvw/scene/source/empty) this stays empty
+	 * and is NOT serialized; M5 v3 configs round-trip unchanged.
+	 *
+	 * For external cells (ffmpeg/ndi/spout/vlc/webrtc_reserved) the
+	 * provider-specific settings live here; the legacy `type` is set to
+	 * a stable provider tag (`external`) so older code paths that filter
+	 * by `type.empty()` still know the cell is occupied. */
+	SignalConfig signalConfig;
 
 	obs_data_t *to_obs_data() const;
 	static CellAssignment from_obs_data(obs_data_t *data);
