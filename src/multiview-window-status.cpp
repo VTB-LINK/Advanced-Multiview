@@ -138,6 +138,9 @@ void MultiviewWindow::release_status_text_sources()
 	status_missing_source_.source = nullptr;
 	status_missing_source_.width = 0;
 	status_missing_source_.height = 0;
+	status_missing_scene_.source = nullptr;
+	status_missing_scene_.width = 0;
+	status_missing_scene_.height = 0;
 	status_signal_lost_.source = nullptr;
 	status_signal_lost_.width = 0;
 	status_signal_lost_.height = 0;
@@ -149,10 +152,19 @@ void MultiviewWindow::release_status_text_sources()
 	status_fallback_.height = 0;
 }
 
-MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_state(SignalRuntimeState state) const
+MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_state(SignalRuntimeState state,
+										  const std::string &cellType) const
 {
 	switch (state) {
 	case SignalRuntimeState::MissingInternal:
+		/* Differentiate the wording so the user immediately knows
+		 * whether OBS lost a scene assignment or a non-scene source
+		 * (image, capture, browser, etc). cellType comes from the
+		 * CellAssignment that fed CellSource — "scene" / "source" /
+		 * "pgm" / "prvw"; the latter two are always Active so they
+		 * never reach this path. */
+		if (cellType == "scene")
+			return StatusOverlayKind::MissingScene;
 		return StatusOverlayKind::MissingSource;
 	case SignalRuntimeState::Lost:
 	case SignalRuntimeState::Error:
@@ -177,7 +189,14 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 		return;
 
 	const auto &cs = cell_sources_[cellIndex];
-	const StatusOverlayKind kind = status_overlay_kind_for_state(cs.state);
+
+	/* Phase 3 / M5.1 ClearCell: while we wait for the queued main-thread
+	 * mutation to fire, render the cell as Empty so MISSING SOURCE doesn't
+	 * flash for the 1-2 frames between source_remove and the timer firing. */
+	if (cs.pending_clear)
+		return;
+
+	const StatusOverlayKind kind = status_overlay_kind_for_state(cs.state, cs.type);
 	if (kind == StatusOverlayKind::None)
 		return;
 
@@ -193,6 +212,11 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 		text = "MISSING SOURCE";
 		bandColor = 0xC0202020;
 		entry = &status_missing_source_;
+		break;
+	case StatusOverlayKind::MissingScene:
+		text = "MISSING SCENE";
+		bandColor = 0xC0202020;
+		entry = &status_missing_scene_;
 		break;
 	case StatusOverlayKind::Fallback:
 		/* Phase 3 / M5.4: when a cell renders a Lost-Signal fallback

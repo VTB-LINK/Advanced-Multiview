@@ -220,6 +220,16 @@ private:
 		uint64_t last_reconnect_ns = 0; /* set on manual / scheduled rebuild attempt */
 		int retry_attempt = 0;          /* backoff counter, reset on Active */
 
+		/* Phase 3 / M5.1: ClearCell decision is made on the source_remove
+		 * signal handler (any thread) but the actual assignment mutation +
+		 * config save runs on the Qt main thread via QTimer::singleShot.
+		 * In between, the render thread would normally show MISSING SOURCE
+		 * for the few frames it takes the timer to run. This flag bridges
+		 * that gap: render treats the cell as Empty (gutter colour, no
+		 * overlay) until the queued mutation calls refresh_sources() and
+		 * rebuilds cell_sources_ — which naturally drops the flag. */
+		bool pending_clear = false;
+
 		/* Phase 3 / M5: cached effective Lost Signal settings (Global +
 		 * per-cell Override merged once per source-refresh, not per
 		 * frame). Render uses this to decide what to draw when the
@@ -278,17 +288,19 @@ private:
 	enum class StatusOverlayKind {
 		None,
 		MissingSource,
+		MissingScene,
 		SignalLost,
 		Reconnecting,
 		Fallback,
 	};
 	StatusTextEntry status_missing_source_;
+	StatusTextEntry status_missing_scene_;
 	StatusTextEntry status_signal_lost_;  /* reserved for M6 */
 	StatusTextEntry status_reconnecting_; /* reserved for M5.3 */
 	StatusTextEntry status_fallback_;     /* reserved for M5.4 */
 	void ensure_status_text_source(StatusTextEntry &entry, const char *text);
 	void release_status_text_sources();
-	StatusOverlayKind status_overlay_kind_for_state(SignalRuntimeState state) const;
+	StatusOverlayKind status_overlay_kind_for_state(SignalRuntimeState state, const std::string &cellType) const;
 	void render_status_overlay(int cellIndex, int cellX, int cellY, int cellW, int cellH);
 
 	/* dB scale label text sources (cached per unique dB value) */

@@ -33,6 +33,13 @@ std::string MultiviewWindow::compute_wanted_lost_image_path(int cellIndex)
 	if (cs.type.empty() || cs.type == "pgm" || cs.type == "prvw")
 		return std::string();
 
+	/* Phase 3 / M5.1 ClearCell: cell is about to be cleared on the next
+	 * Qt main-thread tick. Don't load placeholder / fallback art for it —
+	 * that would just flash for the few frames before refresh_sources()
+	 * rebuilds cell_sources_ and the slot disappears entirely. */
+	if (cs.pending_clear)
+		return std::string();
+
 	/* Cells whose source resolves (Active / FallbackActive on an OBS
 	 * source) draw the source video directly — no image. */
 	if (cs.state == SignalRuntimeState::Active || cs.state == SignalRuntimeState::FallbackActive)

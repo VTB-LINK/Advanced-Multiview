@@ -360,6 +360,12 @@ void MultiviewWindow::on_source_being_removed(obs_source_t *source)
 			if (cs.effective_lost.internalMissingBehavior == InternalMissingBehavior::ClearCell &&
 			    i < idx_to_rowcol.size()) {
 				clear_rowcols.push_back(idx_to_rowcol[i]);
+				/* Mark the cell as awaiting clear so the render
+				 * thread paints it as Empty (gutter colour, no
+				 * MISSING SOURCE flash) for the 1-2 frames before
+				 * apply_clear_cell_for_rowcols runs and rebuilds
+				 * cell_sources_. */
+				cs.pending_clear = true;
 			}
 		}
 
@@ -1048,7 +1054,19 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		if (i < (int)cell_sources_.size()) {
 			const auto &cs = cell_sources_[i];
 
-			if (cs.type == "pgm") {
+			/* Phase 3 / M5.1 ClearCell: render the cell as Empty
+			 * for the brief window between source_remove (which set
+			 * pending_clear) and apply_clear_cell_for_rowcols
+			 * running on the Qt main thread. Skip every visual that
+			 * depends on the soon-to-be-cleared assignment: source
+			 * resolve, fallback, lost-signal image, status overlay
+			 * — they're all handled below by the same `src == null
+			 * && cell empty` branch the layout already has. */
+			if (cs.pending_clear) {
+				/* fall through to the "no signal" branch with
+				 * src == nullptr; existing code in that branch
+				 * paints the cell background only. */
+			} else if (cs.type == "pgm") {
 				/* PGM: we use obs_render_main_texture() for
 				 * composited output (includes transitions).
 				 * Still get current scene to verify non-null. */
@@ -1108,8 +1126,12 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			 * source is missing or just got pruned above. Image / placeholder
 			 * variants need their own texture loader (deferred to the same
 			 * round that wires up bg_images_-style four-stage loading); only
-			 * OBS-source fallbacks (pgm/prvw/scene/source) are wired here. */
-			if (!src && !cs.type.empty()) {
+			 * OBS-source fallbacks (pgm/prvw/scene/source) are wired here.
+			 *
+			 * Skipped for cs.pending_clear cells — those are about to be
+			 * cleared by the queued main-thread mutation, so showing any
+			 * fallback would just flicker for one frame before going Empty. */
+			if (!src && !cs.type.empty() && !cs.pending_clear) {
 				const LostSignalSettings &eff = cs.effective_lost;
 				const std::string &ft = eff.fallbackType;
 				if (ft == "pgm") {
@@ -1150,7 +1172,13 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			 * status overlay logic and Reconnect Now eligibility map to
 			 * the correct visual treatment. */
 			SignalRuntimeState newState = cs.state;
-			if (cs.type.empty()) {
+			if (cs.pending_clear) {
+				/* Phase 3 / M5.1 ClearCell: cell is being cleared on
+				 * the next Qt main-thread tick. Treat as Empty so no
+				 * MISSING SOURCE / FALLBACK overlay flashes during
+				 * the gap. */
+				newState = SignalRuntimeState::Empty;
+			} else if (cs.type.empty()) {
 				newState = SignalRuntimeState::Empty;
 			} else if (isFallback) {
 				newState = SignalRuntimeState::FallbackActive;
