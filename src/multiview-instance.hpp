@@ -49,9 +49,25 @@ enum class VuMeterDecayRate { Fast, Medium, Slow };
 enum class VuMeterAlignment { Start, Center };
 
 /* Track selection mode for VU meter audio routing.
- * AutoFollowStreaming: follow OBS streaming output's mixer track (first set bit).
- * Manual: user picks a fixed track (1..6) via manualTrackIndex. */
-enum class VuMeterTrackMode { AutoFollowStreaming, Manual };
+ *
+ * v1 (Phase 2.5) values — kept for config backward compat:
+ *   AutoFollowStreaming: follow OBS streaming output's mixer track (first set bit).
+ *   Manual: user picks a fixed track (1..6) via manualTrackIndex.
+ *
+ * M6 additions (Phase 3 / step 8) — introduce provider-aware routing without
+ * disturbing the internal-cell paths:
+ *   Auto: for internal OBS cells (pgm/prvw/scene/source) behave exactly like
+ *     AutoFollowStreaming; for external cells (ffmpeg/ndi/spout/vlc) meter
+ *     the external private source directly (one meter, no scene walk).
+ *   ExternalSource: explicit "prefer the cell's external private source for
+ *     metering". For internal cells (no private source) falls back to the
+ *     AutoFollowStreaming track-bit so the window does not silently lose
+ *     metering on cells that don't have a provider yet.
+ *
+ * String tokens used by config persistence (see vu_meter_track_mode_to_str /
+ * vu_meter_track_mode_from_str): "auto_follow_streaming", "manual", "auto",
+ * "external_source". Unknown tokens fall back to AutoFollowStreaming. */
+enum class VuMeterTrackMode { AutoFollowStreaming, Manual, Auto, ExternalSource };
 
 enum class VuMeterScaleSide { Auto, Same, Opposite };
 

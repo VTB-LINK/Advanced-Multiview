@@ -363,6 +363,14 @@ void MultiviewWindow::rebuild_volmeters()
 	 * track-filtered enumeration uses the up-to-date mask. */
 	current_track_bit_ = compute_active_track_bit();
 
+	/* Phase 3 / M6 step 8: snapshot the instance-level trackMode so each
+	 * cell's external-provider branch can decide whether to attach the
+	 * direct private-source meter (Auto / ExternalSource) or skip VU on
+	 * external cells (AutoFollowStreaming / Manual). */
+	MultiviewInstance *inst_for_vm = config_ ? config_->find_instance(uuid_) : nullptr;
+	const VuMeterTrackMode vm_mode = inst_for_vm ? inst_for_vm->visualSettings.vuMeter.trackMode
+						     : VuMeterTrackMode::AutoFollowStreaming;
+
 	size_t count = cell_sources_.size();
 	cell_volmeters_.resize(count, nullptr);
 
@@ -390,8 +398,72 @@ void MultiviewWindow::rebuild_volmeters()
 
 	for (size_t i = 0; i < count; i++) {
 		const auto &cs = cell_sources_[i];
-		if (cs.type.empty())
+		if (cs.type.empty() && cs.provider_type == SignalProviderType::Unknown)
 			continue;
+
+		/* Phase 3 / M6 step 8: external-provider cell routing.
+		 *
+		 * External cells own a `private_source` and are NOT walked as a
+		 * scene tree — the private source IS the audio object. Attach the
+		 * cell's single volmeter directly to it. The instance trackMode
+		 * dictates whether external metering is honored:
+		 *   - Auto / ExternalSource: enable direct external metering
+		 *   - AutoFollowStreaming / Manual: external cells skip VU entirely
+		 *     (legacy modes never knew about provider sources; keeping VU
+		 *     off avoids surprising users who upgrade configs).
+		 *
+		 * Spout has no audio; the provider models it as silence rather
+		 * than an error. We do not attach a volmeter for Spout cells \u2014 the
+		 * UI VU bar simply stays silent at -inf dB. */
+		if (cs.provider_type != SignalProviderType::Unknown && !signal_provider_is_internal(cs.provider_type)) {
+			if (vm_mode != VuMeterTrackMode::Auto && vm_mode != VuMeterTrackMode::ExternalSource)
+				continue;
+			if (cs.provider_type == SignalProviderType::Spout)
+				continue;
+			obs_source_t *priv = cs.private_source.Get();
+			if (!priv)
+				continue;
+
+			auto *cellVm = new CellVolmeter();
+			cellVm->meters.reserve(1);
+
+			auto sv = std::make_unique<SingleVolmeter>();
+			for (int c = 0; c < MAX_AUDIO_CHANNELS; c++) {
+				sv->magnitude[c] = VU_SILENCE_DB;
+				sv->peak[c] = VU_SILENCE_DB;
+			}
+			sv->volmeter = obs_volmeter_create(OBS_FADER_LOG);
+			if (!sv->volmeter) {
+				delete cellVm;
+				continue;
+			}
+			const char *pname = obs_source_get_name(priv);
+			sv->name = pname ? pname : "";
+			sv->user_muted.store(obs_source_muted(priv), std::memory_order_relaxed);
+			sv->source_weak = OBSGetWeakRef(priv);
+
+			SingleVolmeter *svPtr = sv.get();
+			obs_volmeter_add_callback(svPtr->volmeter, volmeter_callback, svPtr);
+			obs_volmeter_attach_source(svPtr->volmeter, priv);
+			svPtr->channels = obs_volmeter_get_nr_channels(svPtr->volmeter);
+
+			signal_handler_t *sh = obs_source_get_signal_handler(priv);
+			if (sh) {
+				signal_handler_connect(sh, "mute", source_mute_callback, svPtr);
+				signal_handler_connect(sh, "audio_mixers", source_audio_mixers_callback, this);
+			}
+
+			cellVm->meters.push_back(std::move(sv));
+			cell_volmeters_[i] = cellVm;
+			cells_with_meters++;
+			total_attached++;
+
+			char cellEntry[64];
+			snprintf(cellEntry, sizeof(cellEntry), "%sc%zu:%s=1", cells_breakdown.empty() ? "" : " ", i,
+				 signal_provider_to_string(cs.provider_type));
+			cells_breakdown += cellEntry;
+			continue;
+		}
 
 		obs_source_t *cellSrc = nullptr;
 		bool isPgm = false;

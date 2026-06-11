@@ -543,13 +543,28 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 	form->addRow(QStringLiteral("Enabled:"), chk_vu_enabled_);
 
 	/* Track selection: which mixer track determines source visibility +
-	 * audio routing for the meter. AutoFollowStreaming follows OBS
-	 * Settings → Output → Streaming Audio Track. Manual pins to a
-	 * specific Track 1..6 regardless of streaming config. */
+	 * audio routing for the meter.
+	 *
+	 * v1 modes (Phase 2.5) — kept for backward compat:
+	 *   AutoFollowStreaming: follows OBS Settings → Output → Streaming
+	 *     Audio Track (lowest set bit of the streaming mixer mask).
+	 *   Manual: pins to manualTrackIndex (Track 1..6) regardless of
+	 *     streaming config.
+	 *
+	 * M6 additions (Phase 3 / step 8):
+	 *   Auto: internal cells behave like AutoFollowStreaming; external
+	 *     provider cells (M6.1+) meter their own private source.
+	 *   ExternalSource: external provider cells force-meter their private
+	 *     source; internal cells fall back to AutoFollowStreaming so a
+	 *     window with both kinds of cells does not lose internal meters. */
 	cmb_vu_track_mode_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_track_mode_->addItem(QStringLiteral("Auto-follow Streaming"),
 				    (int)VuMeterTrackMode::AutoFollowStreaming);
 	cmb_vu_track_mode_->addItem(QStringLiteral("Manual"), (int)VuMeterTrackMode::Manual);
+	cmb_vu_track_mode_->addItem(QStringLiteral("Auto (M6: external cells use their own source)"),
+				    (int)VuMeterTrackMode::Auto);
+	cmb_vu_track_mode_->addItem(QStringLiteral("External Source (force external meter)"),
+				    (int)VuMeterTrackMode::ExternalSource);
 	form->addRow(QStringLiteral("Track Source:"), cmb_vu_track_mode_);
 
 	spin_vu_manual_track_ = new QSpinBox(grp_vu_meter_);

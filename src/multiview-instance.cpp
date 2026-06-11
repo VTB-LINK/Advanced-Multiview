@@ -292,6 +292,10 @@ static const char *vu_meter_track_mode_to_str(VuMeterTrackMode m)
 	switch (m) {
 	case VuMeterTrackMode::Manual:
 		return "manual";
+	case VuMeterTrackMode::Auto:
+		return "auto";
+	case VuMeterTrackMode::ExternalSource:
+		return "external_source";
 	default:
 		return "auto_follow_streaming";
 	}
@@ -303,6 +307,10 @@ static VuMeterTrackMode vu_meter_track_mode_from_str(const char *s)
 		return VuMeterTrackMode::AutoFollowStreaming;
 	if (strcmp(s, "manual") == 0)
 		return VuMeterTrackMode::Manual;
+	if (strcmp(s, "auto") == 0)
+		return VuMeterTrackMode::Auto;
+	if (strcmp(s, "external_source") == 0)
+		return VuMeterTrackMode::ExternalSource;
 	return VuMeterTrackMode::AutoFollowStreaming;
 }
 
