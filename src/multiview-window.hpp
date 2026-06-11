@@ -237,6 +237,28 @@ private:
 		 * is implemented in M5.4; placeholder/signal-lost image rendering
 		 * is wired separately when that bg-image-style loader lands. */
 		LostSignalSettings effective_lost;
+
+		/* Phase 3 / M6: external provider runtime fields.
+		 *
+		 * For internal cells (`type` ∈ {pgm, prvw, scene, source, ""}) all
+		 * of these stay default-constructed and the existing M5 paths
+		 * (weak_ref + lazy re-resolve) handle rendering exactly as before.
+		 *
+		 * External cells own a `private_source` strong ref backed by an
+		 * OBS source type the host plugin contributes (`ffmpeg_source` /
+		 * `ndi_source` / `spout_capture` / `vlc_source`). The provider
+		 * registry creates / updates / releases this through one helper
+		 * (release_cell_runtime_locked) so layout shrink, ClearCell,
+		 * source change, provider recreate, window close and OBS exit
+		 * use the same teardown path. */
+		SignalProviderType provider_type = SignalProviderType::Unknown;
+		OBSSource private_source;            /* external private OBS source */
+		uint64_t provider_settings_hash = 0; /* fingerprint of last applied settings */
+		uint64_t last_health_ns = 0;         /* monotonic time of last health observation */
+		uint32_t last_dimensions_w = 0;
+		uint32_t last_dimensions_h = 0;
+		std::string last_error_reason; /* one-shot human-readable reason */
+		uint64_t next_retry_ns = 0;    /* monotonic time of next allowed reconnect attempt */
 	};
 	std::vector<CellSource> cell_sources_;
 	std::recursive_mutex source_mutex_;

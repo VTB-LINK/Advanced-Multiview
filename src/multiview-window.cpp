@@ -876,6 +876,23 @@ void MultiviewWindow::release_source_refs()
 				cs.showing = false;
 			}
 			cs.weak_ref = nullptr;
+
+			/* Phase 3 / M6: release any external private source the
+			 * provider runtime may have created. Internal cells leave
+			 * `private_source` empty so this is a no-op for them.
+			 *
+			 * The OBSSource RAII wrapper drops its strong ref on
+			 * assignment; we deliberately do NOT call dec_showing on
+			 * private sources because we never inc_showing'd them at
+			 * the multiview level — they are private to this window
+			 * and their show ref is implicit in the strong ref's
+			 * lifetime. Provider implementations are free to manage
+			 * inc_showing / dec_showing on their own private source if
+			 * a specific provider's host plugin needs the hint. */
+			cs.private_source = nullptr;
+			cs.provider_type = SignalProviderType::Unknown;
+			cs.provider_settings_hash = 0;
+			cs.last_error_reason.clear();
 		}
 		cell_sources_.clear();
 
