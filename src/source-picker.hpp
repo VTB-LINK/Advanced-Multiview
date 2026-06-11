@@ -21,9 +21,12 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "multiview-instance.hpp"
 
 #include <QDialog>
-#include <QListWidget>
+#include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QPushButton>
 #include <QTabWidget>
+#include <QWidget>
 
 class SourcePicker : public QDialog {
 	Q_OBJECT
@@ -41,11 +44,31 @@ private slots:
 private:
 	void populate_list();
 
+	/* Phase 3 / M6: build a placeholder tab widget for an external
+	 * provider whose runtime has not landed yet (or whose host plugin
+	 * is missing). The placeholder reuses real-shape controls so future
+	 * milestones replace it without disturbing the rest of the dialog.
+	 *
+	 * `provider` selects the SignalProviderRegistry entry queried for
+	 * availability; `coming_in` is the milestone label ("M6.1" etc.);
+	 * `description` is the body text shown above the disabled controls. */
+	QWidget *build_external_placeholder(SignalProviderType provider, const char *coming_in,
+					    const char *description);
+
 	QTabWidget *tabs_;
 	QLineEdit *filter_edit_;
 	QListWidget *special_list_;
 	QListWidget *scene_list_;
 	QListWidget *source_list_;
+
+	/* Phase 3 / M6: external provider placeholder tabs. Stored so the
+	 * tab index lookup in on_accept() can recognize them and reject
+	 * politely until the actual provider implementations land. */
+	QWidget *media_tab_ = nullptr;
+	QWidget *ndi_tab_ = nullptr;
+	QWidget *spout_tab_ = nullptr;
+	QWidget *vlc_tab_ = nullptr;
+	QWidget *webrtc_tab_ = nullptr;
 
 	CellAssignment result_;
 };

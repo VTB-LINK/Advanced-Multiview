@@ -17,13 +17,16 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "source-picker.hpp"
+#include "signal-provider.hpp"
 
 #include <obs.h>
 #include <obs-frontend-api.h>
 
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QVBoxLayout>
 
 SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
@@ -54,6 +57,39 @@ SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
 
 	source_list_ = new QListWidget;
 	tabs_->addTab(source_list_, QStringLiteral("Sources"));
+
+	/* Phase 3 / M6: external-provider placeholder tabs.
+	 *
+	 * These show the eventual UI shape (URL input, list + Refresh) but
+	 * are disabled until the corresponding provider milestone lands. We
+	 * keep them visible at all times so the user knows the capability
+	 * exists and the tab index numbering stays stable across builds. */
+	media_tab_ = build_external_placeholder(SignalProviderType::Ffmpeg, "M6.1",
+						"Network media (RTMP / HLS / FLV / SRT / file URLs) via OBS's built-in "
+						"FFmpeg media source. URL input and reconnect controls land here.");
+	tabs_->addTab(media_tab_, QStringLiteral("Media"));
+
+	ndi_tab_ = build_external_placeholder(SignalProviderType::Ndi, "M6.2",
+					      "DistroAV NDI sources discovered on the network. The discovered list "
+					      "plus Refresh and bandwidth/latency controls land here.");
+	tabs_->addTab(ndi_tab_, QStringLiteral("NDI"));
+
+	spout_tab_ =
+		build_external_placeholder(SignalProviderType::Spout, "M6.3",
+					   "obs-spout2 senders running on this machine. The discovered sender list "
+					   "plus Refresh and composite-mode controls land here.");
+	tabs_->addTab(spout_tab_, QStringLiteral("Spout"));
+
+	vlc_tab_ = build_external_placeholder(SignalProviderType::Vlc, "M6.4 (optional)",
+					      "Network media via OBS's built-in VLC video source. Optional second "
+					      "media provider for users who prefer VLC's protocol coverage.");
+	tabs_->addTab(vlc_tab_, QStringLiteral("VLC"));
+
+	webrtc_tab_ =
+		build_external_placeholder(SignalProviderType::WebRtcReserved, "Reserved",
+					   "WebRTC ingest is reserved for a future Phase. The transport, "
+					   "signaling, and codec strategy will be confirmed before any UI lands here.");
+	tabs_->addTab(webrtc_tab_, QStringLiteral("WebRTC"));
 
 	/* Buttons */
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -157,8 +193,20 @@ void SourcePicker::on_accept()
 		activeList = special_list_;
 	else if (idx == 1)
 		activeList = scene_list_;
-	else
+	else if (idx == 2)
 		activeList = source_list_;
+	else {
+		/* Phase 3 / M6: external provider tabs are placeholders until
+		 * their respective milestones land. Surface a clear message
+		 * instead of silently rejecting so the user knows the tab is a
+		 * real capability that just is not implemented yet, then keep
+		 * the dialog open so they can pick something else. */
+		QMessageBox::information(this, QStringLiteral("External provider not yet available"),
+					 QStringLiteral("This external signal provider is reserved for a future "
+							"milestone and cannot be selected yet. Please pick a Special, "
+							"Scene or Source entry, or cancel."));
+		return;
+	}
 
 	auto *current = activeList->currentItem();
 	if (!current) {
@@ -170,4 +218,52 @@ void SourcePicker::on_accept()
 	result_.name = current->data(Qt::UserRole + 1).toString().toStdString();
 
 	accept();
+}
+
+QWidget *SourcePicker::build_external_placeholder(SignalProviderType provider, const char *coming_in,
+						  const char *description)
+{
+	auto *page = new QWidget(this);
+	auto *layout = new QVBoxLayout(page);
+	layout->setContentsMargins(12, 12, 12, 12);
+	layout->setSpacing(10);
+
+	/* Heading: which milestone delivers this provider. */
+	auto *heading = new QLabel(QStringLiteral("Coming in %1").arg(QString::fromUtf8(coming_in)), page);
+	{
+		QFont f = heading->font();
+		f.setBold(true);
+		heading->setFont(f);
+	}
+	layout->addWidget(heading);
+
+	/* Description body. */
+	auto *body = new QLabel(QString::fromUtf8(description), page);
+	body->setWordWrap(true);
+	layout->addWidget(body);
+
+	/* Provider availability hint. The registry only carries internal
+	 * adapters in Phase C, so external providers will report "not yet
+	 * registered". Once the M6.x milestone wires the concrete provider
+	 * into the registry, this line will switch to the host plugin's
+	 * actual availability state without further UI changes here. */
+	const auto &reg = SignalProviderRegistry::instance();
+	const auto *p = reg.find(provider);
+	QString status;
+	if (!p) {
+		status = QStringLiteral("Provider not yet registered in this build.");
+	} else if (p->is_available()) {
+		status = QStringLiteral("Provider available.");
+	} else {
+		const std::string reason = p->unavailable_reason();
+		status = QStringLiteral("Provider unavailable: %1")
+				 .arg(reason.empty() ? QStringLiteral("host plugin missing")
+						     : QString::fromStdString(reason));
+	}
+	auto *availLabel = new QLabel(status, page);
+	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
+	layout->addWidget(availLabel);
+
+	layout->addStretch(1);
+	return page;
 }
