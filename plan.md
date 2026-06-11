@@ -826,6 +826,75 @@ VU meter 三层设置在 M6.0 升级（已确认）：
 - Render thread 保持 provider-agnostic：不创建、不释放、不重连外部 source。
 - 所有外部 source create / update / release 必须在 `source_mutex_` 之外执行，沿用 Phase 2 / M5 的锁顺序纪律。
 
+### 9.1 M6.1 first-slice 落地后追加任务（M6.1+）
+
+M6.1 第一个 vertical slice 跑通后，用户实测暴露了三块需要在进入 M6.2 / step 10 之前补齐的工作。统称 **M6.1+**：
+
+#### 9.1.A 单 cell 增量重建（cell-level incremental refresh）
+
+**问题**：当前 `refresh_sources()` 是窗口级全量重建——任何一个 cell 的 Add/Change/Clear/Edit 都会 `release_source_refs() + update_source_refs()`，导致同窗口其他外部 cell（特别是分片 10s+ 的 m3u8）一起被销毁重建，重新缓冲。
+
+**目标**：单 cell 编辑只触动该 cell 的 runtime，其他 cell 完全无感。
+
+**约束**：
+- `cell_sources_` / `effective_visuals_` / `label_sources_` / `bg_images_` / `overlay_images_` / `lost_signal_images_` / `cell_volmeters_` 是并行索引向量，cell 数量改变（layout / grid edit）必须仍走全量 `refresh_sources()`。
+- 单 cell 增量只允许在「cell 数量未变」的前提下用。
+- 私有源 inc_active/dec_active 必须在 `source_mutex_` 之外执行，沿用 step 9 已建立的 unlock-side 释放路径。
+- volmeter 重建用现有 throttle 标志合并，不为单 cell 路径单独建一套机制。
+- `rebuild_label_sources / rebuild_bg_images / rebuild_overlay_images / rebuild_lost_signal_images` 已经是 path-keyed idempotent 的，单 cell 路径调用一次即可，路径未变则 no-op。
+
+**验证**：两个 cell 都绑长分片 m3u8 → 改其中一个 cell 的 URL → 另一个 cell 视频不中断。
+
+#### 9.1.B Media tab 完整 ffmpeg 能力（local + advanced）
+
+**问题**：当前 Media tab 只暴露 `input` URL 一个键，丢失了 OBS 内置 ffmpeg_source 大量实用键：本地文件、循环、reconnect_delay、buffering、hw_decode、color_range、ffmpeg_options 等。
+
+**研究结论**：完全复用 OBS 内置 `ffmpeg_source` 能力。**Multiview cell 既可以是网络流监看，也可以是本地循环素材**（叠图源、转场素材、备用画面）；这是 Multiview "信号监看" 语义合理的扩展，不是越界。
+
+**UI 拆两层**：
+1. **常用区**（始终展开）：
+   - `Local File` 复选框 — 切换 URL 输入框 ↔ 文件选择器
+   - URL / 本地文件路径
+   - `Reconnect Delay` 滑块（1–60 s，仅网络流可见，默认 10）
+   - `Network Buffering` 滑块（0–16 MB，仅网络流可见，默认 2）
+   - `Hardware Decoding` 复选框（默认 false）
+   - `Color Range` 下拉（auto / partial / full，默认 auto）
+   - `Looping` 复选框（仅本地文件可见，默认 false）
+2. **高级折叠区**（QGroupBox checkable，默认折叠）：
+   - `Restart on activate`（默认 true，锁定 — 与我们的 inc_active 启动配合，禁止用户改 false 否则永远休眠）
+   - `Close when inactive`（默认 false，锁定 — 同上理由）
+   - `Clear on media end`（默认 true）
+   - `Linear Alpha`（默认 false）
+   - `Seekable`（默认 false）
+   - `Speed Percent`（默认 100，仅本地文件）
+   - `FFmpeg Options`（自由文本，传给底层 ffmpeg）
+
+**透传策略**：所有用户可见键直接以原 ffmpeg_source key 名写入 `signalConfig.providerSettings`，`FfmpegProvider::create_private_source` 直接合并 — 不在中间做 key 改名 / 翻译。
+
+**安全键锁定**：`restart_on_activate = true` / `close_when_inactive = false` / `is_local_file` 不允许通过 ffmpeg_options 间接绕过；provider 层面强制覆盖即可。
+
+#### 9.1.C 通用 Edit Source… 右键菜单入口
+
+**问题**：cell 已经绑了外部信号后，目前只能 `Change Source...` 走完整 SourcePicker 流程，无法只编辑当前 provider 的设置（改个 URL、调个 buffering）。NDI / Spout / VLC 上线后这种"改 setting 不换 provider"的需求会更频繁。
+
+**目标**：右键已绑外部信号的 cell → 看到 `Edit Source...` 直接打开 provider-specific 设置对话框；改完保存就走 9.1.A 的单 cell 增量更新。
+
+**约束**：
+- 仅外部 cell 显示该项；内部 cell（pgm/prvw/scene/source）不显示，避免与 Change Source 重复。
+- 对话框由 provider 自己负责构造表单；这次只实现 FFmpeg 的版本（NDI / Spout / VLC 在它们各自 milestone 实现自己的）。
+- 保存路径：直接修改 `inst->cellAssignments` 里对应 cell 的 `signalConfig.providerSettings`，调用 `config_->save()`，再调用 9.1.A 的单 cell 增量重建。
+- 取消 / 关闭对话框不应留下半保存状态。
+
+**与 9.1.B 的关系**：Edit Source 对话框就是 SourcePicker Media tab 表单的复用，可以共享一个 builder。
+
+#### 9.1 落地顺序
+
+1. **9.1.A 单 cell 增量** 先做（其他两个都依赖它产生不卡顿的保存路径）
+2. **9.1.B 完整 ffmpeg** 接着做（独立改 SourcePicker，不影响 runtime）
+3. **9.1.C Edit Source 菜单** 最后（复用 9.1.B 的表单 + 9.1.A 的保存路径）
+
+完成后再进入原计划的 step 10 external health supervisor。M6.1+ 提交按 9.1.A / 9.1.B / 9.1.C 各 1 个 commit。
+
 ---
 
 ## 10. Milestone 7：打包、安装版与便携版 artifacts

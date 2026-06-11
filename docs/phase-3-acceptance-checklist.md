@@ -204,6 +204,38 @@
 - [ ] 验证：HLS/M3U8、invalid URL、网络中断、Reconnect Now、fallback、recovery、clear cell、layout 缩容、close window
 - [ ] Private source 隔离验证（不出现在 OBS 场景 / source 列表）
 
+## M6.1+ First-slice 落地后追加任务
+
+详见 [plan.md §9.1](../plan.md)。M6.2 / step 10 之前必须完成。
+
+### 9.1.A Cell-level 增量重建
+
+- [ ] `MultiviewWindow::refresh_cell(int row, int col)` 仅触动该 cell 的 runtime
+- [ ] 调用方：`on_add_source` / `on_change_source` / `on_clear_cell` / `Edit Source...` 保存路径
+- [ ] cell 数量改变（layout / Edit Grid）必须仍走全量 `refresh_sources()`
+- [ ] 私有源 inc_active / dec_active 仍在 `source_mutex_` 之外
+- [ ] volmeter 通过既有 throttle 标志合并，不另开新机制
+- [ ] `rebuild_label_sources` / `rebuild_bg_images` / `rebuild_overlay_images` / `rebuild_lost_signal_images` 在路径不变时是 no-op
+- [ ] 验证：两个 cell 都绑长分片 m3u8 → 改其中一个 cell URL → 另一个 cell 不中断
+
+### 9.1.B Media tab 完整 ffmpeg 能力（local + advanced）
+
+- [ ] `Local File` 复选框切换 URL 输入框 ↔ 文件选择器
+- [ ] 常用区：URL / Local File / Reconnect Delay / Network Buffering / Hardware Decoding / Color Range / Looping
+- [ ] 高级折叠区（默认折叠，QGroupBox checkable）：Restart on activate（锁定 true）/ Close when inactive（锁定 false）/ Clear on media end / Linear Alpha / Seekable / Speed Percent / FFmpeg Options
+- [ ] 所有键以原 ffmpeg_source key 名透传 `signalConfig.providerSettings`
+- [ ] `restart_on_activate=true` 与 `close_when_inactive=false` provider 层强制覆盖，不允许通过 ffmpeg_options 间接绕过
+- [ ] 验证：网络流（HLS / RTMP）/ 本地文件 / 本地文件 looping / hw decode 切换 / color range / ffmpeg_options 自定义参数
+
+### 9.1.C 通用 Edit Source… 右键菜单
+
+- [ ] 仅外部 cell 显示该项；内部 cell（pgm/prvw/scene/source）不显示
+- [ ] 对话框由 provider 自己构造表单；本次只实现 FFmpeg 版本
+- [ ] 与 9.1.B 表单复用同一 builder
+- [ ] 保存：写回 `inst->cellAssignments` 对应 cell 的 `signalConfig.providerSettings` → `config_->save()` → `refresh_cell()`
+- [ ] 取消 / 关闭对话框不留半保存状态
+- [ ] 验证：改 URL / 改 buffering / 切换 local file / 加 ffmpeg_options → 仅当前 cell 重连
+
 ## M6.2 DistroAV NDI Provider
 
 - [ ] Source id：`ndi_source`
