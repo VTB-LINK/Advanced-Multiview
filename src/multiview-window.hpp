@@ -48,8 +48,23 @@ public:
 	/* Update window title from config */
 	void refresh_title();
 
-	/* Rebuild cell sources (call after cell assignment changes) */
+	/* Rebuild cell sources (call after cell assignment changes).
+	 *
+	 * `refresh_sources()` is the heavyweight path: it tears down all
+	 * per-cell vectors (label/bg/overlay text sources, VU meters) and
+	 * rebuilds them. Use it for layout-shape changes and cell-assignment
+	 * edits.
+	 *
+	 * `refresh_sources_lazy()` is the lightweight path used by the
+	 * source-list signal bridge (source_create / remove / destroy /
+	 * rename). It only revisits per-cell `CellSource` weak_refs and
+	 * runtime state in place, so unrelated cells keep their label/VU
+	 * resources and their MISSING SOURCE / FALLBACK overlays do not
+	 * flicker for the few frames it would take a full rebuild. If the
+	 * cell *count* itself changed (layout/grid edit), the lazy path
+	 * bails and the caller is expected to schedule a full refresh. */
 	void refresh_sources();
+	void refresh_sources_lazy();
 
 	/* Recompute effective visual settings for all cells */
 	void refresh_visual_settings();
@@ -85,7 +100,15 @@ private:
 	void create_display();
 	void destroy_display();
 	void update_source_refs();
+	void update_source_refs_lazy();
 	void release_source_refs();
+
+	/* Phase 3 / M5: recompute the cached effective LostSignalSettings for
+	 * every cell from Global + per-cell Override. Caller must already hold
+	 * source_mutex_. The `cells` argument is the layout snapshot used by
+	 * the caller — pass the same vector cell_sources_ was sized against
+	 * so per-cell row/col lookups stay aligned with cell_sources_ indices. */
+	void recompute_effective_lost_locked(const std::vector<CellRect> &cells);
 
 	static void render_callback(void *data, uint32_t cx, uint32_t cy);
 	void render(uint32_t cx, uint32_t cy);
@@ -160,6 +183,14 @@ private:
 		uint64_t last_active_ns = 0;    /* set when render produced a non-empty frame */
 		uint64_t last_reconnect_ns = 0; /* set on manual / scheduled rebuild attempt */
 		int retry_attempt = 0;          /* backoff counter, reset on Active */
+
+		/* Phase 3 / M5: cached effective Lost Signal settings (Global +
+		 * per-cell Override merged once per source-refresh, not per
+		 * frame). Render uses this to decide what to draw when the
+		 * primary source is missing — fallback to PGM/PRVW/Scene/Source
+		 * is implemented in M5.4; placeholder/signal-lost image rendering
+		 * is wired separately when that bg-image-style loader lands. */
+		LostSignalSettings effective_lost;
 	};
 	std::vector<CellSource> cell_sources_;
 	std::recursive_mutex source_mutex_;

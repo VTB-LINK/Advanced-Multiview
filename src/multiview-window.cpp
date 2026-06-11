@@ -251,6 +251,151 @@ void MultiviewWindow::refresh_sources()
 	rebuild_volmeters();
 }
 
+/* Phase 3 / M5: in-place CellSource refresh used by the source-list signal
+ * bridge (plugin-main connects source_create / source_remove / source_destroy
+ * / source_rename and debounces them through this path).
+ *
+ * Unlike refresh_sources(), this function:
+ *   - never clears label_sources_ / bg_images_ / overlay_images_ / volmeters_,
+ *     so unrelated cells keep rendering their MISSING SOURCE / FALLBACK
+ *     overlays without a multi-frame gap;
+ *   - only revisits cells whose assignment (type+name) is unchanged for state
+ *     evaluation, and rebinds weak refs only when the assignment itself
+ *     changed (rare on signal events);
+ *   - bails out when the cell count differs from the live vector — this only
+ *     happens on a layout/grid edit, which always goes through the heavy
+ *     refresh_sources() path anyway.
+ *
+ * The signal bridge cares about two cases: a source the user just added/
+ * undid coming back (we re-bind here, state flips to Active on next frame),
+ * and a source being destroyed (we leave the stale weak ref in place — the
+ * render-thread lazy resolve already detects it returning null and switches
+ * the cell to MissingInternal, which makes the overlay appear without
+ * touching any other cell). */
+void MultiviewWindow::refresh_sources_lazy()
+{
+	update_source_refs_lazy();
+}
+
+void MultiviewWindow::update_source_refs_lazy()
+{
+	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (!inst)
+		return;
+
+	LayoutEngine tmpEngine;
+	tmpEngine.set_layout(layout_);
+	tmpEngine.set_viewport(800, 600);
+	tmpEngine.compute();
+
+	const auto &cells = tmpEngine.cells();
+	size_t cellCount = cells.size();
+
+	/* Cell count mismatch ⇒ a layout edit is in flight. Lazy refresh
+	 * cannot keep the parallel vectors in sync; bail and let the next
+	 * full refresh_sources() (always issued on layout changes) handle
+	 * it. The signal bridge will fire again on the next OBS event so we
+	 * don't lose anything by skipping this round. */
+	if (cell_sources_.size() != cellCount)
+		return;
+
+	bool any_state_change = false;
+
+	for (size_t i = 0; i < cellCount; i++) {
+		int r = cells[i].gridRow;
+		int c = cells[i].gridCol;
+		const CellAssignment *ca = nullptr;
+		for (auto &a : inst->cellAssignments) {
+			if (a.row == r && a.col == c) {
+				ca = &a;
+				break;
+			}
+		}
+
+		std::string newType = ca ? ca->type : std::string();
+		std::string newName = ca ? ca->name : std::string();
+
+		auto &cs = cell_sources_[i];
+		if (cs.type == newType && cs.name == newName) {
+			/* Assignment unchanged. State recovery (e.g. a Source
+			 * the user just undid coming back) happens on the
+			 * render thread via the existing lazy re-resolve path
+			 * — we rebind here too so audio metering doesn't have
+			 * to wait for the next render frame. */
+			if (!newType.empty() && newType != "pgm" && newType != "prvw" &&
+			    cs.state == SignalRuntimeState::MissingInternal) {
+				obs_source_t *src = obs_get_source_by_name(newName.c_str());
+				if (src) {
+					cs.weak_ref = OBSGetWeakRef(src);
+					if (!cs.showing) {
+						obs_source_inc_showing(src);
+						cs.showing = true;
+					}
+					cs.state = SignalRuntimeState::Active;
+					obs_source_release(src);
+					any_state_change = true;
+				}
+			}
+			continue;
+		}
+
+		/* Assignment changed (most likely a rename event affecting
+		 * this cell's bound source). Drop the old binding cleanly,
+		 * reset runtime state, then re-bind to the new name. */
+		if (cs.showing) {
+			OBSSourceAutoRelease oldSrc = OBSGetStrongRef(cs.weak_ref);
+			if (oldSrc)
+				obs_source_dec_showing(oldSrc);
+			cs.showing = false;
+		}
+		cs.weak_ref = nullptr;
+		cs.type = newType;
+		cs.name = newName;
+		cs.prvw_fallback = false;
+		cs.state = SignalRuntimeState::Empty;
+		cs.last_active_ns = 0;
+		cs.last_reconnect_ns = 0;
+		cs.retry_attempt = 0;
+
+		if (newType.empty()) {
+			any_state_change = true;
+			continue;
+		}
+		if (newType == "pgm" || newType == "prvw") {
+			cs.state = SignalRuntimeState::Active;
+			any_state_change = true;
+			continue;
+		}
+
+		obs_source_t *src = obs_get_source_by_name(newName.c_str());
+		if (src) {
+			cs.weak_ref = OBSGetWeakRef(src);
+			obs_source_inc_showing(src);
+			cs.showing = true;
+			cs.state = SignalRuntimeState::Active;
+			obs_source_release(src);
+		} else {
+			cs.state = SignalRuntimeState::MissingInternal;
+		}
+		any_state_change = true;
+	}
+
+	/* A rename / re-bind may have changed which audio sources are reachable
+	 * from this multiview window — kick the volmeter rebuild so the next
+	 * frame on the render thread re-attaches meters without waiting for the
+	 * 1Hz active-source poll. */
+	if (any_state_change)
+		volmeters_rebuild_requested_.store(true, std::memory_order_release);
+
+	/* Effective lost-signal settings depend on (row,col) which can't change
+	 * during a lazy refresh, but per-cell Override entries themselves may
+	 * have been edited concurrently via the dialog. Refresh the cache so we
+	 * never render against a stale fallback / placeholder choice. */
+	recompute_effective_lost_locked(cells);
+}
+
 void MultiviewWindow::refresh_visual_settings()
 {
 	{
@@ -294,20 +439,23 @@ void MultiviewWindow::refresh_visual_settings()
 
 void MultiviewWindow::refresh_signal_settings()
 {
-	/* Phase 3 / M5.5: Lost Signal settings change.
+	/* Phase 3 / M5.4 / M5.5: Lost Signal settings just changed (Global edit
+	 * via Settings tab, or per-cell Override via the cell context menu).
 	 *
-	 * Today this is intentionally cheap. The runtime state is recomputed
-	 * each frame inside render() based on `cell_sources_[i].state` and the
-	 * currently effective LostSignalSettings, so we only need to nudge any
-	 * cached placeholder/signal-lost image loaders. M5.4 will hook the
-	 * actual texture loading here; until then the call is a no-op-with-log.
-	 *
-	 * Future shape (kept here as documentation for the next iteration):
-	 *   - reload placeholder image for cells that just gained one
-	 *   - drop placeholder texture for cells that no longer use it
-	 *   - similarly for signalLostImage
-	 */
-	(void)config_;
+	 * The runtime state itself is recomputed every frame inside render()
+	 * from `cell_sources_[i].state`; we only need to refresh the cached
+	 * effective LostSignalSettings so the very next frame picks up the new
+	 * fallback / placeholder choice without waiting for the user to edit a
+	 * cell assignment. Texture-based placeholder / signal-lost-image loaders
+	 * (the bg-image-style four-stage pipeline) will hook in here as well
+	 * when that work lands. */
+	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+
+	LayoutEngine tmpEngine;
+	tmpEngine.set_layout(layout_);
+	tmpEngine.set_viewport(800, 600);
+	tmpEngine.compute();
+	recompute_effective_lost_locked(tmpEngine.cells());
 }
 
 bool MultiviewWindow::force_reconnect_cell(int cellIndex)
@@ -457,6 +605,34 @@ void MultiviewWindow::update_source_refs()
 			 * (e.g. user undoes a deletion); we just record the state here. */
 			cell_sources_[i].state = SignalRuntimeState::MissingInternal;
 		}
+	}
+
+	/* Cache effective LostSignalSettings (Global + per-cell Override) so the
+	 * render path can branch on fallback / placeholder strategy without
+	 * touching the instance config every frame. */
+	recompute_effective_lost_locked(cells);
+}
+
+void MultiviewWindow::recompute_effective_lost_locked(const std::vector<CellRect> &cells)
+{
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (!inst)
+		return;
+	if (cell_sources_.size() != cells.size())
+		return;
+
+	const LostSignalSettings &globalLost = config_->global_settings().lostSignal;
+	for (size_t i = 0; i < cells.size(); i++) {
+		int r = cells[i].gridRow;
+		int c = cells[i].gridCol;
+		const CellLostSignalSettings *cls = nullptr;
+		for (auto &x : inst->cellLostSignalSettings) {
+			if (x.row == r && x.col == c) {
+				cls = &x;
+				break;
+			}
+		}
+		cell_sources_[i].effective_lost = resolve_effective_lost_signal(globalLost, cls);
 	}
 }
 
@@ -640,6 +816,7 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		OBSSourceAutoRelease srcHolder;
 		bool isPrvwFallback = false;
 		bool isPgm = false;
+		bool isFallback = false; /* Phase 3 / M5.4: rendering a Lost-Signal fallback */
 
 		if (i < (int)cell_sources_.size()) {
 			const auto &cs = cell_sources_[i];
@@ -683,16 +860,75 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				src = srcHolder;
 			}
 
-			/* Phase 3 / M5.1a: track signal runtime state without
-			 * altering Phase 2 visual behavior. State is only consumed
-			 * by future M5 work (Missing Source overlay, Reconnect Now,
-			 * fallback). PGM/PRVW are always considered Active because
-			 * they target whichever scene is currently selected. */
+			/* Phase 3 / M5.4: hard guard against rendering a source that
+			 * has been marked removed but is still reachable through our
+			 * weak ref / a frontend handle. obs_source_video_render() and
+			 * obs_render_main_texture() both descend into scene_video_render
+			 * → update_transforms_and_prune_sources, which fires sceneitem
+			 * signal handlers belonging to other plugins. streamdeck-plugin-obs
+			 * has been observed to crash here (signal_handler_signal +0x122)
+			 * when the scene was just removed via our context menu. Treat the
+			 * cell as missing for this frame; the fallback block below will
+			 * substitute a safe replacement source. */
+			if (src && obs_source_removed(src)) {
+				src = nullptr;
+				srcHolder = nullptr;
+				isPgm = false;
+				isPrvwFallback = false;
+			}
+
+			/* Phase 3 / M5.4: apply Lost-Signal fallback when the primary
+			 * source is missing or just got pruned above. Image / placeholder
+			 * variants need their own texture loader (deferred to the same
+			 * round that wires up bg_images_-style four-stage loading); only
+			 * OBS-source fallbacks (pgm/prvw/scene/source) are wired here. */
+			if (!src && !cs.type.empty()) {
+				const LostSignalSettings &eff = cs.effective_lost;
+				const std::string &ft = eff.fallbackType;
+				if (ft == "pgm") {
+					srcHolder = obs_frontend_get_current_scene();
+					if (srcHolder && !obs_source_removed(srcHolder)) {
+						src = srcHolder;
+						isPgm = true;
+						isFallback = true;
+					} else {
+						srcHolder = nullptr;
+					}
+				} else if (ft == "prvw") {
+					srcHolder = obs_frontend_get_current_preview_scene();
+					if (!srcHolder)
+						srcHolder = obs_frontend_get_current_scene();
+					if (srcHolder && !obs_source_removed(srcHolder)) {
+						src = srcHolder;
+						isFallback = true;
+					} else {
+						srcHolder = nullptr;
+					}
+				} else if ((ft == "scene" || ft == "source") && !eff.fallbackName.empty()) {
+					srcHolder = obs_get_source_by_name(eff.fallbackName.c_str());
+					if (srcHolder && !obs_source_removed(srcHolder)) {
+						src = srcHolder;
+						isFallback = true;
+					} else {
+						srcHolder = nullptr;
+					}
+				}
+				/* "image" and "" leave src null — handled by future
+				 * placeholder/signal-lost image renderer; for now the
+				 * cell falls back to the existing MISSING SOURCE band. */
+			}
+
+			/* Phase 3 / M5.1a / M5.4: runtime state classification.
+			 * FallbackActive takes precedence over MissingInternal so the
+			 * status overlay logic and Reconnect Now eligibility map to
+			 * the correct visual treatment. */
 			SignalRuntimeState newState = cs.state;
 			if (cs.type.empty()) {
 				newState = SignalRuntimeState::Empty;
+			} else if (isFallback) {
+				newState = SignalRuntimeState::FallbackActive;
 			} else if (cs.type == "pgm" || cs.type == "prvw") {
-				newState = SignalRuntimeState::Active;
+				newState = src ? SignalRuntimeState::Active : SignalRuntimeState::MissingInternal;
 			} else if (src) {
 				newState = SignalRuntimeState::Active;
 			} else {
@@ -856,10 +1092,15 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 
 			/* Render into video rect */
 			startRegion(vrX, vrY, vrW, vrH, 0.0f, (float)srcW, 0.0f, (float)srcH);
-			if (isPgm)
+			if (isPgm) {
 				obs_render_main_texture();
-			else
+			} else if (src && !obs_source_removed(src)) {
+				/* Phase 3 / M5.4: redundant-but-cheap removed check
+				 * just before video_render. Source state can flip
+				 * between resolve and render even within one frame
+				 * (other plugins / scripts can mark it removed). */
 				obs_source_video_render(src);
+			}
 			endRegion();
 
 			/* Draw PRVW fallback indicator (yellow bar at bottom) */
@@ -1371,6 +1612,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 						       cs.state == SignalRuntimeState::Lost ||
 						       cs.state == SignalRuntimeState::Connecting ||
 						       cs.state == SignalRuntimeState::RetryScheduled ||
+						       cs.state == SignalRuntimeState::FallbackActive ||
 						       cs.state == SignalRuntimeState::Error;
 				}
 			}

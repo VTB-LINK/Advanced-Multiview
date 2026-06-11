@@ -201,7 +201,7 @@ static void on_qt_refresh_sources_all()
 		return;
 	for (auto &[id, window] : open_windows) {
 		if (window)
-			window->refresh_sources();
+			window->refresh_sources_lazy();
 	}
 }
 
@@ -209,7 +209,16 @@ static void schedule_refresh_sources_all()
 {
 	/* Only schedule once per coalesce window. Another signal can fire while
 	 * the timer is pending; the next refresh will pick up the cumulative
-	 * change because refresh_sources() is idempotent. */
+	 * change because refresh_sources_lazy() is idempotent.
+	 *
+	 * NOTE: we deliberately use the lazy variant here (and NOT the heavy
+	 * refresh_sources() that release/rebuilds label_sources_ / bg_images_
+	 * / overlay_images_ / volmeters_). The heavy path leaves cell_sources_
+	 * empty for several frames, which makes any cell's MISSING SOURCE /
+	 * FALLBACK overlay flicker every time an unrelated source elsewhere
+	 * is added or destroyed. The lazy path only updates the cells whose
+	 * assignment actually changed and lets the render-thread lazy resolve
+	 * detect destroyed sources via OBSGetStrongRef() returning null. */
 	if (source_list_dirty_.exchange(true, std::memory_order_acq_rel))
 		return;
 
