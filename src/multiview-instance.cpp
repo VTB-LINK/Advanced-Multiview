@@ -1461,8 +1461,15 @@ obs_data_t *MultiviewInstance::to_obs_data() const
 
 	obs_data_array_t *arr = obs_data_array_create();
 	for (auto &ca : cellAssignments) {
-		if (ca.type.empty())
-			continue; /* Don't save empty assignments */
+		/* Skip empty slots. Phase 3 / M6.1: external-provider cells
+		 * leave `type` empty and carry their binding in `signalConfig`,
+		 * so we must persist either an internal type or a non-empty
+		 * signalConfig. The previous M5-only check dropped every
+		 * Media / NDI / Spout assignment on save \u2014 next OBS launch
+		 * loaded an empty cellAssignments list and the cell appeared
+		 * cleared. */
+		if (ca.type.empty() && ca.signalConfig.empty())
+			continue;
 		obs_data_t *item = ca.to_obs_data();
 		obs_data_array_push_back(arr, item);
 		obs_data_release(item);
@@ -1532,8 +1539,14 @@ MultiviewInstance MultiviewInstance::from_obs_data(obs_data_t *data)
 			obs_data_t *item = obs_data_array_item(arr, i);
 			CellAssignment ca = CellAssignment::from_obs_data(item);
 			obs_data_release(item);
-			/* Skip empty assignments */
-			if (ca.type.empty())
+			/* Skip empty assignments. Phase 3 / M6.1: external-provider
+			 * cells leave `type` empty (legacy field is internal-only)
+			 * and carry their binding in `signalConfig` instead, so we
+			 * must accept either an internal type or a non-empty
+			 * signalConfig as "this slot is occupied". Without this,
+			 * persisted Media / NDI / Spout cells silently disappear
+			 * after an OBS restart. */
+			if (ca.type.empty() && ca.signalConfig.empty())
 				continue;
 			/* Legacy migration: if row/col not stored, compute from flat index */
 			if (ca.row < 0 || ca.col < 0) {
