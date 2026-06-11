@@ -672,7 +672,7 @@ bool MultiviewWindow::force_reconnect_cell(int cellIndex)
 	if (cellIndex < 0 || cellIndex >= (int)cell_sources_.size())
 		return false;
 	auto &cs = cell_sources_[cellIndex];
-	if (cs.type.empty())
+	if (cs.type.empty() && cs.provider_type == SignalProviderType::Unknown)
 		return false;
 
 	/* Resolve cooldown from effective Lost Signal settings so users who
@@ -710,6 +710,32 @@ bool MultiviewWindow::force_reconnect_cell(int cellIndex)
 	}
 	cs.last_reconnect_ns = now;
 	cs.retry_attempt++;
+
+	/* Phase 3 / M6.1: external provider cell. The cheap reconnect path is
+	 * obs_source_media_restart, which for ffmpeg_source re-opens the URL
+	 * via mp_media_set_active(false) -> set_active(true) on its worker
+	 * thread. No need to recreate the private source. Full recreate
+	 * (release_source_refs + refresh_sources) is reserved for step 10's
+	 * health supervisor when restart alone has failed N times.
+	 *
+	 * Held strong ref via OBSSource (private_source) survives the call;
+	 * obs_source_media_restart is safe to call on any source type that
+	 * registered the media callbacks (ffmpeg_source / vlc_source). For
+	 * provider types that don't expose media controls (ndi_source,
+	 * spout_capture) it is a no-op in OBS, which still satisfies the
+	 * "manual attempt was made" semantics for the cooldown / UI. */
+	if (cs.provider_type != SignalProviderType::Unknown && !signal_provider_is_internal(cs.provider_type)) {
+		if (cs.private_source) {
+			obs_source_media_restart(cs.private_source);
+			cs.state = SignalRuntimeState::Connecting;
+			obs_log(LOG_INFO, "reconnect cell %d: media_restart on external provider '%s'", cellIndex,
+				signal_provider_to_string(cs.provider_type));
+		} else {
+			cs.state = SignalRuntimeState::Error;
+			obs_log(LOG_INFO, "reconnect cell %d: external provider has no private source", cellIndex);
+		}
+		return true;
+	}
 
 	/* PGM/PRVW are resolved fresh per-frame; nothing to rebuild but we
 	 * still record the attempt so the cooldown applies symmetrically. */
@@ -2041,8 +2067,17 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 		bool hasSource = false;
 		{
 			std::lock_guard<std::recursive_mutex> lock(source_mutex_);
-			if (cellIndex < (int)cell_sources_.size() && !cell_sources_[cellIndex].type.empty())
-				hasSource = true;
+			if (cellIndex < (int)cell_sources_.size()) {
+				const auto &cs = cell_sources_[cellIndex];
+				/* Phase 3 / M6.1: external-provider cells leave
+				 * cs.type empty (type/name are the legacy internal
+				 * binding fields). Treat the cell as occupied if
+				 * either an internal type or an external provider
+				 * is set so the menu shows Change/Clear/Reconnect
+				 * instead of Add Source. */
+				if (!cs.type.empty() || cs.provider_type != SignalProviderType::Unknown)
+					hasSource = true;
+			}
 		}
 
 		if (hasSource) {
