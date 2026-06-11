@@ -203,6 +203,7 @@
 - [ ] 主信号恢复后自动切回，释放 fallback ref
 - [ ] 验证：HLS/M3U8、invalid URL、网络中断、Reconnect Now、fallback、recovery、clear cell、layout 缩容、close window
 - [ ] Private source 隔离验证（不出现在 OBS 场景 / source 列表）
+- [ ] **持久化往返验证**：bind external cell → save → 关 OBS → 重开 → cell 自动加载、私有源重新激活、播放恢复（M6.1 中曾因 `type.empty()` 过滤导致外部 cell 在磁盘上丢失，已修；后续 provider 上线必须同样验收此项）
 
 ## M6.1+ First-slice 落地后追加任务
 
