@@ -55,6 +55,12 @@ private:
 	QWidget *build_external_placeholder(SignalProviderType provider, const char *coming_in,
 					    const char *description);
 
+	/* Phase 3 / M6.1: real Media tab — user enters an FFmpeg-accepted
+	 * URL and on accept the dialog returns a CellAssignment whose
+	 * signalConfig is populated with provider=Ffmpeg and the URL stored
+	 * under the `input` key. */
+	QWidget *build_media_tab();
+
 	QTabWidget *tabs_;
 	QLineEdit *filter_edit_;
 	QListWidget *special_list_;
@@ -69,6 +75,10 @@ private:
 	QWidget *spout_tab_ = nullptr;
 	QWidget *vlc_tab_ = nullptr;
 	QWidget *webrtc_tab_ = nullptr;
+
+	/* Phase 3 / M6.1: Media tab URL line edit (kept as a member so
+	 * on_accept can read its value). Null until build_media_tab runs. */
+	QLineEdit *media_url_edit_ = nullptr;
 
 	CellAssignment result_;
 };

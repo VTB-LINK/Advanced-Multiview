@@ -19,6 +19,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "multiview-window.hpp"
 #include "cell-display-settings-dialog.hpp"
 #include "signal-lost-settings-dialog.hpp"
+#include "signal-provider.hpp"
 #include "source-picker.hpp"
 
 #include <obs-module.h>
@@ -755,84 +756,176 @@ bool MultiviewWindow::force_reconnect_cell(int cellIndex)
 
 void MultiviewWindow::update_source_refs()
 {
-	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+	/* Phase 3 / M6 step 9: per-cell external provider intents collected
+	 * inside the locked section, materialized OUTSIDE the lock so
+	 * obs_source_create_private never runs while we hold source_mutex_
+	 * (see plan.md §6 lock order). Each intent owns a deep copy of the
+	 * provider settings so the SignalConfig in instance memory can be
+	 * mutated by the UI thread without racing us. */
+	struct ExternalIntent {
+		size_t cell_idx = 0;
+		SignalProviderType provider = SignalProviderType::Unknown;
+		std::string desired_name;
+		SignalConfig cfg_copy; /* deep copy of CellAssignment.signalConfig */
+	};
+	std::vector<ExternalIntent> externals;
 
-	MultiviewInstance *inst = config_->find_instance(uuid_);
-	if (!inst)
-		return;
+	{
+		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 
-	/* Recompute layout to know cell count and positions */
-	LayoutEngine tmpEngine;
-	tmpEngine.set_layout(layout_);
-	tmpEngine.set_viewport(800, 600); /* dummy size for cell count */
-	tmpEngine.compute();
+		MultiviewInstance *inst = config_->find_instance(uuid_);
+		if (!inst)
+			return;
 
-	const auto &cells = tmpEngine.cells();
-	size_t cellCount = cells.size();
-	cell_sources_.resize(cellCount);
+		/* Recompute layout to know cell count and positions */
+		LayoutEngine tmpEngine;
+		tmpEngine.set_layout(layout_);
+		tmpEngine.set_viewport(800, 600); /* dummy size for cell count */
+		tmpEngine.compute();
 
-	for (size_t i = 0; i < cellCount; i++) {
-		cell_sources_[i].type.clear();
-		cell_sources_[i].name.clear();
-		cell_sources_[i].weak_ref = nullptr;
-		cell_sources_[i].showing = false;
-		cell_sources_[i].prvw_fallback = false;
-		cell_sources_[i].state = SignalRuntimeState::Empty;
-		cell_sources_[i].last_active_ns = 0;
-		cell_sources_[i].last_reconnect_ns = 0;
-		cell_sources_[i].retry_attempt = 0;
+		const auto &cells = tmpEngine.cells();
+		size_t cellCount = cells.size();
+		cell_sources_.resize(cellCount);
 
-		/* Look up assignment by (gridRow, gridCol) */
-		int r = cells[i].gridRow;
-		int c = cells[i].gridCol;
-		const CellAssignment *ca = nullptr;
-		for (auto &a : inst->cellAssignments) {
-			if (a.row == r && a.col == c) {
-				ca = &a;
-				break;
+		/* Short instance UUID prefix for the deterministic private-source
+		 * name. Eight hex characters is enough to disambiguate windows
+		 * within one OBS session without making the source name unwieldy. */
+		std::string short_uuid = uuid_.size() > 8 ? uuid_.substr(0, 8) : uuid_;
+
+		for (size_t i = 0; i < cellCount; i++) {
+			cell_sources_[i].type.clear();
+			cell_sources_[i].name.clear();
+			cell_sources_[i].weak_ref = nullptr;
+			cell_sources_[i].showing = false;
+			cell_sources_[i].prvw_fallback = false;
+			cell_sources_[i].state = SignalRuntimeState::Empty;
+			cell_sources_[i].last_active_ns = 0;
+			cell_sources_[i].last_reconnect_ns = 0;
+			cell_sources_[i].retry_attempt = 0;
+			cell_sources_[i].provider_type = SignalProviderType::Unknown;
+
+			/* Look up assignment by (gridRow, gridCol) */
+			int r = cells[i].gridRow;
+			int c = cells[i].gridCol;
+			const CellAssignment *ca = nullptr;
+			for (auto &a : inst->cellAssignments) {
+				if (a.row == r && a.col == c) {
+					ca = &a;
+					break;
+				}
+			}
+			if (!ca)
+				continue;
+
+			/* Phase 3 / M6 step 9: external-provider cell. Detected
+			 * by a non-empty SignalConfig with an external provider
+			 * type. Legacy type/name stay empty so the existing
+			 * obs_get_source_by_name path never fires for this cell;
+			 * the render-thread external branch picks up
+			 * cs.private_source / cs.provider_type instead. */
+			if (ca->signalConfig.is_external()) {
+				cell_sources_[i].provider_type = ca->signalConfig.provider;
+				cell_sources_[i].name = ca->signalConfig.displayName;
+				cell_sources_[i].state = SignalRuntimeState::Connecting;
+
+				char namebuf[256];
+				snprintf(namebuf, sizeof(namebuf), "OBS Advanced Multiview/%s/%d,%d/%s",
+					 short_uuid.c_str(), r, c,
+					 signal_provider_to_string(ca->signalConfig.provider));
+
+				ExternalIntent intent;
+				intent.cell_idx = i;
+				intent.provider = ca->signalConfig.provider;
+				intent.desired_name = namebuf;
+				intent.cfg_copy = ca->signalConfig; /* SignalConfig deep-copy */
+				externals.push_back(std::move(intent));
+				continue;
+			}
+
+			if (ca->type.empty())
+				continue;
+
+			cell_sources_[i].type = ca->type;
+			cell_sources_[i].name = ca->name;
+
+			/* PGM/PRVW are resolved per-frame in render(), no caching */
+			if (ca->type == "pgm" || ca->type == "prvw") {
+				cell_sources_[i].state = SignalRuntimeState::Active;
+				continue;
+			}
+
+			/* Scene/Source: cache weak ref and inc_showing */
+			obs_source_t *src = obs_get_source_by_name(ca->name.c_str());
+			if (src && obs_source_removed(src)) {
+				/* Phase 3 / M5.4 hardening: matched by name but already on
+				 * the way out (deletion in flight). Don't bind — release
+				 * and let the cell sit in MissingInternal so the fallback /
+				 * overlay paths kick in. */
+				obs_source_release(src);
+				cell_sources_[i].state = SignalRuntimeState::MissingInternal;
+				continue;
+			}
+			if (src) {
+				cell_sources_[i].weak_ref = OBSGetWeakRef(src);
+				obs_source_inc_showing(src);
+				cell_sources_[i].showing = true;
+				cell_sources_[i].state = SignalRuntimeState::Active;
+				obs_source_release(src);
+			} else {
+				/* Phase 3 / M5: name resolves to nothing right now — mark as missing.
+				 * The Phase 2 lazy re-resolve path in render() can still recover it
+				 * (e.g. user undoes a deletion); we just record the state here. */
+				cell_sources_[i].state = SignalRuntimeState::MissingInternal;
 			}
 		}
-		if (!ca || ca->type.empty())
-			continue;
 
-		cell_sources_[i].type = ca->type;
-		cell_sources_[i].name = ca->name;
-
-		/* PGM/PRVW are resolved per-frame in render(), no caching */
-		if (ca->type == "pgm" || ca->type == "prvw") {
-			cell_sources_[i].state = SignalRuntimeState::Active;
-			continue;
-		}
-
-		/* Scene/Source: cache weak ref and inc_showing */
-		obs_source_t *src = obs_get_source_by_name(ca->name.c_str());
-		if (src && obs_source_removed(src)) {
-			/* Phase 3 / M5.4 hardening: matched by name but already on
-			 * the way out (deletion in flight). Don't bind — release
-			 * and let the cell sit in MissingInternal so the fallback /
-			 * overlay paths kick in. */
-			obs_source_release(src);
-			cell_sources_[i].state = SignalRuntimeState::MissingInternal;
-			continue;
-		}
-		if (src) {
-			cell_sources_[i].weak_ref = OBSGetWeakRef(src);
-			obs_source_inc_showing(src);
-			cell_sources_[i].showing = true;
-			cell_sources_[i].state = SignalRuntimeState::Active;
-			obs_source_release(src);
-		} else {
-			/* Phase 3 / M5: name resolves to nothing right now — mark as missing.
-			 * The Phase 2 lazy re-resolve path in render() can still recover it
-			 * (e.g. user undoes a deletion); we just record the state here. */
-			cell_sources_[i].state = SignalRuntimeState::MissingInternal;
-		}
+		/* Cache effective LostSignalSettings (Global + per-cell Override) so the
+		 * render path can branch on fallback / placeholder strategy without
+		 * touching the instance config every frame. */
+		recompute_effective_lost_locked(cells);
 	}
 
-	/* Cache effective LostSignalSettings (Global + per-cell Override) so the
-	 * render path can branch on fallback / placeholder strategy without
-	 * touching the instance config every frame. */
-	recompute_effective_lost_locked(cells);
+	/* Phase 3 / M6 step 9: materialize external private sources OUTSIDE
+	 * source_mutex_. obs_source_create_private fires the source's create
+	 * chain which can touch the OBS graphics/audio subsystems and, for
+	 * URL-based ffmpeg_source, spawn an internal worker thread; we must
+	 * not hold our recursive mutex while that runs. The install step at
+	 * the bottom of the loop re-takes the lock briefly per cell. */
+	if (!externals.empty()) {
+		auto &reg = SignalProviderRegistry::instance();
+		for (auto &it : externals) {
+			const auto *provider = reg.find(it.provider);
+			if (!provider) {
+				obs_log(LOG_WARNING,
+					"[multiview-window] external provider not registered for cell %zu (type=%d)",
+					it.cell_idx, (int)it.provider);
+				std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+				if (it.cell_idx < cell_sources_.size()) {
+					cell_sources_[it.cell_idx].state = SignalRuntimeState::Error;
+					cell_sources_[it.cell_idx].last_error_reason = "provider not registered";
+				}
+				continue;
+			}
+
+			OBSSource priv = provider->create_private_source(it.desired_name, it.cfg_copy);
+
+			std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+			if (it.cell_idx >= cell_sources_.size())
+				continue;
+			auto &cs = cell_sources_[it.cell_idx];
+			cs.private_source = priv;
+			if (priv) {
+				cs.state = SignalRuntimeState::Active;
+				cs.last_active_ns = os_gettime_ns();
+				cs.last_error_reason.clear();
+			} else {
+				cs.state = SignalRuntimeState::Error;
+				cs.last_error_reason = provider->unavailable_reason();
+				if (cs.last_error_reason.empty())
+					cs.last_error_reason = "provider failed to create source";
+			}
+		}
+	}
 }
 
 void MultiviewWindow::recompute_effective_lost_locked(const std::vector<CellRect> &cells)
@@ -865,6 +958,11 @@ void MultiviewWindow::release_source_refs()
 	 * so we must never hold mutex while calling obs_enter_graphics(). */
 	std::vector<gs_texture_t *> textures_to_destroy;
 
+	/* Phase 3 / M6: external private sources must be released OUTSIDE
+	 * source_mutex_ (see plan.md §6 lock order). Move them into a local
+	 * vector under lock so the RAII destructors fire after we release. */
+	std::vector<OBSSource> externals_to_release;
+
 	{
 		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 
@@ -877,19 +975,21 @@ void MultiviewWindow::release_source_refs()
 			}
 			cs.weak_ref = nullptr;
 
-			/* Phase 3 / M6: release any external private source the
+			/* Phase 3 / M6: hand off any external private source the
 			 * provider runtime may have created. Internal cells leave
 			 * `private_source` empty so this is a no-op for them.
 			 *
-			 * The OBSSource RAII wrapper drops its strong ref on
-			 * assignment; we deliberately do NOT call dec_showing on
-			 * private sources because we never inc_showing'd them at
-			 * the multiview level — they are private to this window
-			 * and their show ref is implicit in the strong ref's
-			 * lifetime. Provider implementations are free to manage
-			 * inc_showing / dec_showing on their own private source if
-			 * a specific provider's host plugin needs the hint. */
-			cs.private_source = nullptr;
+			 * We deliberately do NOT call dec_showing on private sources
+			 * because we never inc_showing'd them at the multiview level
+			 * — they are private to this window and their show ref is
+			 * implicit in the strong ref's lifetime. Provider
+			 * implementations are free to manage inc_showing /
+			 * dec_showing on their own private source if a specific
+			 * provider's host plugin needs the hint. */
+			if (cs.private_source) {
+				externals_to_release.push_back(std::move(cs.private_source));
+				cs.private_source = nullptr;
+			}
 			cs.provider_type = SignalProviderType::Unknown;
 			cs.provider_settings_hash = 0;
 			cs.last_error_reason.clear();
@@ -940,6 +1040,14 @@ void MultiviewWindow::release_source_refs()
 			gs_texture_destroy(tex);
 		obs_leave_graphics();
 	}
+
+	/* Phase 3 / M6: drop external private source strong refs outside
+	 * source_mutex_. The RAII destructors fire at scope exit and run the
+	 * source destroy chain on this thread; running it without holding
+	 * source_mutex_ keeps the render thread free to keep working and
+	 * avoids re-entering the mutex through any signal callbacks the
+	 * host plugin fires during source destroy. */
+	externals_to_release.clear();
 
 	/* Release volmeters (no graphics context needed) */
 	release_volmeters();
@@ -1083,6 +1191,26 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				/* fall through to the "no signal" branch with
 				 * src == nullptr; existing code in that branch
 				 * paints the cell background only. */
+			} else if (cs.provider_type != SignalProviderType::Unknown &&
+				   !signal_provider_is_internal(cs.provider_type)) {
+				/* Phase 3 / M6 step 9: external-provider cell.
+				 *
+				 * The provider-owned private OBS source lives in
+				 * cs.private_source for the cell's lifetime (created
+				 * in update_source_refs(), released in
+				 * release_source_refs()). We render it directly
+				 * through the same letterbox / overlay pipeline as
+				 * internal scene/source cells.
+				 *
+				 * obs_source_get_ref bumps the strong ref by +1 so
+				 * the OBSSourceAutoRelease srcHolder can drop it at
+				 * scope exit symmetrically with the other branches.
+				 * Returns nullptr if the source is mid-destroy, in
+				 * which case the cell just renders its background. */
+				if (obs_source_t *raw = cs.private_source.Get()) {
+					srcHolder = obs_source_get_ref(raw);
+					src = srcHolder;
+				}
 			} else if (cs.type == "pgm") {
 				/* PGM: we use obs_render_main_texture() for
 				 * composited output (includes transitions).
@@ -1195,6 +1323,20 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				 * MISSING SOURCE / FALLBACK overlay flashes during
 				 * the gap. */
 				newState = SignalRuntimeState::Empty;
+			} else if (cs.provider_type != SignalProviderType::Unknown &&
+				   !signal_provider_is_internal(cs.provider_type)) {
+				/* Phase 3 / M6 step 9: external-provider cell.
+				 *
+				 * Active when the private source rendered this frame;
+				 * otherwise Connecting (provider's create_private_source
+				 * has not yet produced a frame, or the source is mid-
+				 * destroy and obs_source_get_ref returned null). Full
+				 * Connecting → Lost / Error escalation lands in step 10
+				 * with the external health supervisor; until then we
+				 * keep the cell in Connecting so the user sees the
+				 * background fill instead of a MISSING SOURCE overlay
+				 * that doesn't apply to external cells. */
+				newState = src ? SignalRuntimeState::Active : SignalRuntimeState::Connecting;
 			} else if (cs.type.empty()) {
 				newState = SignalRuntimeState::Empty;
 			} else if (isFallback) {

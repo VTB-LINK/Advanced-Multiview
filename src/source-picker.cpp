@@ -58,15 +58,15 @@ SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
 	source_list_ = new QListWidget;
 	tabs_->addTab(source_list_, QStringLiteral("Sources"));
 
-	/* Phase 3 / M6: external-provider placeholder tabs.
+	/* Phase 3 / M6: external-provider tabs.
 	 *
-	 * These show the eventual UI shape (URL input, list + Refresh) but
-	 * are disabled until the corresponding provider milestone lands. We
-	 * keep them visible at all times so the user knows the capability
-	 * exists and the tab index numbering stays stable across builds. */
-	media_tab_ = build_external_placeholder(SignalProviderType::Ffmpeg, "M6.1",
-						"Network media (RTMP / HLS / FLV / SRT / file URLs) via OBS's built-in "
-						"FFmpeg media source. URL input and reconnect controls land here.");
+	 * Media (M6.1) is the first real provider tab — it ships a URL
+	 * input that feeds OBS's built-in `ffmpeg_source` via a private
+	 * source created at refresh_sources() time. The other four stay
+	 * placeholders until their milestones land. We keep all tabs visible
+	 * at all times so the user knows the capability exists and the tab
+	 * index numbering stays stable across builds. */
+	media_tab_ = build_media_tab();
 	tabs_->addTab(media_tab_, QStringLiteral("Media"));
 
 	ndi_tab_ = build_external_placeholder(SignalProviderType::Ndi, "M6.2",
@@ -195,16 +195,38 @@ void SourcePicker::on_accept()
 		activeList = scene_list_;
 	else if (idx == 2)
 		activeList = source_list_;
-	else {
-		/* Phase 3 / M6: external provider tabs are placeholders until
-		 * their respective milestones land. Surface a clear message
-		 * instead of silently rejecting so the user knows the tab is a
-		 * real capability that just is not implemented yet, then keep
-		 * the dialog open so they can pick something else. */
+	else if (tabs_->widget(idx) == media_tab_) {
+		/* Phase 3 / M6.1: Media tab — build a CellAssignment whose
+		 * signalConfig.provider == Ffmpeg and providerSettings carries
+		 * the user's URL under the canonical `input` key. The legacy
+		 * `type` / `name` fields stay empty: external cells are
+		 * recognized via signalConfig.is_external() and the runtime
+		 * never tries to obs_get_source_by_name them. */
+		const QString url = media_url_edit_ ? media_url_edit_->text().trimmed() : QString();
+		if (url.isEmpty()) {
+			QMessageBox::information(this, QStringLiteral("URL required"),
+						 QStringLiteral("Enter a media URL (RTMP / HLS / FLV / SRT / "
+								"file URL) before adding the source."));
+			return;
+		}
+
+		result_ = CellAssignment{};
+		result_.signalConfig.provider = SignalProviderType::Ffmpeg;
+		result_.signalConfig.displayName = url.toStdString();
+		result_.signalConfig.providerSettings = obs_data_create();
+		obs_data_set_string(result_.signalConfig.providerSettings, "input", url.toUtf8().constData());
+		accept();
+		return;
+	} else {
+		/* Other external provider tabs are still placeholders. Surface
+		 * a clear message instead of silently rejecting so the user
+		 * knows the tab is a real capability that just is not
+		 * implemented yet, then keep the dialog open so they can pick
+		 * something else. */
 		QMessageBox::information(this, QStringLiteral("External provider not yet available"),
 					 QStringLiteral("This external signal provider is reserved for a future "
 							"milestone and cannot be selected yet. Please pick a Special, "
-							"Scene or Source entry, or cancel."));
+							"Scene, Source, or Media entry, or cancel."));
 		return;
 	}
 
@@ -254,6 +276,65 @@ QWidget *SourcePicker::build_external_placeholder(SignalProviderType provider, c
 		status = QStringLiteral("Provider not yet registered in this build.");
 	} else if (p->is_available()) {
 		status = QStringLiteral("Provider available.");
+	} else {
+		const std::string reason = p->unavailable_reason();
+		status = QStringLiteral("Provider unavailable: %1")
+				 .arg(reason.empty() ? QStringLiteral("host plugin missing")
+						     : QString::fromStdString(reason));
+	}
+	auto *availLabel = new QLabel(status, page);
+	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
+	layout->addWidget(availLabel);
+
+	layout->addStretch(1);
+	return page;
+}
+
+QWidget *SourcePicker::build_media_tab()
+{
+	auto *page = new QWidget(this);
+	auto *layout = new QVBoxLayout(page);
+	layout->setContentsMargins(12, 12, 12, 12);
+	layout->setSpacing(10);
+
+	auto *heading = new QLabel(QStringLiteral("Network media (FFmpeg)"), page);
+	{
+		QFont f = heading->font();
+		f.setBold(true);
+		heading->setFont(f);
+	}
+	layout->addWidget(heading);
+
+	auto *body = new QLabel(
+		QStringLiteral(
+			"Enter an FFmpeg-accepted URL (RTMP / HLS / FLV / SRT / http / file://). The cell will host "
+			"a private ffmpeg_source created only for this Multiview \u2014 it does not appear in OBS's "
+			"Sources dock and reconnects automatically on network drops."),
+		page);
+	body->setWordWrap(true);
+	layout->addWidget(body);
+
+	auto *form = new QFormLayout();
+	media_url_edit_ = new QLineEdit(page);
+	media_url_edit_->setPlaceholderText(QStringLiteral("e.g. https://example.com/live.m3u8"));
+	media_url_edit_->setClearButtonEnabled(true);
+	form->addRow(QStringLiteral("URL:"), media_url_edit_);
+	layout->addLayout(form);
+
+	/* Pressing Enter inside the URL field accepts the dialog so the user
+	 * doesn't need to grab the mouse for every paste. */
+	connect(media_url_edit_, &QLineEdit::returnPressed, this, &SourcePicker::on_accept);
+
+	/* Availability hint mirrors the placeholder tabs so all external tabs
+	 * use the same diagnostic surface. ffmpeg_source is built into OBS so
+	 * the typical render here is "Provider available". */
+	const auto &reg = SignalProviderRegistry::instance();
+	const auto *p = reg.find(SignalProviderType::Ffmpeg);
+	QString status;
+	if (!p) {
+		status = QStringLiteral("Provider not yet registered in this build.");
+	} else if (p->is_available()) {
+		status = QStringLiteral("Provider available (OBS built-in ffmpeg_source).");
 	} else {
 		const std::string reason = p->unavailable_reason();
 		status = QStringLiteral("Provider unavailable: %1")

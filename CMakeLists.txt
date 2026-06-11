@@ -62,6 +62,7 @@ target_sources(
           src/multiview-window-lost-image.cpp
           src/signal-provider.hpp
           src/signal-provider.cpp
+          src/signal-provider-ffmpeg.cpp
           src/source-picker.hpp
           src/source-picker.cpp)
 

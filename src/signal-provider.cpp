@@ -125,6 +125,10 @@ static InternalSourceProvider g_internal_source;
 
 /* ========== Module entry points ========== */
 
+/* External-provider registration hooks live in their own translation units
+ * to keep the registry skeleton free of host-plugin specifics. */
+void register_ffmpeg_provider();
+
 void signal_provider_registry_init()
 {
 	auto &reg = SignalProviderRegistry::instance();
@@ -134,10 +138,13 @@ void signal_provider_registry_init()
 	reg.register_provider(&g_internal_source);
 
 	/* External providers (FFmpeg / NDI / Spout / VLC / WebRTC reserved)
-	 * register themselves from their own translation units when those
-	 * milestones land. Logging here gives a single anchor in the OBS log
-	 * for diagnosing "no providers visible" issues. */
-	obs_log(LOG_INFO, "[signal-provider] registry initialized with %zu internal provider(s)",
+	 * register themselves from their own translation units. We trampoline
+	 * through dedicated register_*() functions so each provider stays
+	 * self-contained and the registry can add/remove host integrations
+	 * without touching this file. */
+	register_ffmpeg_provider();
+
+	obs_log(LOG_INFO, "[signal-provider] registry initialized with %zu provider(s)",
 		(size_t)reg.providers().size());
 }
 

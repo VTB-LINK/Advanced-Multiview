@@ -83,6 +83,42 @@ public:
 	 * is disabled (e.g. "DistroAV not installed"). Empty string when the
 	 * provider is available. */
 	virtual std::string unavailable_reason() const = 0;
+
+	/* Phase 3 / M6 step 9: external-provider lifecycle hook.
+	 *
+	 * Implementations create or update an OBS private source matching
+	 * `cfg` and return a +1 strong ref via the OBSSource out-param. The
+	 * caller (MultiviewWindow runtime) owns the returned ref and releases
+	 * it through `release_private_source` or by destroying the OBSSource.
+	 *
+	 * `desired_name` is the deterministic per-cell name the runtime built
+	 * (e.g. `OBS Advanced Multiview/<uuid8>/<row>,<col>/ffmpeg`).
+	 * Implementations MUST pass it to obs_source_create_private so the
+	 * source is visible in logs without polluting the user-facing scene
+	 * list (private sources are excluded from obs_enum_sources).
+	 *
+	 * Internal providers (PGM/PRVW/Scene/Source) return nullptr unchanged
+	 * because the runtime never asks them for a private source — they are
+	 * resolved via the existing M5 weak-ref path. The default empty
+	 * implementation below covers them.
+	 *
+	 * Must NOT be called while holding the multiview source_mutex_ (see
+	 * docs/phase-3-signal-lost-and-external-sources-design.md §6 lock
+	 * order). Implementations may call obs_source_create_private,
+	 * obs_source_update, obs_source_release. */
+	virtual OBSSource create_private_source(const std::string &desired_name, const SignalConfig &cfg) const
+	{
+		(void)desired_name;
+		(void)cfg;
+		return OBSSource();
+	}
+
+	/* Release a private source previously returned by
+	 * create_private_source. Default implementation is a no-op because
+	 * OBSSource RAII already drops the +1 strong ref on destruction.
+	 * Providers that hold additional state (signal subscriptions, retry
+	 * timers, etc.) can override to clean up. */
+	virtual void release_private_source(OBSSource &src) const { src = nullptr; }
 };
 
 /* Registry singleton. */
