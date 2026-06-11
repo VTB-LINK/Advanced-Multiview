@@ -318,12 +318,19 @@ SignalConfig FfmpegMediaForm::to_signal_config() const
 	cfg.providerSettings = obs_data_create();
 	obs_data_t *d = cfg.providerSettings;
 
+	/* Phase 3 / M6.1+ post-9.1.B fix: ALWAYS write is_local_file
+	 * explicitly. ffmpeg_source's get_defaults sets is_local_file=true
+	 * by default, so omitting the key on a network URL makes the
+	 * source try to open the URL as a local file path and fail
+	 * silently. The original M6.1 first slice (4c6052c) wrote both
+	 * mode flags unconditionally; the form regression hid the value
+	 * in network mode. */
+	obs_data_set_bool(d, "is_local_file", is_local);
+
 	if (is_local) {
-		obs_data_set_bool(d, "is_local_file", true);
 		obs_data_set_string(d, "local_file", lpath.toUtf8().constData());
 		cfg.displayName = lpath.toStdString();
 	} else {
-		/* is_local_file defaults to false when missing — omit. */
 		obs_data_set_string(d, "input", url.toUtf8().constData());
 		cfg.displayName = url.toStdString();
 	}

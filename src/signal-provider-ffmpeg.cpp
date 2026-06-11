@@ -133,7 +133,13 @@ public:
 		 * persisted a different value. */
 		obs_data_set_bool(settings, kKeyRestartOnActivate, true);
 		obs_data_set_bool(settings, kKeyCloseWhenInactive, false);
-		/* Phase 3 / M6.1+ post-9.1.B fix: keys that only make sense
+		/* Phase 3 / M6.1+ post-9.1.B fix: ffmpeg_source's get_defaults
+		 * makes is_local_file default to TRUE. Always re-assert the
+		 * mode here too, so even if the persisted providerSettings
+		 * lost the key (older config, manual JSON edit), the runtime
+		 * value matches our intent. */
+		obs_data_set_bool(settings, kKeyIsLocalFile,
+				  is_local_file); /* Phase 3 / M6.1+ post-9.1.B fix: keys that only make sense
 		 * for local-file playback must be force-cleared on network
 		 * streams. The form preserves checkbox state across mode
 		 * switches, so a user who first picked a local file with

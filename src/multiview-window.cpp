@@ -2341,21 +2341,44 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			/* Phase 3 / M5.3: Reconnect Now is enabled only when the cell is
 			 * not already happily Active. Keeps the menu clean for steady
 			 * cells and matches the "manual reconnect cooldown" semantics
-			 * defined in [docs/phase-3-signal-lost-and-external-sources-design.md] §7.4. */
+			 * defined in [docs/phase-3-signal-lost-and-external-sources-design.md] §7.4.
+			 *
+			 * Phase 3 / M6.1+ polish: external local-file cells use
+			 * "Replay Now" instead of "Reconnect Now" \u2014 there is no
+			 * connection to re-establish, the action just restarts
+			 * media playback (obs_source_media_restart).
+			 *
+			 * For external cells, expose the action even when state is
+			 * Active so the user can manually replay a finished file
+			 * or kick a stuck stream without waiting for the runtime
+			 * to flip to Lost. The cooldown still throttles abuse. */
 			bool canReconnect = false;
+			bool isExternalLocalFile = false;
 			{
 				std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 				if (cellIndex < (int)cell_sources_.size()) {
 					const auto &cs = cell_sources_[cellIndex];
+					const bool isExternal = cs.provider_type != SignalProviderType::Unknown &&
+								!signal_provider_is_internal(cs.provider_type);
 					canReconnect = cs.state == SignalRuntimeState::MissingInternal ||
 						       cs.state == SignalRuntimeState::Lost ||
 						       cs.state == SignalRuntimeState::Connecting ||
 						       cs.state == SignalRuntimeState::RetryScheduled ||
 						       cs.state == SignalRuntimeState::FallbackActive ||
-						       cs.state == SignalRuntimeState::Error;
+						       cs.state == SignalRuntimeState::Error ||
+						       (isExternal && cs.state == SignalRuntimeState::Active);
+
+					if (isExternal && cs.private_source) {
+						obs_data_t *cur = obs_source_get_settings(cs.private_source);
+						if (cur) {
+							isExternalLocalFile = obs_data_get_bool(cur, "is_local_file");
+							obs_data_release(cur);
+						}
+					}
 				}
 			}
-			QAction *reconnectAction = menu.addAction(QStringLiteral("Reconnect Now"));
+			QAction *reconnectAction = menu.addAction(
+				isExternalLocalFile ? QStringLiteral("Replay Now") : QStringLiteral("Reconnect Now"));
 			reconnectAction->setEnabled(canReconnect);
 			connect(reconnectAction, &QAction::triggered, this,
 				[this, cellIndex]() { (void)force_reconnect_cell(cellIndex); });
