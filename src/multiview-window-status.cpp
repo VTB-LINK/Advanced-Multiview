@@ -8,6 +8,7 @@ License: GPL-2.0-or-later
 */
 
 #include "multiview-window.hpp"
+#include "signal-provider.hpp"
 
 #include <obs-module.h>
 #include <graphics/graphics.h>
@@ -150,10 +151,14 @@ void MultiviewWindow::release_status_text_sources()
 	status_fallback_.source = nullptr;
 	status_fallback_.width = 0;
 	status_fallback_.height = 0;
+	status_provider_missing_.source = nullptr;
+	status_provider_missing_.width = 0;
+	status_provider_missing_.height = 0;
 }
 
 MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_state(SignalRuntimeState state,
-										  const std::string &cellType) const
+										  const std::string &cellType,
+										  SignalProviderType providerType) const
 {
 	switch (state) {
 	case SignalRuntimeState::MissingInternal:
@@ -167,9 +172,22 @@ MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_stat
 			return StatusOverlayKind::MissingScene;
 		return StatusOverlayKind::MissingSource;
 	case SignalRuntimeState::Lost:
-	case SignalRuntimeState::Error:
+	case SignalRuntimeState::Error: {
+		/* Phase 3 / M6.2: external cell in Error — distinguish between
+		 * 'host plugin missing' (DistroAV not installed, obs-spout2
+		 * uninstalled, etc.) and 'plugin installed but the source
+		 * went away' so the user gets actionable feedback instead of
+		 * a generic SIGNAL LOST. The provider registry returns null /
+		 * unavailable when the host integration isn't loaded; either
+		 * case means recreating the cell now is hopeless until the
+		 * user installs/re-enables the plugin. */
+		if (providerType != SignalProviderType::Unknown && !signal_provider_is_internal(providerType)) {
+			const auto *p = SignalProviderRegistry::instance().find(providerType);
+			if (!p || !p->is_available())
+				return StatusOverlayKind::ProviderMissing;
+		}
 		return StatusOverlayKind::SignalLost;
-	case SignalRuntimeState::Connecting:
+	}
 	case SignalRuntimeState::RetryScheduled:
 		return StatusOverlayKind::Reconnecting;
 	case SignalRuntimeState::FallbackActive:
@@ -196,7 +214,7 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 	if (cs.pending_clear)
 		return;
 
-	const StatusOverlayKind kind = status_overlay_kind_for_state(cs.state, cs.type);
+	const StatusOverlayKind kind = status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
 	if (kind == StatusOverlayKind::None)
 		return;
 
@@ -243,6 +261,15 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 		text = "SIGNAL LOST";
 		bandColor = 0xC0601020; /* dark red, ~75% opacity */
 		entry = &status_signal_lost_;
+		break;
+	case StatusOverlayKind::ProviderMissing:
+		/* Phase 3 / M6.2: host plugin (DistroAV / obs-spout2 / VLC) is
+		 * not installed or failed to load. Distinct purple band so the
+		 * user knows the fix is to install the missing plugin, not to
+		 * troubleshoot the network / source. */
+		text = "PROVIDER MISSING";
+		bandColor = 0xC0401060; /* deep purple, ~75% opacity */
+		entry = &status_provider_missing_;
 		break;
 	default:
 		return;

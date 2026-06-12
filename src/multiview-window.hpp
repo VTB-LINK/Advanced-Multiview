@@ -386,15 +386,18 @@ private:
 		SignalLost,
 		Reconnecting,
 		Fallback,
+		ProviderMissing,
 	};
 	StatusTextEntry status_missing_source_;
 	StatusTextEntry status_missing_scene_;
-	StatusTextEntry status_signal_lost_;  /* reserved for M6 */
-	StatusTextEntry status_reconnecting_; /* reserved for M5.3 */
-	StatusTextEntry status_fallback_;     /* reserved for M5.4 */
+	StatusTextEntry status_signal_lost_;      /* M6 */
+	StatusTextEntry status_reconnecting_;     /* M5.3 / M6 */
+	StatusTextEntry status_fallback_;         /* M5.4 */
+	StatusTextEntry status_provider_missing_; /* M6.2 host-plugin missing */
 	void ensure_status_text_source(StatusTextEntry &entry, const char *text);
 	void release_status_text_sources();
-	StatusOverlayKind status_overlay_kind_for_state(SignalRuntimeState state, const std::string &cellType) const;
+	StatusOverlayKind status_overlay_kind_for_state(SignalRuntimeState state, const std::string &cellType,
+							SignalProviderType providerType) const;
 	void render_status_overlay(int cellIndex, int cellX, int cellY, int cellW, int cellH);
 
 	/* dB scale label text sources (cached per unique dB value) */

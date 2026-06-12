@@ -53,6 +53,38 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 	}
 	root->addWidget(heading);
 
+	/* Phase 3 / M6.2: when the cell's provider is not available in this
+	 * OBS install (e.g. user opened a config saved in another OBS that
+	 * had DistroAV but this one doesn't), surface that prominently and
+	 * make Save unsafe. The form still loads so the user can inspect
+	 * the existing config; we just refuse to write a new value through
+	 * an absent provider. */
+	bool provider_available = true;
+	QString provider_unavailable_reason;
+	if (cfg.provider != SignalProviderType::Unknown && !signal_provider_is_internal(cfg.provider)) {
+		const auto *p = SignalProviderRegistry::instance().find(cfg.provider);
+		if (!p || !p->is_available()) {
+			provider_available = false;
+			if (p) {
+				const std::string r = p->unavailable_reason();
+				provider_unavailable_reason = QString::fromStdString(r);
+			}
+			if (provider_unavailable_reason.isEmpty())
+				provider_unavailable_reason = QStringLiteral("Required host plugin not installed.");
+		}
+	}
+	if (!provider_available) {
+		auto *banner = new QLabel(QStringLiteral("\u26A0  %1\n\nThe form below shows the persisted "
+							 "configuration but Save is disabled until the missing host "
+							 "plugin is installed and OBS is restarted.")
+						  .arg(provider_unavailable_reason),
+					  this);
+		banner->setWordWrap(true);
+		banner->setStyleSheet(QStringLiteral("color: #FFCC66; padding: 6px; "
+						     "background: rgba(64,16,96,128); border-radius: 4px;"));
+		root->addWidget(banner);
+	}
+
 	if (cfg.provider == SignalProviderType::Ffmpeg) {
 		auto *scroll = new QScrollArea(this);
 		scroll->setWidgetResizable(true);
@@ -82,9 +114,11 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 	}
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-	if (cfg.provider != SignalProviderType::Ffmpeg && cfg.provider != SignalProviderType::Ndi) {
-		/* No editable form for non-FFmpeg/non-NDI providers yet;
-		 * disable Save so cancel is the only available action. */
+	if ((cfg.provider != SignalProviderType::Ffmpeg && cfg.provider != SignalProviderType::Ndi) ||
+	    !provider_available) {
+		/* No editable form for non-FFmpeg/non-NDI providers yet, OR
+		 * the cell's provider is missing in this OBS install. Either
+		 * way disable Save so cancel is the only safe action. */
 		QPushButton *okBtn = buttons->button(QDialogButtonBox::Ok);
 		if (okBtn)
 			okBtn->setEnabled(false);
