@@ -228,6 +228,22 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 		bandColor = 0xC0806000; /* warm amber, ~75% opacity */
 		entry = &status_fallback_;
 		break;
+	case StatusOverlayKind::Reconnecting:
+		/* Phase 3 / M6 step 10: external-cell health supervisor put
+		 * the cell in Connecting / RetryScheduled. Blue band so it's
+		 * distinct from MISSING (grey) and SIGNAL LOST (red). */
+		text = "RECONNECTING";
+		bandColor = 0xC0204060; /* deep blue, ~75% opacity */
+		entry = &status_reconnecting_;
+		break;
+	case StatusOverlayKind::SignalLost:
+		/* Phase 3 / M6 step 10: external cell escalated to Lost / Error.
+		 * Red band signals the user the source is gone and may not
+		 * recover without intervention (Reconnect Now / Edit Source). */
+		text = "SIGNAL LOST";
+		bandColor = 0xC0601020; /* dark red, ~75% opacity */
+		entry = &status_signal_lost_;
+		break;
 	default:
 		return;
 	}

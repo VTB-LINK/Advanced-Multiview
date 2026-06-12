@@ -60,6 +60,7 @@ target_sources(
           src/multiview-window-highlight.cpp
           src/multiview-window-status.cpp
           src/multiview-window-lost-image.cpp
+          src/multiview-window-health.cpp
           src/signal-provider.hpp
           src/signal-provider.cpp
           src/signal-provider-ffmpeg.cpp

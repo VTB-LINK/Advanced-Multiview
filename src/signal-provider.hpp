@@ -119,6 +119,80 @@ public:
 	 * Providers that hold additional state (signal subscriptions, retry
 	 * timers, etc.) can override to clean up. */
 	virtual void release_private_source(OBSSource &src) const { src = nullptr; }
+
+	/* Phase 3 / M6 step 10: external health supervisor surface.
+	 *
+	 * These three methods are the entire per-provider contract the
+	 * health supervisor needs. NDI / Spout / VLC / future providers
+	 * implement them and the supervisor (multiview-window-health.cpp)
+	 * handles everything else: timing, backoff, recreate scheduling,
+	 * overlay-state mapping. */
+
+	/* Health codes the supervisor consumes. Provider-agnostic by design:
+	 * what matters is whether the source is producing usable output, not
+	 * which underlying primitive (media_state, dimensions, frame
+	 * timestamps, ...) revealed it. */
+	enum class HealthCode {
+		Unknown, /* not probed yet / no signal */
+		Active,  /* producing valid frames */
+		Opening, /* attempting to open / waiting first frame / buffering */
+		Lost,    /* was producing, no longer; expected recoverable */
+		Error,   /* unrecoverable from current state without recreate */
+	};
+
+	struct HealthReport {
+		HealthCode code = HealthCode::Unknown;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		std::string reason; /* one-line, optional, for log + overlay */
+	};
+
+	/* Probe the current health of a live private source. age_ns is the
+	 * monotonic time elapsed since create_private_source returned, so
+	 * default implementations can be lenient on fresh sources still
+	 * spinning up. Called at ~1 Hz from the render thread; must be
+	 * cheap and side-effect-free.
+	 *
+	 * Default implementation looks at width/height only — covers NDI
+	 * and Spout style sources that have no media-state concept. FFmpeg
+	 * overrides to also inspect obs_source_media_get_state. */
+	virtual HealthReport probe_health(obs_source_t *src, uint64_t age_ns) const
+	{
+		HealthReport r;
+		if (!src)
+			return r;
+		r.width = obs_source_get_width(src);
+		r.height = obs_source_get_height(src);
+		if (r.width > 0 && r.height > 0) {
+			r.code = HealthCode::Active;
+		} else if (age_ns < 5ULL * 1000 * 1000 * 1000) {
+			/* Young source still spinning up; report as Opening so
+			 * the supervisor doesn't escalate to Lost prematurely. */
+			r.code = HealthCode::Opening;
+		} else {
+			r.code = HealthCode::Lost;
+		}
+		return r;
+	}
+
+	/* Does obs_source_media_restart() do anything useful for this
+	 * provider? FFmpeg/VLC: yes (re-opens the input via the worker
+	 * thread). NDI/Spout: no (no media-state, no restart semantics —
+	 * recovery happens via the host plugin's own discovery). When
+	 * false, the supervisor skips the restart phase entirely and goes
+	 * straight to Lost-then-recreate when applicable. */
+	virtual bool supports_media_restart() const { return false; }
+
+	/* When the source is Lost, does releasing + recreating the private
+	 * source plausibly recover it? FFmpeg/VLC: yes (re-resolve URL,
+	 * re-open file). NDI: no by default (the underlying NDI receiver
+	 * recovers automatically when the source returns; recreating just
+	 * churns sockets). Spout: no (sender presence is fully out of our
+	 * control; recreating doesn't conjure a sender). When false, the
+	 * supervisor never schedules a full recreate; the cell sits in Lost
+	 * and recovers when the provider's host plugin observes the source
+	 * return. */
+	virtual bool benefits_from_recreate() const { return false; }
 };
 
 /* Registry singleton. */

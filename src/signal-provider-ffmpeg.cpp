@@ -171,6 +171,74 @@ public:
 		obs_source_release(raw);
 		return wrapper;
 	}
+
+	/* Phase 3 / M6 step 10: probe ffmpeg_source health.
+	 *
+	 * ffmpeg_source publishes the canonical OBS media-state machine via
+	 * obs_source_media_get_state, so we can map directly:
+	 *
+	 *   PLAYING + valid dimensions  -> Active
+	 *   PLAYING but zero dimensions -> Opening (codec still figuring it out)
+	 *   OPENING / BUFFERING         -> Opening
+	 *   ENDED                       -> Lost (network stream finished, or
+	 *                                       non-looping local file done)
+	 *   ERROR                       -> Error (URL unreachable, codec
+	 *                                       incompatible, etc.)
+	 *   STOPPED / PAUSED / NONE     -> Opening while young, then Lost
+	 *
+	 * Young-source grace is 5 s: ffmpeg_source's worker thread can take
+	 * a few hundred ms to open an HLS playlist before media_state flips
+	 * to PLAYING. Without the grace the supervisor would briefly mark
+	 * the cell Lost during normal startup. */
+	HealthReport probe_health(obs_source_t *src, uint64_t age_ns) const override
+	{
+		HealthReport r;
+		if (!src)
+			return r;
+		r.width = obs_source_get_width(src);
+		r.height = obs_source_get_height(src);
+
+		const obs_media_state state = obs_source_media_get_state(src);
+		switch (state) {
+		case OBS_MEDIA_STATE_PLAYING:
+			if (r.width > 0 && r.height > 0) {
+				r.code = HealthCode::Active;
+			} else {
+				r.code = HealthCode::Opening;
+				r.reason = "playing but no frames";
+			}
+			break;
+		case OBS_MEDIA_STATE_OPENING:
+			r.code = HealthCode::Opening;
+			r.reason = "opening";
+			break;
+		case OBS_MEDIA_STATE_BUFFERING:
+			r.code = HealthCode::Opening;
+			r.reason = "buffering";
+			break;
+		case OBS_MEDIA_STATE_ENDED:
+			r.code = HealthCode::Lost;
+			r.reason = "media ended";
+			break;
+		case OBS_MEDIA_STATE_ERROR:
+			r.code = HealthCode::Error;
+			r.reason = "ffmpeg error";
+			break;
+		case OBS_MEDIA_STATE_STOPPED:
+		case OBS_MEDIA_STATE_PAUSED:
+		case OBS_MEDIA_STATE_NONE:
+		default:
+			if (age_ns < 5ULL * 1000 * 1000 * 1000)
+				r.code = HealthCode::Opening;
+			else
+				r.code = HealthCode::Lost;
+			break;
+		}
+		return r;
+	}
+
+	bool supports_media_restart() const override { return true; }
+	bool benefits_from_recreate() const override { return true; }
 };
 
 static FfmpegProvider g_ffmpeg_provider;

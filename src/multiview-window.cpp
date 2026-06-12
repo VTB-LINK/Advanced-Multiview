@@ -456,8 +456,19 @@ bool MultiviewWindow::refresh_cell(int row, int col)
 			if (new_is_external) {
 				cs.private_source = new_external;
 				if (new_external) {
+					/* Phase 3 / M6 step 10: stamp the new
+					 * source's birth time so the supervisor's
+					 * age_ns is accurate from tick 1. Clear
+					 * the recovery bookkeeping so a fresh
+					 * Opening countdown starts clean. */
+					cs.source_created_ns = os_gettime_ns();
+					cs.connecting_since_ns = 0;
+					cs.lost_since_ns = 0;
+					cs.media_restart_attempts = 0;
+					cs.next_retry_ns = 0;
+					cs.last_health_ns = 0;
 					cs.state = SignalRuntimeState::Active;
-					cs.last_active_ns = os_gettime_ns();
+					cs.last_active_ns = cs.source_created_ns;
 					cs.last_error_reason.clear();
 				} else {
 					cs.state = SignalRuntimeState::Error;
@@ -1200,8 +1211,19 @@ void MultiviewWindow::update_source_refs()
 			auto &cs = cell_sources_[it.cell_idx];
 			cs.private_source = priv;
 			if (priv) {
+				/* Phase 3 / M6 step 10: stamp the source's birth
+				 * time so the supervisor's age_ns is accurate from
+				 * tick 1 (its 5 s Opening grace is measured from
+				 * source_created_ns). Initial state stays Active
+				 * with last_active_ns set so the first probe a
+				 * second later can update truthfully. */
+				cs.source_created_ns = os_gettime_ns();
+				cs.connecting_since_ns = 0;
+				cs.lost_since_ns = 0;
+				cs.media_restart_attempts = 0;
 				cs.state = SignalRuntimeState::Active;
-				cs.last_active_ns = os_gettime_ns();
+				cs.last_active_ns = cs.source_created_ns;
+				cs.last_health_ns = 0;
 				cs.last_error_reason.clear();
 			} else {
 				cs.state = SignalRuntimeState::Error;
@@ -1621,18 +1643,34 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				newState = SignalRuntimeState::Empty;
 			} else if (cs.provider_type != SignalProviderType::Unknown &&
 				   !signal_provider_is_internal(cs.provider_type)) {
-				/* Phase 3 / M6 step 9: external-provider cell.
+				/* Phase 3 / M6 step 10: external-provider cell health.
 				 *
-				 * Active when the private source rendered this frame;
-				 * otherwise Connecting (provider's create_private_source
-				 * has not yet produced a frame, or the source is mid-
-				 * destroy and obs_source_get_ref returned null). Full
-				 * Connecting → Lost / Error escalation lands in step 10
-				 * with the external health supervisor; until then we
-				 * keep the cell in Connecting so the user sees the
-				 * background fill instead of a MISSING SOURCE overlay
-				 * that doesn't apply to external cells. */
-				newState = src ? SignalRuntimeState::Active : SignalRuntimeState::Connecting;
+				 * The supervisor (multiview-window-health.cpp) probes
+				 * provider health at ~1 Hz and returns the authoritative
+				 * SignalRuntimeState for the cell. Between probes we
+				 * keep cs.state (sticky), which produces a smooth
+				 * overlay without per-frame flicker on transitions.
+				 *
+				 * The 1 Hz throttle also bounds the cost of probe_health
+				 * across large grids (10x10 = 100 cells -> 100 OBS API
+				 * calls per second, negligible). */
+				const uint64_t now_health_ns = os_gettime_ns();
+				const uint64_t kProbeIntervalNs = 1'000'000'000ULL;
+				if (now_health_ns - cs.last_health_ns >= kProbeIntervalNs) {
+					cell_sources_[i].last_health_ns = now_health_ns;
+					newState =
+						tick_external_cell_health(i, cell.gridRow, cell.gridCol, now_health_ns);
+				} else {
+					/* Between probes: trust the supervisor's last
+					 * verdict. If render produced a frame, sync to
+					 * Active so a transient Connecting state from
+					 * a previous probe doesn't keep showing the
+					 * RECONNECTING overlay over a now-playing cell. */
+					newState = src ? SignalRuntimeState::Active : cs.state;
+					if (cs.state == SignalRuntimeState::Empty)
+						newState = src ? SignalRuntimeState::Active
+							       : SignalRuntimeState::Connecting;
+				}
 			} else if (cs.type.empty()) {
 				newState = SignalRuntimeState::Empty;
 			} else if (isFallback) {

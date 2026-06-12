@@ -290,9 +290,50 @@ private:
 		uint32_t last_dimensions_h = 0;
 		std::string last_error_reason; /* one-shot human-readable reason */
 		uint64_t next_retry_ns = 0;    /* monotonic time of next allowed reconnect attempt */
+
+		/* Phase 3 / M6 step 10: external health supervisor bookkeeping.
+		 *
+		 * The supervisor needs three additional per-cell timestamps to
+		 * drive the Connecting / Lost / Error state machine across all
+		 * external providers (FFmpeg / NDI / Spout / VLC / ...). These
+		 * are intentionally provider-agnostic — supervisor reads them
+		 * via tick_external_cell_health() regardless of the underlying
+		 * source type. NDI / Spout will populate them through the same
+		 * generic supervisor without needing per-provider runtime
+		 * state. */
+		uint64_t source_created_ns = 0;   /* when current private_source was created */
+		uint64_t connecting_since_ns = 0; /* start of current Opening/Connecting phase */
+		uint64_t lost_since_ns = 0;       /* start of current Lost phase */
+		int media_restart_attempts = 0;   /* obs_source_media_restart attempts since last Active */
 	};
 	std::vector<CellSource> cell_sources_;
 	std::recursive_mutex source_mutex_;
+
+	/* Phase 3 / M6 step 10: external-cell health supervisor.
+	 *
+	 * Declared here (after CellSource / SignalRuntimeState are defined)
+	 * because both are nested types and the signature needs them in
+	 * scope. Called from render() once per cell per second (throttled
+	 * via cs.last_health_ns) for every cell whose provider is external.
+	 *
+	 * Fully provider-agnostic: consumes the provider's HealthReport via
+	 * ISignalProvider::probe_health() and drives transitions between
+	 * Connecting / Active / Lost / Error (plus media_restart and
+	 * full-recreate actions). NDI / Spout / future providers do not
+	 * need their own supervisor code \u2014 they implement probe_health()
+	 * + supports_media_restart() + benefits_from_recreate() and this
+	 * function handles the rest.
+	 *
+	 * Returns the SignalRuntimeState the caller should write into
+	 * cs.state. Side-effects: obs_source_media_restart is dispatched
+	 * inline (safe under source_mutex_); full recreate is queued onto
+	 * the Qt main thread via QTimer because refresh_cell() must not run
+	 * with source_mutex_ held.
+	 *
+	 * Caller holds source_mutex_. cellRow/cellCol come from the layout
+	 * engine snapshot the caller already has, so the queued refresh_cell
+	 * call does not need to re-walk the layout. */
+	SignalRuntimeState tick_external_cell_health(int cellIndex, int cellRow, int cellCol, uint64_t now_ns);
 
 	/* Canvas aspect ratio for fixed-ratio viewport */
 	double canvas_aspect_ = 16.0 / 9.0;
