@@ -1268,6 +1268,7 @@ void MultiviewWindow::update_source_refs()
 				cs.connecting_since_ns = 0;
 				cs.lost_since_ns = 0;
 				cs.media_restart_attempts = 0;
+				cs.lost_restart_attempts = 0;
 				/* Phase 3 / M6.6 H.5 hardening: clear sticky fallback
 				 * latch on full refresh too. Same rationale as the
 				 * single-cell refresh_cell path above. */
@@ -1862,6 +1863,20 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 							       !eff.signalLostImagePath.empty());
 				if (isFallback) {
 					display_state = SignalRuntimeState::FallbackActive;
+				} else if (supervisor_state == SignalRuntimeState::RetryScheduled) {
+					/* Phase 3 hardening tail: an active recovery
+					 * attempt is in flight this tick (either a
+					 * media_restart or a queued full recreate).
+					 * Surface CONNECTING (blue band) regardless
+					 * of latch + behavior, so the user sees the
+					 * same "we are trying" feedback for both
+					 * the cheap restart-then-recreate paths.
+					 * Without this branch, SignalLostOverlay /
+					 * SignalLostImage users would only ever
+					 * see CONNECTING on the recreate path
+					 * (which clears the latch via install),
+					 * never on the lighter restart path. */
+					display_state = SignalRuntimeState::Connecting;
 				} else if (cs.fallback_latched && supervisor_state != SignalRuntimeState::Active) {
 					switch (beh) {
 					case ExternalLostBehavior::RetryWithFallback:

@@ -332,7 +332,17 @@ private:
 		uint64_t source_created_ns = 0;   /* when current private_source was created */
 		uint64_t connecting_since_ns = 0; /* start of current Opening/Connecting phase */
 		uint64_t lost_since_ns = 0;       /* start of current Lost phase */
-		int media_restart_attempts = 0;   /* obs_source_media_restart attempts since last Active */
+		int media_restart_attempts = 0; /* obs_source_media_restart attempts during Opening since last Active */
+		/* Phase 3 hardening tail: Lost-branch restart-then-recreate.
+		 * Tracked separately from media_restart_attempts because the
+		 * Opening counter has different escalation semantics (it caps
+		 * at kMaxMediaRestartAttempts then promotes Opening -> Lost),
+		 * while this counter caps the cheap retries within a single
+		 * Lost window before falling back to full source recreate.
+		 * Reset to 0 on Active and on cell install (refresh_cell /
+		 * update_source_refs); reset to 0 after a recreate is queued
+		 * so the next Lost window starts again with the cheap path. */
+		int lost_restart_attempts = 0;
 
 		/* Phase 3 / M6.1 perf diag: counters used by the optional
 		 * 5-second perf-stats log line. We track render-thread

@@ -57,6 +57,12 @@ constexpr uint64_t kMediaRestartCooldownNs = 3 * NS_PER_SEC;
  * effective_lost.manualReconnectCooldownMs (or set it absurdly low). */
 constexpr uint64_t kMinRecreateCooldownNs = 5 * NS_PER_SEC;
 
+/* Phase 3 hardening tail: max cheap-restart attempts in a single Lost
+ * window before promoting to full recreate. Symmetric with the Opening
+ * cap above so a misbehaving stream takes roughly the same number of
+ * cycles to fall back to the heavy path. */
+constexpr int kMaxLostRestartAttempts = 3;
+
 } // namespace
 
 MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(int cellIndex, int cellRow, int cellCol,
@@ -132,6 +138,7 @@ MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(i
 		cs.connecting_since_ns = 0;
 		cs.lost_since_ns = 0;
 		cs.media_restart_attempts = 0;
+		cs.lost_restart_attempts = 0;
 		cs.retry_attempt = 0;
 		return SignalRuntimeState::Active;
 
@@ -144,6 +151,7 @@ MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(i
 		cs.connecting_since_ns = 0;
 		cs.lost_since_ns = 0;
 		cs.media_restart_attempts = 0;
+		cs.lost_restart_attempts = 0;
 		cs.retry_attempt = 0;
 		return SignalRuntimeState::Paused;
 
@@ -188,18 +196,22 @@ MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(i
 		 * when the user picked SignalLostOverlay or SignalLostImage,
 		 * the rationale being "user explicitly wants to stare at the
 		 * overlay/image". But that left FFmpeg/VLC cells permanently
-		 * stuck the moment they hit ENDED with those modes \u2014 even
+		 * stuck the moment they hit ENDED with those modes — even
 		 * though NDI/Spout cells recovered automatically (their host
 		 * plugins reconnect internally). User-visible inconsistency.
 		 *
 		 * Now: all behaviors trigger retry; the choice only controls
 		 * *what overlay is shown* during the unhealthy window
 		 * (handled in the render-thread state classifier, not here).
-		 * Providers that don't benefit from recreate (NDI / Spout)
-		 * still skip \u2014 recreating their receiver doesn't help; they
-		 * recover when the host plugin observes the sender return. */
+		 * Routing across providers is capability-driven via two
+		 * ISignalProvider virtuals — no per-provider branches here. */
 		const bool recreate_eligible = provider->benefits_from_recreate();
-		if (!recreate_eligible)
+		const bool restart_eligible = provider->supports_media_restart();
+
+		/* NDI / Spout: no useful recovery action on our side. The host
+		 * plugin reconnects internally; we just keep painting SIGNAL
+		 * LOST until the source comes back. */
+		if (!recreate_eligible && !restart_eligible)
 			return SignalRuntimeState::Lost;
 
 		int cooldown_ms = cs.effective_lost.manualReconnectCooldownMs;
@@ -213,13 +225,64 @@ MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(i
 		if (lost_for < cooldown_ns)
 			return SignalRuntimeState::Lost;
 
-		/* Throttle so we don't queue a recreate every tick once the
+		/* Throttle so we don't queue retries every tick once the
 		 * cooldown has elapsed. next_retry_ns is shared with the
-		 * media_restart throttle above; that's fine because Lost and
-		 * Connecting don't co-occur. */
+		 * Opening media_restart throttle above; safe because Lost
+		 * and Connecting don't co-occur for the same cell. */
 		if (now_ns < cs.next_retry_ns)
 			return SignalRuntimeState::Lost;
 
+		/* Phase 3 hardening tail (Plan C, provider-agnostic):
+		 *
+		 * Within a single Lost window try the cheap path first —
+		 * obs_source_media_restart — up to kMaxLostRestartAttempts
+		 * times. Only if those cheap retries fail to flip the source
+		 * back to Active do we promote to a full recreate.
+		 *
+		 * Why: full recreate tears down and rebuilds the OBS private
+		 * source (release strong ref + obs_source_create_private +
+		 * settings dump + active/showing/audio/VU rewire). For a bad
+		 * URL this fires on every cooldown tick and floods OBS logs
+		 * with `Media Source 'xxx': settings:` blocks. media_restart
+		 * reuses the same source, so the cheap path produces only the
+		 * provider's own `MP: Failed` line plus our supervisor INFO,
+		 * not the full settings dump.
+		 *
+		 * Capability matrix (purely virtual-driven):
+		 *   supports_media_restart && benefits_from_recreate  (ffmpeg, vlc)
+		 *     -> restart N times, then recreate, reset, repeat
+		 *   supports_media_restart && !benefits_from_recreate
+		 *     -> restart every cooldown (no full recreate is meaningful)
+		 *   !supports_media_restart && benefits_from_recreate
+		 *     -> recreate every cooldown (legacy behavior)
+		 *   !supports_media_restart && !benefits_from_recreate  (ndi, spout)
+		 *     -> handled by the early return above */
+		if (restart_eligible && cs.lost_restart_attempts < kMaxLostRestartAttempts) {
+			obs_source_media_restart(raw);
+			cs.lost_restart_attempts++;
+			cs.next_retry_ns = now_ns + cooldown_ns;
+			cs.last_reconnect_ns = now_ns;
+			amv_log_detailed(LOG_INFO,
+					 "%s[health] cell (%d,%d) lost media_restart #%d/%d on '%s' (reason='%s')",
+					 log_prefix().c_str(), cellRow, cellCol, cs.lost_restart_attempts,
+					 kMaxLostRestartAttempts, signal_provider_to_string(cs.provider_type),
+					 cs.last_error_reason.c_str());
+			return SignalRuntimeState::RetryScheduled;
+		}
+
+		if (!recreate_eligible) {
+			/* restart-only provider: stay Lost; reset the
+			 * cheap-retry counter so subsequent cooldowns keep
+			 * firing restart instead of being permanently locked
+			 * out after the first burst. */
+			cs.lost_restart_attempts = 0;
+			return SignalRuntimeState::Lost;
+		}
+
+		/* Cheap retries exhausted (or restart unsupported): fall back
+		 * to full recreate. Reset the cheap counter so the next Lost
+		 * window after the recreate starts again with the light path. */
+		cs.lost_restart_attempts = 0;
 		cs.next_retry_ns = now_ns + cooldown_ns;
 		cs.retry_attempt++;
 		amv_log_detailed(LOG_INFO,
@@ -227,7 +290,7 @@ MultiviewWindow::SignalRuntimeState MultiviewWindow::tick_external_cell_health(i
 				 log_prefix().c_str(), cellRow, cellCol, signal_provider_to_string(cs.provider_type),
 				 cs.retry_attempt, cs.last_error_reason.c_str());
 
-		/* Queue refresh_cell onto the Qt main thread \u2014 it must NOT
+		/* Queue refresh_cell onto the Qt main thread — it must NOT
 		 * run while we hold source_mutex_. By the time the timer
 		 * fires the user may have edited or cleared the cell, so we
 		 * re-check via refresh_cell's normal validation path. */
