@@ -61,11 +61,13 @@ constexpr const char *kKeyTickSpeedLimit = "tickspeedlimit";
  * sender is registered first". */
 constexpr const char *kUseFirstAvailableSender = "usefirstavailablesender";
 
-/* Composite mode integers from win-spout-source.cpp's #defines. */
-constexpr int kCompositeModeOpaque = 1;
-constexpr int kCompositeModeAlpha = 2;
+/* Composite mode integers from win-spout-source.cpp's #defines.
+ * Only kCompositeModeDefault is currently referenced; the others are
+ * retained as documentation of the obs-spout2 API surface. */
+[[maybe_unused]] constexpr int kCompositeModeOpaque = 1;
+[[maybe_unused]] constexpr int kCompositeModeAlpha = 2;
 constexpr int kCompositeModeDefault = 3;
-constexpr int kCompositeModePremultiplied = 4;
+[[maybe_unused]] constexpr int kCompositeModePremultiplied = 4;
 
 /* Forward declarations: spout_discovery_scan and its 1Hz cache live
  * below the SpoutProvider class but the class needs them for
