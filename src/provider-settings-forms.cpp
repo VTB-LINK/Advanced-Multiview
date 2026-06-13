@@ -703,7 +703,8 @@ void NdiSourceForm::load_from(const SignalConfig &cfg)
 		if (idx >= 0)
 			cmb_yuv_colorspace_->setCurrentIndex(idx);
 	}
-	chk_audio_->setChecked(src ? obs_data_get_bool(src, kNdiKeyAudio) : true);
+	chk_audio_->setChecked(src && obs_data_has_user_value(src, kNdiKeyAudio) ? obs_data_get_bool(src, kNdiKeyAudio)
+										 : true);
 	chk_framesync_->setChecked(src ? obs_data_get_bool(src, kNdiKeyFramesync) : false);
 	chk_hw_accel_->setChecked(src ? obs_data_get_bool(src, kNdiKeyHwAccel) : false);
 	chk_fix_alpha_->setChecked(src ? obs_data_get_bool(src, kNdiKeyFixAlpha) : false);
@@ -1045,11 +1046,15 @@ VlcMediaForm::VlcMediaForm(QWidget *parent) : QWidget(parent)
 	btn_add_file_ = new QPushButton(QStringLiteral("Add file"), this);
 	btn_add_files_ = new QPushButton(QStringLiteral("Add files..."), this);
 	btn_add_url_ = new QPushButton(QStringLiteral("Add URL"), this);
+	btn_edit_ = new QPushButton(QStringLiteral("Edit"), this);
+	btn_edit_->setToolTip(
+		QStringLiteral("Edit the selected playlist entry's path or URL. Double-click a row to do the same."));
 	btn_remove_ = new QPushButton(QStringLiteral("Remove"), this);
 	btn_clear_ = new QPushButton(QStringLiteral("Clear"), this);
 	btn_row->addWidget(btn_add_file_);
 	btn_row->addWidget(btn_add_files_);
 	btn_row->addWidget(btn_add_url_);
+	btn_row->addWidget(btn_edit_);
 	btn_row->addWidget(btn_remove_);
 	btn_row->addWidget(btn_clear_);
 	btn_row->addStretch(1);
@@ -1129,6 +1134,46 @@ VlcMediaForm::VlcMediaForm(QWidget *parent) : QWidget(parent)
 			delete playlist_list_->takeItem(playlist_list_->row(it));
 	});
 	connect(btn_clear_, &QPushButton::clicked, this, [this]() { playlist_list_->clear(); });
+
+	/* Edit handler: shared by the Edit button and the double-click
+	 * activation. Local file entries open a Qt file dialog seeded with
+	 * the existing path so the user can pick a different file in the
+	 * same directory; URL entries open a text input dialog seeded with
+	 * the existing URL. "Local" is detected the same way the provider
+	 * decides on unbuffered policy: any '://' substring marks a URL. */
+	auto edit_item = [this](QListWidgetItem *item) {
+		if (!item)
+			return;
+		const QString existing = item->text();
+		const bool is_url = existing.contains(QStringLiteral("://"));
+		if (is_url) {
+			bool ok = false;
+			const QString url = QInputDialog::getText(
+				this, QStringLiteral("Edit URL"),
+				QStringLiteral("Stream URL (RTMP, HLS, SRT, http(s), rtsp, etc.):"), QLineEdit::Normal,
+				existing, &ok);
+			if (ok && !url.trimmed().isEmpty())
+				item->setText(url.trimmed());
+		} else {
+			const QString path = QFileDialog::getOpenFileName(
+				this, QStringLiteral("Edit media file"), existing,
+				QStringLiteral("Media files (*.mp4 *.mov *.mkv *.webm *.avi *.flv *.ts *.mp3 "
+					       "*.wav *.flac *.m3u *.m3u8 *.pls);;All files (*)"));
+			if (!path.isEmpty())
+				item->setText(path);
+		}
+	};
+	connect(btn_edit_, &QPushButton::clicked, this, [this, edit_item]() {
+		auto *cur = playlist_list_->currentItem();
+		if (!cur) {
+			const auto items = playlist_list_->selectedItems();
+			if (!items.isEmpty())
+				cur = items.first();
+		}
+		edit_item(cur);
+	});
+	connect(playlist_list_, &QListWidget::itemDoubleClicked, this,
+		[edit_item](QListWidgetItem *item) { edit_item(item); });
 }
 
 void VlcMediaForm::load_from(const SignalConfig &cfg)

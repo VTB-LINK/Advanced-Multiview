@@ -259,6 +259,7 @@ private:
 	QPushButton *btn_add_file_ = nullptr;
 	QPushButton *btn_add_files_ = nullptr;
 	QPushButton *btn_add_url_ = nullptr;
+	QPushButton *btn_edit_ = nullptr;
 	QPushButton *btn_remove_ = nullptr;
 	QPushButton *btn_clear_ = nullptr;
 
