@@ -211,6 +211,22 @@ MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_stat
 	}
 	case SignalRuntimeState::RetryScheduled:
 		return StatusOverlayKind::Reconnecting;
+	case SignalRuntimeState::Connecting:
+		/* Phase 3 / M6.6 hardening: the brief window between
+		 * refresh_cell installing a new private_source and the
+		 * provider reporting its first verdict (typical 100-300 ms
+		 * for ffmpeg / vlc; up to kConnectingTotalNs == 30 s before
+		 * the supervisor escalates to Lost). Without this case the
+		 * default branch returned None and the cell rendered a
+		 * blank black frame — visually identical to "no source
+		 * configured", which is wrong: a recreate IS in flight.
+		 *
+		 * Use the same blue CONNECTING... band as RetryScheduled —
+		 * from the user's perspective both states mean "we are
+		 * actively trying to bring this cell back up". The two
+		 * states differ only in supervisor bookkeeping (waiting for
+		 * the cooldown timer vs waiting for the first frame). */
+		return StatusOverlayKind::Reconnecting;
 	case SignalRuntimeState::FallbackActive:
 		return StatusOverlayKind::Fallback;
 	case SignalRuntimeState::Paused:
