@@ -101,6 +101,14 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 		ndi_form_->load_from(cfg);
 		scroll->setWidget(ndi_form_);
 		root->addWidget(scroll, 1);
+	} else if (cfg.provider == SignalProviderType::Spout) {
+		auto *scroll = new QScrollArea(this);
+		scroll->setWidgetResizable(true);
+		scroll->setFrameShape(QFrame::NoFrame);
+		spout_form_ = new SpoutSenderForm();
+		spout_form_->load_from(cfg);
+		scroll->setWidget(spout_form_);
+		root->addWidget(scroll, 1);
 	} else {
 		/* Other external providers don't have an editor yet; their
 		 * own milestones (M6.3 Spout, M6.4 VLC) will add sibling
@@ -114,11 +122,12 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 	}
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-	if ((cfg.provider != SignalProviderType::Ffmpeg && cfg.provider != SignalProviderType::Ndi) ||
+	if ((cfg.provider != SignalProviderType::Ffmpeg && cfg.provider != SignalProviderType::Ndi &&
+	     cfg.provider != SignalProviderType::Spout) ||
 	    !provider_available) {
-		/* No editable form for non-FFmpeg/non-NDI providers yet, OR
-		 * the cell's provider is missing in this OBS install. Either
-		 * way disable Save so cancel is the only safe action. */
+		/* No editable form for unsupported providers yet, OR the cell's
+		 * provider is missing in this OBS install. Either way disable
+		 * Save so cancel is the only safe action. */
 		QPushButton *okBtn = buttons->button(QDialogButtonBox::Ok);
 		if (okBtn)
 			okBtn->setEnabled(false);
@@ -143,6 +152,12 @@ void EditSourceDialog::on_accept()
 						 ndi_form_->invalid_reason());
 			return;
 		}
+	} else if (provider_ == SignalProviderType::Spout && spout_form_) {
+		if (!spout_form_->is_valid()) {
+			QMessageBox::information(this, QStringLiteral("Spout sender required"),
+						 spout_form_->invalid_reason());
+			return;
+		}
 	}
 	accept();
 }
@@ -153,5 +168,7 @@ SignalConfig EditSourceDialog::signal_config() const
 		return ffmpeg_form_->to_signal_config();
 	if (provider_ == SignalProviderType::Ndi && ndi_form_)
 		return ndi_form_->to_signal_config();
+	if (provider_ == SignalProviderType::Spout && spout_form_)
+		return spout_form_->to_signal_config();
 	return SignalConfig();
 }

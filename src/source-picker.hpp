@@ -30,6 +30,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 class FfmpegMediaForm;
 class NdiSourceForm;
+class SpoutSenderForm;
 
 class SourcePicker : public QDialog {
 	Q_OBJECT
@@ -70,6 +71,11 @@ private:
 	 * user picks a source. */
 	QWidget *build_ndi_tab();
 
+	/* Phase 3 / M6.3: real Spout tab — first-available checkbox +
+	 * discovered sender list + composite mode + tick speed. Returns a
+	 * CellAssignment with provider=Spout. */
+	QWidget *build_spout_tab();
+
 	QTabWidget *tabs_;
 	QLineEdit *filter_edit_;
 	QListWidget *special_list_;
@@ -96,6 +102,9 @@ private:
 	/* Phase 3 / M6.2: NDI form. Owned by the NDI tab page; lifetime
 	 * ends with the dialog. */
 	NdiSourceForm *ndi_form_ = nullptr;
+
+	/* Phase 3 / M6.3: Spout form. Owned by the Spout tab page. */
+	SpoutSenderForm *spout_form_ = nullptr;
 
 	CellAssignment result_;
 };

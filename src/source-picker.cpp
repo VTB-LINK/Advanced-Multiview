@@ -74,10 +74,7 @@ SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
 	ndi_tab_ = build_ndi_tab();
 	tabs_->addTab(ndi_tab_, QStringLiteral("NDI"));
 
-	spout_tab_ =
-		build_external_placeholder(SignalProviderType::Spout, "M6.3",
-					   "obs-spout2 senders running on this machine. The discovered sender list "
-					   "plus Refresh and composite-mode controls land here.");
+	spout_tab_ = build_spout_tab();
 	tabs_->addTab(spout_tab_, QStringLiteral("Spout"));
 
 	vlc_tab_ = build_external_placeholder(SignalProviderType::Vlc, "M6.4 (optional)",
@@ -221,6 +218,20 @@ void SourcePicker::on_accept()
 		}
 		result_ = CellAssignment{};
 		result_.signalConfig = ndi_form_->to_signal_config();
+		accept();
+		return;
+	} else if (tabs_->widget(idx) == spout_tab_) {
+		/* Phase 3 / M6.3: Spout tab. Form yields a SignalConfig with
+		 * provider=Spout and providerSettings carrying spoutsenders
+		 * (or "usefirstavailablesender") + composite mode + tick
+		 * speed. */
+		if (!spout_form_ || !spout_form_->is_valid()) {
+			QMessageBox::information(this, QStringLiteral("Spout sender required"),
+						 spout_form_ ? spout_form_->invalid_reason() : QString());
+			return;
+		}
+		result_ = CellAssignment{};
+		result_.signalConfig = spout_form_->to_signal_config();
 		accept();
 		return;
 	} else {
@@ -398,6 +409,55 @@ QWidget *SourcePicker::build_ndi_tab()
 	layout->addWidget(scroll, 1);
 
 	auto *availLabel = new QLabel(QStringLiteral("Provider available (DistroAV ndi_source)."), page);
+	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
+	layout->addWidget(availLabel);
+
+	return page;
+}
+
+QWidget *SourcePicker::build_spout_tab()
+{
+	auto *page = new QWidget(this);
+	auto *layout = new QVBoxLayout(page);
+	layout->setContentsMargins(12, 12, 12, 12);
+	layout->setSpacing(10);
+
+	auto *heading = new QLabel(QStringLiteral("Spout sender (obs-spout2)"), page);
+	{
+		QFont f = heading->font();
+		f.setBold(true);
+		heading->setFont(f);
+	}
+	layout->addWidget(heading);
+
+	const auto &reg = SignalProviderRegistry::instance();
+	const auto *p = reg.find(SignalProviderType::Spout);
+	if (!p || !p->is_available()) {
+		auto *body = new QLabel(QStringLiteral("obs-spout2 plugin is not installed in this OBS. Install "
+						       "obs-spout2 and restart OBS to enable this tab."),
+					page);
+		body->setWordWrap(true);
+		layout->addWidget(body);
+		layout->addStretch(1);
+		return page;
+	}
+
+	auto *body = new QLabel(
+		QStringLiteral("Cell hosts a private spout_capture created only for this Multiview. obs-spout2 "
+			       "handles sender discovery on the local machine; pick one below or let the cell "
+			       "follow the first available sender."),
+		page);
+	body->setWordWrap(true);
+	layout->addWidget(body);
+
+	auto *scroll = new QScrollArea(page);
+	scroll->setWidgetResizable(true);
+	scroll->setFrameShape(QFrame::NoFrame);
+	spout_form_ = new SpoutSenderForm();
+	scroll->setWidget(spout_form_);
+	layout->addWidget(scroll, 1);
+
+	auto *availLabel = new QLabel(QStringLiteral("Provider available (obs-spout2 spout_capture)."), page);
 	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
 	layout->addWidget(availLabel);
 

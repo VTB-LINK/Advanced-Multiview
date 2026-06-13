@@ -129,7 +129,9 @@ static InternalSourceProvider g_internal_source;
  * to keep the registry skeleton free of host-plugin specifics. */
 void register_ffmpeg_provider();
 void register_ndi_provider();
+void register_spout_provider();
 void signal_provider_ndi_shutdown();
+void signal_provider_spout_shutdown();
 
 void signal_provider_registry_init()
 {
@@ -146,6 +148,7 @@ void signal_provider_registry_init()
 	 * without touching this file. */
 	register_ffmpeg_provider();
 	register_ndi_provider();
+	register_spout_provider();
 
 	obs_log(LOG_INFO, "[signal-provider] registry initialized with %zu provider(s)",
 		(size_t)reg.providers().size());
@@ -158,6 +161,7 @@ void signal_provider_registry_shutdown()
 	 * log shows the order; the OBS shutdown path would clean up
 	 * eventually either way. */
 	signal_provider_ndi_shutdown();
+	signal_provider_spout_shutdown();
 
 	/* Providers are static singletons owned by translation units; we do
 	 * not delete anything here. Resetting the registry is unnecessary

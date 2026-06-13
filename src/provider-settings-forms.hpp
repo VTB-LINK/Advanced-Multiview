@@ -167,6 +167,14 @@ private:
 	QCheckBox *chk_framesync_ = nullptr;
 	QCheckBox *chk_hw_accel_ = nullptr;
 	QCheckBox *chk_fix_alpha_ = nullptr;
+
+	/* Tracks the user's currently chosen NDI source name across
+	 * Refresh cycles. Lets refresh_discovery() (a) restore the
+	 * selection when the named source reappears, and (b) inject a
+	 * "signal lost" placeholder row when the named source is
+	 * temporarily missing from the LAN. Stored without any
+	 * suffix — the bare ndi_source_name string. */
+	QString remembered_selection_;
 };
 
 /* Discovery hook implemented in signal-provider-ndi.cpp. Returns the
@@ -175,3 +183,49 @@ private:
  * thread; under the hood it triggers DistroAV's NDIFinder async refresh
  * via a private dormant ndi_source. */
 std::vector<std::string> signal_provider_ndi_discover_sources();
+
+/* Form for the obs-spout2 Spout provider (Phase 3 / M6.3).
+ *
+ * UI shape mirrors OBS's own spout_capture properties dialog: a
+ * "first available" checkbox toggling between auto-pick and a
+ * specific sender from the discovered list, plus composite mode
+ * and tick speed. Spout has no audio so there's no audio toggle.
+ *
+ * Discovery is fully driven by signal_provider_spout_discover_senders()
+ * which talks to obs-spout2 via a long-lived dormant spout_capture
+ * probe. The form just renders the returned list. */
+class SpoutSenderForm : public QWidget {
+	Q_OBJECT
+public:
+	explicit SpoutSenderForm(QWidget *parent = nullptr);
+
+	void load_from(const SignalConfig &cfg);
+	SignalConfig to_signal_config() const;
+	bool is_valid() const;
+	QString invalid_reason() const;
+
+public slots:
+	void refresh_discovery();
+
+private:
+	void apply_first_available_visibility();
+
+	QCheckBox *chk_first_available_ = nullptr;
+	QListWidget *discovered_list_ = nullptr;
+	QPushButton *refresh_btn_ = nullptr;
+	QComboBox *cmb_composite_mode_ = nullptr;
+	QComboBox *cmb_tick_speed_ = nullptr;
+
+	/* Same role as NdiSourceForm::remembered_selection_: keeps the
+	 * user's chosen sender across Refresh so a temporarily
+	 * disappeared sender stays selected with a "signal lost"
+	 * placeholder until it returns. Empty when first-available is
+	 * checked or the user hasn't picked anything yet. */
+	QString remembered_selection_;
+};
+
+/* Discovery hook implemented in signal-provider-spout.cpp. Returns
+ * the Spout sender names currently registered on the local machine,
+ * sorted and deduped, excluding the synthetic "first-available" token.
+ * Empty when obs-spout2 is not installed. */
+std::vector<std::string> signal_provider_spout_discover_senders();
