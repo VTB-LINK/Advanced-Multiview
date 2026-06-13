@@ -53,6 +53,7 @@ target_sources(
           src/signal-lost-settings-dialog.cpp
           src/multiview-window.hpp
           src/multiview-window.cpp
+          src/multiview-window-context-menu.cpp
           src/multiview-window-vu.cpp
           src/multiview-window-label.cpp
           src/multiview-window-image.cpp
