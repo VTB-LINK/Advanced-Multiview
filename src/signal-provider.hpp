@@ -193,6 +193,41 @@ public:
 	 * and recovers when the provider's host plugin observes the source
 	 * return. */
 	virtual bool benefits_from_recreate() const { return false; }
+
+	/* Phase 3 / M6.1 perf: should the multiview runtime force the OBS
+	 * async-display pipeline into unbuffered mode for this private
+	 * source?
+	 *
+	 * Two cases the providers actually need:
+	 *   - Local files (FFmpeg/VLC): YES. Decoder always has the next
+	 *     frame ready by tick time; OBS's default buffered timing
+	 *     (frame->timestamp + timing_adjust) just produces a 30s
+	 *     timing-convergence stutter window before settling at native
+	 *     fps. Skipping it gives instant 60 fps from the first frame.
+	 *   - Network streams (FFmpeg URL): NO. Frames arrive unevenly;
+	 *     buffered timing is exactly what makes playback look smooth.
+	 *     Unbuffered renders at 60 fps but visually 'show frame N a
+	 *     few times, jump to frame N+5' = stutter.
+	 *   - NDI: YES. DistroAV is already a low-latency monitoring
+	 *     protocol; the receiver drops late frames internally.
+	 *     Unbuffered = lowest possible monitoring delay.
+	 *   - Spout: YES. Pure GPU-shared-texture, every tick has the
+	 *     latest frame the sender wrote. No timing math needed.
+	 *
+	 * Default returns false so a new provider is buffered (safe for
+	 * any source type that produces frames at irregular wall-clock
+	 * intervals). cfg lets per-provider impls inspect settings (e.g.
+	 * FFmpeg toggles per is_local_file). The decision is read once
+	 * after create_private_source by the multiview runtime, which
+	 * applies obs_source_set_async_unbuffered. Providers should NOT
+	 * call obs_source_set_async_unbuffered themselves \u2014 routing it
+	 * through one place keeps the policy testable and the perf
+	 * tradeoffs documented in one spot. */
+	virtual bool prefers_unbuffered_async(const SignalConfig &cfg) const
+	{
+		(void)cfg;
+		return false;
+	}
 };
 
 /* Registry singleton. */

@@ -442,6 +442,12 @@ bool MultiviewWindow::refresh_cell(int row, int col)
 				 * — it already bumps show_refs internally via MAIN_VIEW
 				 * activate, so a separate inc_showing would double-count. */
 				obs_source_inc_active(new_external);
+
+				/* Phase 3 / M6.1 perf: apply the provider's
+				 * unbuffered preference uniformly here so refresh_cell
+				 * matches the full-refresh path. */
+				if (provider->prefers_unbuffered_async(new_cfg_copy))
+					obs_source_set_async_unbuffered(new_external, true);
 			} else {
 				create_failure_reason = provider->unavailable_reason();
 				if (create_failure_reason.empty())
@@ -1199,6 +1205,14 @@ void MultiviewWindow::update_source_refs()
 			 * dec_active in release_source_refs(). */
 			if (priv) {
 				obs_source_inc_active(priv);
+
+				/* Phase 3 / M6.1 perf: apply the provider's
+				 * unbuffered preference uniformly here so all
+				 * private external sources go through one decision
+				 * point. See ISignalProvider::prefers_unbuffered_async
+				 * for the policy table. */
+				if (provider->prefers_unbuffered_async(it.cfg_copy))
+					obs_source_set_async_unbuffered(priv, true);
 			}
 
 			std::lock_guard<std::recursive_mutex> lock(source_mutex_);

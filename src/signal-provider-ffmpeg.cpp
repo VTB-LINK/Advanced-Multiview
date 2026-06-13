@@ -164,24 +164,10 @@ public:
 			return OBSSource();
 		}
 
-		/* Phase 3 / M6.1 perf fix: Multiview cells are monitoring
-		 * surfaces; the user wants 'show me the current state right
-		 * now', not 'smoothly play the next 5 minutes per the file's
-		 * timestamps'. OBS's default async-buffered timing schedules
-		 * frame display via `frame->timestamp + timing_adjust`, which
-		 * on VFR files (e.g. 58.8~62.5 fps) takes 30-45 seconds to
-		 * stabilize after activation and exhibits a perfect 30 fps
-		 * 'every other frame skipped' plateau during that window.
-		 * Unbuffered mode drains the async cache to the latest frame
-		 * every tick and skips the timing math entirely \u2014 instant
-		 * 60 fps render, lowest possible monitoring latency, which
-		 * matches what users wanting a multiview wall expect.
-		 *
-		 * Network streams keep their own ffmpeg_source buffering
-		 * (buffering_mb, default 2 MB) for network-jitter absorption;
-		 * unbuffered mode here only affects OBS's display-side timing,
-		 * not the receive-side buffering. */
-		obs_source_set_async_unbuffered(raw, true);
+		/* Display-pipeline buffering policy is decided in
+		 * prefers_unbuffered_async() and applied uniformly by the
+		 * multiview runtime after create. See signal-provider.hpp
+		 * for why this lives at the provider interface level. */
 
 		obs_log(LOG_INFO, "[signal-provider/ffmpeg] created private source '%s' %s='%s'", desired_name.c_str(),
 			is_local_file ? "local_file" : "input", is_local_file ? local_path : input_url);
@@ -258,6 +244,17 @@ public:
 
 	bool supports_media_restart() const override { return true; }
 	bool benefits_from_recreate() const override { return true; }
+
+	/* Local files: yes -- decoder keeps up, no jitter, OBS's buffered
+	 * timing math just produces a 30s convergence stutter window after
+	 * activate. Network streams: NO -- frames arrive unevenly, buffered
+	 * timing is what makes playback smooth. See signal-provider.hpp
+	 * for the full rationale. */
+	bool prefers_unbuffered_async(const SignalConfig &cfg) const override
+	{
+		obs_data_t *src = cfg.providerSettings;
+		return src && obs_data_get_bool(src, kKeyIsLocalFile);
+	}
 };
 
 static FfmpegProvider g_ffmpeg_provider;

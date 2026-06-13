@@ -140,13 +140,9 @@ public:
 			return OBSSource();
 		}
 
-		/* Phase 3 / M6.1 perf consistency with FFmpeg: monitoring
-		 * cells want the latest frame every tick, not OBS's default
-		 * async-buffered timing (which schedules display via the
-		 * frame's NDI timestamp). DistroAV's own latency_mode setting
-		 * still controls receiver-side buffering; unbuffered here
-		 * only affects OBS's display-side timing pipeline. */
-		obs_source_set_async_unbuffered(raw, true);
+		/* Display-pipeline buffering policy is decided in
+		 * prefers_unbuffered_async() and applied uniformly by the
+		 * multiview runtime after create. */
 
 		obs_log(LOG_INFO, "[signal-provider/ndi] created private source '%s' ndi_source_name='%s'",
 			desired_name.c_str(), ndi_name);
@@ -168,6 +164,13 @@ public:
 	 * width/height go non-zero and we flip back to Active. */
 	bool supports_media_restart() const override { return false; }
 	bool benefits_from_recreate() const override { return false; }
+
+	/* NDI is already a low-latency monitoring protocol; DistroAV's own
+	 * latency_mode setting handles receiver-side buffering. Unbuffered
+	 * display-side = lowest possible monitoring delay, matches what
+	 * users opening a Multiview cell expect from "show me what NDI is
+	 * sending right now". */
+	bool prefers_unbuffered_async(const SignalConfig &) const override { return true; }
 };
 
 static NdiProvider g_ndi_provider;
