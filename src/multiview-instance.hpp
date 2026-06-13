@@ -353,6 +353,28 @@ SignalProviderType signal_provider_from_string(const char *s);
  * providers own a private OBS source and a richer settings object. */
 bool signal_provider_is_internal(SignalProviderType p);
 
+/* Platform support for an external provider.
+ *
+ * Returns false when the provider is fundamentally impossible on the
+ * current OS (e.g. Spout depends on Windows DirectX shared textures,
+ * obs-spout2 ships no macOS / Linux build). Returns true for internal
+ * providers, for cross-platform external providers (FFmpeg, NDI, VLC),
+ * and for the reserved WebRTC slot.
+ *
+ * This is a static, compile-time-resolved check separate from
+ * ISignalProvider::is_available() — it answers "could this OBS install
+ * ever host the provider?" rather than "is the host plugin loaded right
+ * now?". UI surfaces use the platform check to give an accurate reason
+ * ("Windows-only" vs "plugin not installed") and to disable Save in
+ * EditSourceDialog when a config imported from another OS targets a
+ * provider this OS cannot run. */
+bool signal_provider_supported_on_platform(SignalProviderType p);
+
+/* Stable, human-readable reason returned when
+ * signal_provider_supported_on_platform() is false. Empty string when
+ * the provider is supported on the current platform. */
+const char *signal_provider_unsupported_platform_reason(SignalProviderType p);
+
 /* Phase 3 / M6: external provider configuration payload.
  *
  * `provider == Unknown` means "no external config / use legacy CellAssignment

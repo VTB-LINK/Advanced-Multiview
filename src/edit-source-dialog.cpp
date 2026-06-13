@@ -60,24 +60,38 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 	 * the existing config; we just refuse to write a new value through
 	 * an absent provider. */
 	bool provider_available = true;
+	bool provider_platform_supported = true;
 	QString provider_unavailable_reason;
+	QString provider_unavailable_guidance;
 	if (cfg.provider != SignalProviderType::Unknown && !signal_provider_is_internal(cfg.provider)) {
-		const auto *p = SignalProviderRegistry::instance().find(cfg.provider);
-		if (!p || !p->is_available()) {
+		provider_platform_supported = signal_provider_supported_on_platform(cfg.provider);
+		if (!provider_platform_supported) {
 			provider_available = false;
-			if (p) {
-				const std::string r = p->unavailable_reason();
-				provider_unavailable_reason = QString::fromStdString(r);
+			provider_unavailable_reason =
+				QString::fromUtf8(signal_provider_unsupported_platform_reason(cfg.provider));
+			provider_unavailable_guidance = QStringLiteral(
+				"The form below shows the persisted configuration for inspection, but Save is disabled "
+				"because this provider is not supported on the current platform.");
+		} else {
+			const auto *p = SignalProviderRegistry::instance().find(cfg.provider);
+			if (!p || !p->is_available()) {
+				provider_available = false;
+				if (p) {
+					const std::string r = p->unavailable_reason();
+					provider_unavailable_reason = QString::fromStdString(r);
+				}
+				if (provider_unavailable_reason.isEmpty())
+					provider_unavailable_reason =
+						QStringLiteral("Required host plugin not installed.");
+				provider_unavailable_guidance = QStringLiteral(
+					"The form below shows the persisted configuration but Save is disabled until the "
+					"missing host plugin is installed and OBS is restarted.");
 			}
-			if (provider_unavailable_reason.isEmpty())
-				provider_unavailable_reason = QStringLiteral("Required host plugin not installed.");
 		}
 	}
 	if (!provider_available) {
-		auto *banner = new QLabel(QStringLiteral("\u26A0  %1\n\nThe form below shows the persisted "
-							 "configuration but Save is disabled until the missing host "
-							 "plugin is installed and OBS is restarted.")
-						  .arg(provider_unavailable_reason),
+		auto *banner = new QLabel(QStringLiteral("\u26A0  %1\n\n%2")
+						  .arg(provider_unavailable_reason, provider_unavailable_guidance),
 					  this);
 		banner->setWordWrap(true);
 		banner->setStyleSheet(QStringLiteral("color: #FFCC66; padding: 6px; "
@@ -107,6 +121,8 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 		scroll->setFrameShape(QFrame::NoFrame);
 		spout_form_ = new SpoutSenderForm();
 		spout_form_->load_from(cfg);
+		if (!provider_platform_supported)
+			spout_form_->setEnabled(false);
 		scroll->setWidget(spout_form_);
 		root->addWidget(scroll, 1);
 	} else if (cfg.provider == SignalProviderType::Vlc) {

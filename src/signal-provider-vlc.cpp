@@ -62,7 +62,7 @@ constexpr const char *kKeyBehavior = "playback_behavior";
 constexpr const char *kKeyNetworkCaching = "network_caching";
 constexpr const char *kKeyTrack = "track";
 constexpr const char *kKeySubtitleEnable = "subtitle_enable";
-constexpr const char *kKeySubtitleTrack = "subtitle_track";
+constexpr const char *kKeySubtitleTrack = "subtitle";
 
 constexpr const char *kBehaviorStopRestart = "stop_restart";
 

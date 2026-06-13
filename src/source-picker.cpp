@@ -448,9 +448,30 @@ QWidget *SourcePicker::build_spout_tab()
 	const auto &reg = SignalProviderRegistry::instance();
 	const auto *p = reg.find(SignalProviderType::Spout);
 	if (!p || !p->is_available()) {
-		auto *body = new QLabel(QStringLiteral("obs-spout2 plugin is not installed in this OBS. Install "
-						       "obs-spout2 and restart OBS to enable this tab."),
-					page);
+		/* Two distinct unavailable cases share this branch:
+		 *   - macOS / Linux: Spout is Windows-only (no obs-spout2
+		 *     build exists), so we surface that as a permanent state
+		 *     rather than a "please install" prompt the user can
+		 *     never act on.
+		 *   - Windows without obs-spout2: temporary, user can
+		 *     install + restart OBS.
+		 * Both paths come from the provider's own unavailable_reason
+		 * so the UI text stays in sync with multiview-window-status
+		 * and edit-source-dialog without per-call duplication. */
+		QString reason;
+		if (p) {
+			const std::string r = p->unavailable_reason();
+			reason = QString::fromStdString(r);
+		}
+		if (reason.isEmpty()) {
+			if (!signal_provider_supported_on_platform(SignalProviderType::Spout))
+				reason = QString::fromUtf8(
+					signal_provider_unsupported_platform_reason(SignalProviderType::Spout));
+			else
+				reason = QStringLiteral("obs-spout2 plugin is not installed in this OBS. Install "
+							"obs-spout2 and restart OBS to enable this tab.");
+		}
+		auto *body = new QLabel(reason, page);
 		body->setWordWrap(true);
 		layout->addWidget(body);
 		layout->addStretch(1);

@@ -61,13 +61,10 @@ constexpr const char *kKeyTickSpeedLimit = "tickspeedlimit";
  * sender is registered first". */
 constexpr const char *kUseFirstAvailableSender = "usefirstavailablesender";
 
-/* Composite mode integers from win-spout-source.cpp's #defines.
- * Only kCompositeModeDefault is currently referenced; the others are
- * retained as documentation of the obs-spout2 API surface. */
-[[maybe_unused]] constexpr int kCompositeModeOpaque = 1;
-[[maybe_unused]] constexpr int kCompositeModeAlpha = 2;
+/* Composite mode integer from win-spout-source.cpp's #defines. The full
+ * enum (Opaque=1, Alpha=2, Default=3, Premultiplied=4) lives in
+ * provider-settings-forms-spout.cpp where the UI exposes the choices. */
 constexpr int kCompositeModeDefault = 3;
-[[maybe_unused]] constexpr int kCompositeModePremultiplied = 4;
 
 /* Forward declarations: spout_discovery_scan and its 1Hz cache live
  * below the SpoutProvider class but the class needs them for
@@ -81,12 +78,19 @@ public:
 	const char *id() const override { return signal_provider_to_string(type()); }
 	const char *display_name() const override { return "Spout (obs-spout2)"; }
 
-	bool is_available() const override { return obs_source_get_display_name(kSpoutSourceId) != nullptr; }
+	bool is_available() const override
+	{
+		if (!signal_provider_supported_on_platform(SignalProviderType::Spout))
+			return false;
+		return obs_source_get_display_name(kSpoutSourceId) != nullptr;
+	}
 
 	std::string unavailable_reason() const override
 	{
 		if (is_available())
 			return std::string();
+		if (!signal_provider_supported_on_platform(SignalProviderType::Spout))
+			return signal_provider_unsupported_platform_reason(SignalProviderType::Spout);
 		return "obs-spout2 plugin not installed (Windows-only Spout receiver).";
 	}
 
@@ -347,6 +351,8 @@ void register_spout_provider()
 
 std::vector<std::string> signal_provider_spout_discover_senders()
 {
+	if (!signal_provider_supported_on_platform(SignalProviderType::Spout))
+		return {};
 	return spout_discovery_scan();
 }
 

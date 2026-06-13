@@ -1243,6 +1243,40 @@ bool signal_provider_is_internal(SignalProviderType p)
 	}
 }
 
+bool signal_provider_supported_on_platform(SignalProviderType p)
+{
+	switch (p) {
+	case SignalProviderType::Spout:
+		/* obs-spout2 is built on Windows-only DirectX shared
+		 * textures and Off-World-Live ships no macOS / Linux
+		 * build. Hard-gate on _WIN32 so non-Windows OBS never
+		 * tries to construct a spout_capture private source. */
+#if defined(_WIN32)
+		return true;
+#else
+		return false;
+#endif
+	default:
+		/* Internal providers, FFmpeg (built into libobs), NDI
+		 * (DistroAV ships universal), VLC (vlc-video bundled with
+		 * official builds), and the reserved WebRTC slot are all
+		 * cross-platform. */
+		return true;
+	}
+}
+
+const char *signal_provider_unsupported_platform_reason(SignalProviderType p)
+{
+	if (signal_provider_supported_on_platform(p))
+		return "";
+	switch (p) {
+	case SignalProviderType::Spout:
+		return "Spout is a Windows-only protocol (DirectX shared textures); obs-spout2 has no macOS or Linux build.";
+	default:
+		return "This provider is not supported on the current platform.";
+	}
+}
+
 /* ---------- SignalConfig ---------- */
 
 /* OBS does not expose a deep-copy API for obs_data_t, so we round-trip

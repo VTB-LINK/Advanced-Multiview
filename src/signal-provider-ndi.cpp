@@ -38,20 +38,18 @@ namespace {
 
 constexpr const char *kNdiSourceId = "ndi_source";
 
-/* DistroAV setting keys, mirrored verbatim from DistroAV's ndi-source.cpp
- * so the user can hand-edit settings.json and have it work the same way. */
+/* DistroAV setting keys used by the runtime provider. The full UI parity
+ * key set lives in provider-settings-forms-ndi.cpp; keep this list to the
+ * keys we actively read or re-assert when creating the private source. */
 constexpr const char *kKeySourceName = "ndi_source_name";
 constexpr const char *kKeyBehavior = "ndi_behavior";
 constexpr const char *kKeyBehaviorTimeout = "ndi_behavior_timeout";
 constexpr const char *kKeyBandwidth = "ndi_bw_mode";
 constexpr const char *kKeySync = "ndi_sync";
-constexpr const char *kKeyFramesync = "ndi_framesync";
-constexpr const char *kKeyHwAccel = "ndi_recv_hw_accel";
-constexpr const char *kKeyFixAlpha = "ndi_fix_alpha_blending";
-constexpr const char *kKeyYuvRange = "yuv_range";
-constexpr const char *kKeyYuvColorspace = "yuv_colorspace";
 constexpr const char *kKeyLatency = "latency";
 constexpr const char *kKeyAudio = "ndi_audio";
+
+constexpr int kBehaviorKeepActive = 0;
 
 class NdiProvider : public ISignalProvider {
 public:
@@ -107,6 +105,8 @@ public:
 			obs_data_set_int(settings, kKeyLatency, 0); /* Normal */
 		if (!obs_data_has_user_value(settings, kKeyAudio))
 			obs_data_set_bool(settings, kKeyAudio, true);
+		if (!obs_data_has_user_value(settings, kKeyBehavior))
+			obs_data_set_int(settings, kKeyBehavior, kBehaviorKeepActive);
 
 		/* Phase 3 / M6.2 fix: hard-lock ndi_behavior_timeout to
 		 * PROP_TIMEOUT_CLEAR_CONTENT (= 0) so the source reports
@@ -187,7 +187,6 @@ static NdiProvider g_ndi_provider;
  *   lifetime puzzle entirely; the source itself is dormant
  *   (no inc_active / inc_showing) so it spends no CPU. */
 
-static std::once_flag g_probe_init_once;
 static obs_source_t *g_discovery_probe = nullptr;
 static std::mutex g_discovery_mutex;
 
