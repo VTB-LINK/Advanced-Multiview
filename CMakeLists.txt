@@ -66,6 +66,7 @@ target_sources(
           src/signal-provider-ffmpeg.cpp
           src/signal-provider-ndi.cpp
           src/signal-provider-spout.cpp
+          src/signal-provider-vlc.cpp
           src/provider-settings-forms.hpp
           src/provider-settings-forms.cpp
           src/edit-source-dialog.hpp

@@ -2443,6 +2443,10 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			 * to flip to Lost. The cooldown still throttles abuse. */
 			bool canReconnect = false;
 			bool isExternalLocalFile = false;
+			bool isVlcCell = false;
+			bool isFfmpegLocalFileCell = false;
+			OBSSource vlcSourceSnapshot;
+			OBSSource ffmpegLocalSourceSnapshot;
 			{
 				std::lock_guard<std::recursive_mutex> lock(source_mutex_);
 				if (cellIndex < (int)cell_sources_.size()) {
@@ -2464,13 +2468,81 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 							obs_data_release(cur);
 						}
 					}
+
+					if (cs.provider_type == SignalProviderType::Vlc) {
+						isVlcCell = true;
+						/* Snapshot the source under the lock so the
+						 * media_* calls below can run without holding
+						 * source_mutex_ (those calls go through libVLC
+						 * and we don't want lock inversion). */
+						vlcSourceSnapshot = cs.private_source;
+					}
+
+					/* Phase 3 / M6.4: FFmpeg local-file cells get a
+					 * Play/Pause action too. Network streams (RTMP/HLS/
+					 * SRT/...) deliberately don't \u2014 ffmpeg_source's
+					 * pause behavior on a live network stream is
+					 * effectively "stall the decoder, then race a
+					 * reconnect when unpaused", which produces a
+					 * confusing UX (cell freezes for a while, then
+					 * jumps to whatever the stream is doing now).
+					 * Replay Now still covers the use case of kicking
+					 * a stuck network stream. */
+					if (cs.provider_type == SignalProviderType::Ffmpeg && isExternalLocalFile) {
+						isFfmpegLocalFileCell = true;
+						ffmpegLocalSourceSnapshot = cs.private_source;
+					}
 				}
 			}
-			QAction *reconnectAction = menu.addAction(
-				isExternalLocalFile ? QStringLiteral("Replay Now") : QStringLiteral("Reconnect Now"));
+			/* VLC has no "connection" to re-establish either \u2014 the
+			 * action restarts the current playlist entry via
+			 * obs_source_media_restart, semantically identical to a
+			 * local-file FFmpeg replay. */
+			const bool useReplayLabel = isExternalLocalFile || isVlcCell;
+			QAction *reconnectAction = menu.addAction(useReplayLabel ? QStringLiteral("Replay Now")
+										 : QStringLiteral("Reconnect Now"));
 			reconnectAction->setEnabled(canReconnect);
 			connect(reconnectAction, &QAction::triggered, this,
 				[this, cellIndex]() { (void)force_reconnect_cell(cellIndex); });
+
+			/* Phase 3 / M6.4 playlist navigation: VLC is the only
+			 * provider that exposes a real playlist (FFmpeg is one
+			 * file/URL; NDI/Spout have no playlist concept). Wire
+			 * Previous / Play-Pause / Next directly to
+			 * obs_source_media_* which vlc_source registers via
+			 * media_previous / media_play_pause / media_next. */
+			if (isVlcCell && vlcSourceSnapshot) {
+				QAction *prevAction = menu.addAction(QStringLiteral("Previous"));
+				QAction *playPauseAction = menu.addAction(QStringLiteral("Play / Pause"));
+				QAction *nextAction = menu.addAction(QStringLiteral("Next"));
+				const obs_media_state st = obs_source_media_get_state(vlcSourceSnapshot);
+				const bool currentlyPlaying = (st == OBS_MEDIA_STATE_PLAYING);
+				connect(prevAction, &QAction::triggered, this, [src = vlcSourceSnapshot]() {
+					if (src)
+						obs_source_media_previous(src);
+				});
+				connect(playPauseAction, &QAction::triggered, this,
+					[src = vlcSourceSnapshot, wasPlaying = currentlyPlaying]() {
+						if (src)
+							obs_source_media_play_pause(src, wasPlaying);
+					});
+				connect(nextAction, &QAction::triggered, this, [src = vlcSourceSnapshot]() {
+					if (src)
+						obs_source_media_next(src);
+				});
+			} else if (isFfmpegLocalFileCell && ffmpegLocalSourceSnapshot) {
+				/* FFmpeg has no playlist, so only Play/Pause is
+				 * meaningful (and only on local files \u2014 see the
+				 * snapshot site for why network streams skip this). */
+				QAction *playPauseAction = menu.addAction(QStringLiteral("Play / Pause"));
+				const obs_media_state st = obs_source_media_get_state(ffmpegLocalSourceSnapshot);
+				const bool currentlyPlaying = (st == OBS_MEDIA_STATE_PLAYING);
+				connect(playPauseAction, &QAction::triggered, this,
+					[src = ffmpegLocalSourceSnapshot, wasPlaying = currentlyPlaying]() {
+						if (src)
+							obs_source_media_play_pause(src, wasPlaying);
+					});
+			}
 		} else {
 			QAction *addAction = menu.addAction(QStringLiteral("Add Source..."));
 			connect(addAction, &QAction::triggered, this,

@@ -109,6 +109,14 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 		spout_form_->load_from(cfg);
 		scroll->setWidget(spout_form_);
 		root->addWidget(scroll, 1);
+	} else if (cfg.provider == SignalProviderType::Vlc) {
+		auto *scroll = new QScrollArea(this);
+		scroll->setWidgetResizable(true);
+		scroll->setFrameShape(QFrame::NoFrame);
+		vlc_form_ = new VlcMediaForm();
+		vlc_form_->load_from(cfg);
+		scroll->setWidget(vlc_form_);
+		root->addWidget(scroll, 1);
 	} else {
 		/* Other external providers don't have an editor yet; their
 		 * own milestones (M6.3 Spout, M6.4 VLC) will add sibling
@@ -123,7 +131,7 @@ EditSourceDialog::EditSourceDialog(const SignalConfig &cfg, QWidget *parent) : Q
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
 	if ((cfg.provider != SignalProviderType::Ffmpeg && cfg.provider != SignalProviderType::Ndi &&
-	     cfg.provider != SignalProviderType::Spout) ||
+	     cfg.provider != SignalProviderType::Spout && cfg.provider != SignalProviderType::Vlc) ||
 	    !provider_available) {
 		/* No editable form for unsupported providers yet, OR the cell's
 		 * provider is missing in this OBS install. Either way disable
@@ -158,6 +166,12 @@ void EditSourceDialog::on_accept()
 						 spout_form_->invalid_reason());
 			return;
 		}
+	} else if (provider_ == SignalProviderType::Vlc && vlc_form_) {
+		if (!vlc_form_->is_valid()) {
+			QMessageBox::information(this, QStringLiteral("Playlist required"),
+						 vlc_form_->invalid_reason());
+			return;
+		}
 	}
 	accept();
 }
@@ -170,5 +184,7 @@ SignalConfig EditSourceDialog::signal_config() const
 		return ndi_form_->to_signal_config();
 	if (provider_ == SignalProviderType::Spout && spout_form_)
 		return spout_form_->to_signal_config();
+	if (provider_ == SignalProviderType::Vlc && vlc_form_)
+		return vlc_form_->to_signal_config();
 	return SignalConfig();
 }

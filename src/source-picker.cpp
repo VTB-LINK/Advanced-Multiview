@@ -77,15 +77,17 @@ SourcePicker::SourcePicker(QWidget *parent) : QDialog(parent)
 	spout_tab_ = build_spout_tab();
 	tabs_->addTab(spout_tab_, QStringLiteral("Spout"));
 
-	vlc_tab_ = build_external_placeholder(SignalProviderType::Vlc, "M6.4 (optional)",
-					      "Network media via OBS's built-in VLC video source. Optional second "
-					      "media provider for users who prefer VLC's protocol coverage.");
+	vlc_tab_ = build_vlc_tab();
 	tabs_->addTab(vlc_tab_, QStringLiteral("VLC"));
 
-	webrtc_tab_ =
-		build_external_placeholder(SignalProviderType::WebRtcReserved, "Reserved",
-					   "WebRTC ingest is reserved for a future Phase. The transport, "
-					   "signaling, and codec strategy will be confirmed before any UI lands here.");
+	webrtc_tab_ = build_external_placeholder(
+		SignalProviderType::WebRtcReserved, "Reserved",
+		"WebRTC ingest is reserved for a future milestone (post-M6). Open questions still "
+		"under design: transport (WHIP / WHEP / proprietary), signaling channel, authentication "
+		"and ICE configuration, codec preference (H.264 / VP8 / VP9 / AV1), and threading model "
+		"for the receiver pipeline. Documented in docs/known-limitations.md. The persistence "
+		"enum and SourcePicker placeholder are reserved so existing presets remain forward-"
+		"compatible when WebRTC runtime is added.");
 	tabs_->addTab(webrtc_tab_, QStringLiteral("WebRTC"));
 
 	/* Buttons */
@@ -232,6 +234,19 @@ void SourcePicker::on_accept()
 		}
 		result_ = CellAssignment{};
 		result_.signalConfig = spout_form_->to_signal_config();
+		accept();
+		return;
+	} else if (tabs_->widget(idx) == vlc_tab_) {
+		/* Phase 3 / M6.4: VLC tab. Form yields a SignalConfig with
+		 * provider=Vlc and providerSettings carrying playlist +
+		 * loop / shuffle / behavior / network_caching / track. */
+		if (!vlc_form_ || !vlc_form_->is_valid()) {
+			QMessageBox::information(this, QStringLiteral("Playlist required"),
+						 vlc_form_ ? vlc_form_->invalid_reason() : QString());
+			return;
+		}
+		result_ = CellAssignment{};
+		result_.signalConfig = vlc_form_->to_signal_config();
 		accept();
 		return;
 	} else {
@@ -458,6 +473,61 @@ QWidget *SourcePicker::build_spout_tab()
 	layout->addWidget(scroll, 1);
 
 	auto *availLabel = new QLabel(QStringLiteral("Provider available (obs-spout2 spout_capture)."), page);
+	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
+	layout->addWidget(availLabel);
+
+	return page;
+}
+
+QWidget *SourcePicker::build_vlc_tab()
+{
+	auto *page = new QWidget(this);
+	auto *layout = new QVBoxLayout(page);
+	layout->setContentsMargins(12, 12, 12, 12);
+	layout->setSpacing(10);
+
+	auto *heading = new QLabel(QStringLiteral("VLC media source"), page);
+	{
+		QFont f = heading->font();
+		f.setBold(true);
+		heading->setFont(f);
+	}
+	layout->addWidget(heading);
+
+	const auto &reg = SignalProviderRegistry::instance();
+	const auto *p = reg.find(SignalProviderType::Vlc);
+	if (!p || !p->is_available()) {
+		/* vlc-video is a conditionally built plugin: some OBS
+		 * installs (especially custom / minimal builds) ship without
+		 * it. Surface that as a clear gate rather than letting the
+		 * user fill a playlist that can never be created. */
+		auto *body = new QLabel(QStringLiteral("OBS's built-in VLC source (vlc_source) is not registered "
+						       "in this install. This usually means OBS was packaged without "
+						       "libVLC support. Install an OBS build that bundles vlc-video "
+						       "(most official Windows / macOS builds do) and restart OBS."),
+					page);
+		body->setWordWrap(true);
+		layout->addWidget(body);
+		layout->addStretch(1);
+		return page;
+	}
+
+	auto *body = new QLabel(QStringLiteral(
+					"Cell hosts a private vlc_source created only for this Multiview. Add local "
+					"files and/or stream URLs (RTMP, HLS, SRT, http(s), rtsp, etc.). libVLC plays "
+					"entries in order; with Loop on, the playlist restarts when it ends."),
+				page);
+	body->setWordWrap(true);
+	layout->addWidget(body);
+
+	auto *scroll = new QScrollArea(page);
+	scroll->setWidgetResizable(true);
+	scroll->setFrameShape(QFrame::NoFrame);
+	vlc_form_ = new VlcMediaForm();
+	scroll->setWidget(vlc_form_);
+	layout->addWidget(scroll, 1);
+
+	auto *availLabel = new QLabel(QStringLiteral("Provider available (OBS built-in vlc_source)."), page);
 	availLabel->setStyleSheet(QStringLiteral("color: #888;"));
 	layout->addWidget(availLabel);
 

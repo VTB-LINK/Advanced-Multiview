@@ -21,6 +21,7 @@ License: GPL-2.0-or-later
 class FfmpegMediaForm;
 class NdiSourceForm;
 class SpoutSenderForm;
+class VlcMediaForm;
 
 class EditSourceDialog : public QDialog {
 	Q_OBJECT
@@ -43,4 +44,5 @@ private:
 	FfmpegMediaForm *ffmpeg_form_ = nullptr;
 	NdiSourceForm *ndi_form_ = nullptr;
 	SpoutSenderForm *spout_form_ = nullptr;
+	VlcMediaForm *vlc_form_ = nullptr;
 };

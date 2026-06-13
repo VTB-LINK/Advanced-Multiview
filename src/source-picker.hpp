@@ -31,6 +31,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 class FfmpegMediaForm;
 class NdiSourceForm;
 class SpoutSenderForm;
+class VlcMediaForm;
 
 class SourcePicker : public QDialog {
 	Q_OBJECT
@@ -76,6 +77,11 @@ private:
 	 * CellAssignment with provider=Spout. */
 	QWidget *build_spout_tab();
 
+	/* Phase 3 / M6.4: real VLC tab — playlist editor (files + URLs) +
+	 * loop / shuffle / behavior / network_caching / track. Returns a
+	 * CellAssignment with provider=Vlc. */
+	QWidget *build_vlc_tab();
+
 	QTabWidget *tabs_;
 	QLineEdit *filter_edit_;
 	QListWidget *special_list_;
@@ -105,6 +111,9 @@ private:
 
 	/* Phase 3 / M6.3: Spout form. Owned by the Spout tab page. */
 	SpoutSenderForm *spout_form_ = nullptr;
+
+	/* Phase 3 / M6.4: VLC form. Owned by the VLC tab page. */
+	VlcMediaForm *vlc_form_ = nullptr;
 
 	CellAssignment result_;
 };

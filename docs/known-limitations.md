@@ -26,9 +26,16 @@
 
 ## 外部信号（Phase 3 / M6）
 
-- **NDI / Spout 直连**：尚未实现，需后续阶段通过动态调用宿主 obs-ndi / obs-spout2 插件完成。
-- **RTMP / HLS / FLV / SRT 拉流**：尚未实现。
-- **WebRTC 接入**：尚未实现。
+- **NDI / Spout 直连**：~~尚未实现~~ **已完成**（M6.2 / M6.3）：通过动态调用宿主 DistroAV (`ndi_source`) / obs-spout2 (`spout_capture`) 完成；不链接 SDK。
+- **RTMP / HLS / FLV / SRT 拉流**：~~尚未实现~~ **已完成**（M6.1）：复用 OBS 内置 `ffmpeg_source` private source。VLC 二级 provider 见 M6.4。
+- **VLC 二级 media provider**：**已完成**（M6.4）：复用 OBS 内置 `vlc_source` private source；当 OBS 构建时未带 libVLC 则 tab 自动 gate。
+- **WebRTC 接入**：保留 enum + SourcePicker placeholder，runtime 不在 M6 实现。开放设计问题：
+  - **传输与信令**：WHIP / WHEP / 自研协议 / 复用 obs-webrtc（如果未来 OBS Studio 内置）；信令通道（HTTP、WebSocket、SIP）。
+  - **认证与 ICE 配置**：bearer token / OAuth / 自定义 header；STUN / TURN 服务器配置入口。
+  - **编解码偏好**：H.264 / VP8 / VP9 / AV1；硬件解码是否需要与 OBS 主输出共享 GPU 资源。
+  - **线程模型**：接收循环线程归属，与现有 supervisor 1Hz health-check 的协调。
+  - **延迟与备播策略**：是否复用 NDI/Spout 的 discovery-driven SIGNAL LOST 语义，或需要 WebRTC 专属 reconnect timing。
+  - **音频路径**：是否复用 rebuild_volmeters 既有外部 cell 通路；多通道 / opus 转译策略。
 - ~~**Signal Lost / 断流策略**：重试、备播、彩条等断开行为尚未实现（属 Phase 3 / M5）。~~ **M5 内部源部分已完成**（[docs/phase-3-acceptance-checklist.md](docs/phase-3-acceptance-checklist.md)）：Black / PlaceholderImage / ClearCell + Fallback (PGM/PRVW/Scene/Source/Image) + Reconnect Now + 动态生效。**外部源**（NDI/Spout/FFmpeg/VLC）的 SignalLost / RetryWithFallback / Reconnecting overlay 留给 M6。
 
 ## Signal Lost / Phase 3 / M5 范围内的边界

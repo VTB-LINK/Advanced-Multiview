@@ -229,3 +229,42 @@ private:
  * sorted and deduped, excluding the synthetic "first-available" token.
  * Empty when obs-spout2 is not installed. */
 std::vector<std::string> signal_provider_spout_discover_senders();
+
+/* Form for the OBS built-in vlc_source provider (Phase 3 / M6.4).
+ *
+ * VLC has no discovery surface (playlist entries are user-supplied
+ * paths/URLs), so the form is a simple playlist editor + a handful of
+ * playback knobs that mirror what OBS's own VLC source dialog
+ * exposes: loop, behavior (stop_restart / pause_unpause /
+ * always_play), network_caching, audio track index.
+ *
+ * Persisted JSON shape is identical to OBS's vlc_source so the
+ * resulting providerSettings could in principle be moved into a real
+ * OBS scene without translation. */
+class VlcMediaForm : public QWidget {
+	Q_OBJECT
+public:
+	explicit VlcMediaForm(QWidget *parent = nullptr);
+
+	void load_from(const SignalConfig &cfg);
+	SignalConfig to_signal_config() const;
+	bool is_valid() const;
+	QString invalid_reason() const;
+
+private:
+	/* Each playlist row's text() is the path/URL; we don't store a
+	 * separate UserRole copy because the form has no "selected"
+	 * semantics across edits (the whole list is the value). */
+	QListWidget *playlist_list_ = nullptr;
+	QPushButton *btn_add_file_ = nullptr;
+	QPushButton *btn_add_files_ = nullptr;
+	QPushButton *btn_add_url_ = nullptr;
+	QPushButton *btn_remove_ = nullptr;
+	QPushButton *btn_clear_ = nullptr;
+
+	QCheckBox *chk_loop_ = nullptr;
+	QCheckBox *chk_shuffle_ = nullptr;
+	QComboBox *cmb_behavior_ = nullptr;
+	QSpinBox *spin_network_caching_ = nullptr;
+	QSpinBox *spin_track_ = nullptr;
+};
