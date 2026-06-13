@@ -27,7 +27,7 @@
 | M4 / Phase 2 | 主体功能已完成 | Label、Background、SafeArea、Overlay、VU Meter、PGM/PRVW Highlight、三层 Visual Settings、动态生效；详见 [docs/phase-2-visual-settings-design.md](docs/phase-2-visual-settings-design.md) 与 [docs/phase-2-hardening-notes.md](docs/phase-2-hardening-notes.md) |
 | Phase 2.5（M4 收尾 / Phase 3 准备） | 已完成 | 文档重基线、验收清单、术语统一、VU meter polish 设计/实现均已完成；不是新的全局 Milestone，仅收尾窗口 |
 | M5 / Phase 3 上半段 | 功能完成 | Signal Lost 完整运行时（Black / PlaceholderImage / ClearCell）+ Fallback (PGM/PRVW/Scene/Source/Image) + Reconnect Now + 动态生效；详见 [docs/phase-3-acceptance-checklist.md](docs/phase-3-acceptance-checklist.md) |
-| M6 / Phase 3 下半段 | 未开始 | 外部流接入：DistroAV NDI、obs-spout2 Spout、FFmpeg、VLC |
+| M6 / Phase 3 下半段 | 功能完成 | 外部流接入：DistroAV NDI · obs-spout2 Spout · FFmpeg · VLC；WebRTC 预留占位。外部 cell 全路纱已进入 retry-with-fallback / sticky overlay / paused / play·pause·next·previous 右键流。详见 [docs/phase-3-acceptance-checklist.md](docs/phase-3-acceptance-checklist.md) M6 章节 |
 | M7 / M8 / Phase 4 | 未开始 | 打包/安装版/便携版、性能稳定性回归 |
 
 ---
@@ -791,7 +791,7 @@ Phase 2.5 明确不做：
 
 ## 9. Milestone 6：外部流接入
 
-状态：**未开始**。详细设计基准见 [docs/phase-3-signal-lost-and-external-sources-design.md](docs/phase-3-signal-lost-and-external-sources-design.md) §8，执行级拆分写入 [docs/phase-3-acceptance-checklist.md](docs/phase-3-acceptance-checklist.md) 的 M6 章节。
+状态：**功能完成**。详细设计基准见 [docs/phase-3-signal-lost-and-external-sources-design.md](docs/phase-3-signal-lost-and-external-sources-design.md) §8，执行级验收清单见 [docs/phase-3-acceptance-checklist.md](docs/phase-3-acceptance-checklist.md) M6 章节。
 
 PRD 与已确认策略方向：
 
@@ -804,13 +804,13 @@ PRD 与已确认策略方向：
 
 M6 子任务编号（与 design doc §14 对齐）：
 
-- M6.0：Provider registry + source type availability detection（含 VU `Auto` / `ExternalSource` 三层语义升级）。
-- M6.1：FFmpeg media provider（`ffmpeg_source`，第一个外部 vertical slice）。
-- M6.2：DistroAV NDI provider（`ndi_source`），**列表发现必做**：SourcePicker 打开自动扫一次 + 手动 Refresh；不做后台轮询；手动输入是 fallback。
-- M6.3：Spout provider（`spout_capture`），**列表发现必做**：策略与 NDI 一致；Spout 无音频按 silence 处理（不进 Lost / 不刷日志）。
-- M6.4：VLC provider（`vlc_source`），可选。
-- M6.5：WebRTC reserved placeholder（disabled UI + enum/config 占位）。
-- M6.6：Phase 3 综合硬化 + 验收 + 跨版本回归（31.1.1 smoke / 32.0 smoke / 32.1.2 full）。
+- ✅ M6.0：Provider registry + source type availability detection（含 VU `Auto` / `ExternalSource` 三层语义升级）。
+- ✅ M6.1：FFmpeg media provider（`ffmpeg_source`，第一个外部 vertical slice）。
+- ✅ M6.2：DistroAV NDI provider（`ndi_source`），**列表发现必做**：SourcePicker 打开自动扫一次 + 手动 Refresh；不做后台轮询；手动输入是 fallback。
+- ✅ M6.3：Spout provider（`spout_capture`），**列表发现必做**：策略与 NDI 一致；Spout 无音频按 silence 处理（不进 Lost / 不刷日志）。
+- ✅ M6.4：VLC provider（`vlc_source`）。Playlist 编辑（add file / files / URL / Edit / drag-reorder）+ Loop / Shuffle / Behavior / Network caching / Audio track；右键 Replay / Previous / Play·Pause / Next。
+- ✅ M6.5：WebRTC reserved placeholder（SourcePicker tab 占位 + enum/config 保留）。
+- ✅ M6.6：Phase 3 综合硬化：external cell lifecycle（sticky fallback latch · retry-on-all-behaviors · 避免 Active 闪烁 · image fallback during FallbackActive · row-wise pillarbox snap · instance-prefixed log · Paused state）；M5 外部 cell fallback 接通；外部 VU 与 trackMode 正交。
 
 VU meter 三层设置在 M6.0 升级（已确认）：
 
