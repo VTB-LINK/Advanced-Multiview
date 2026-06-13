@@ -1801,14 +1801,55 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				vrY = contentY;
 			}
 
-			/* Snap to fill: if letterbox/pillarbox is tiny (<=8px total),
-			 * skip it and stretch to fill content area (like OBS native). */
-			constexpr int SNAP_THRESHOLD = 8;
+			/* Snap to fill: if letterbox/pillarbox is tiny (<=16px total),
+			 * skip it and stretch to fill content area (like OBS native).
+			 *
+			 * Why 16: layout-engine integer-divides the window width by
+			 * the column count, so neighboring cells in the same row can
+			 * differ in width by 1 px (e.g. 591 vs 592 for a 9-col grid).
+			 * That 1 px ripples through the aspect math: a 16:9 source
+			 * (1.7778) inside cell.h=328 needs vrW=583, leaving residual
+			 * 8 in the 591 cell and 9 in the 592 cell. With the original
+			 * threshold of 8, the 591 cell snapped (no pillarbox) while
+			 * the 592 cell pillarboxed \u2014 visible row-wise inconsistency.
+			 *
+			 * 16 covers the worst-case grid rounding (a few px per cell)
+			 * plus a small invisible-stretch margin (~2.7% on a 600 px
+			 * cell), and stays well below any genuine aspect mismatch
+			 * (4:3 source in 16:9 cell residuals are in the 100s of px). */
+			constexpr int SNAP_THRESHOLD = 16;
+			bool snapped = false;
 			if ((contentW - vrW) <= SNAP_THRESHOLD && (contentH - vrH) <= SNAP_THRESHOLD) {
 				vrX = contentX;
 				vrY = contentY;
 				vrW = contentW;
 				vrH = contentH;
+				snapped = true;
+			}
+
+			/* Phase 3 / M6.6 fill diagnostic: emit one [fill] line per
+			 * unique (provider, srcW, srcH, cellW, cellH) tuple. Lets
+			 * us correlate visible pillarbox / letterbox surprises with
+			 * the actual numbers the renderer is consuming, including
+			 * cases where the source advertises non-canvas dimensions
+			 * (NDI Output Scaled resolution, HLS variant playlists,
+			 * etc.). One-shot per tuple keeps log volume bounded even
+			 * when the window is resized live. */
+			if (i < (int)cell_sources_.size() &&
+			    cell_sources_[i].provider_type != SignalProviderType::Unknown &&
+			    !signal_provider_is_internal(cell_sources_[i].provider_type)) {
+				const uint64_t h = ((uint64_t)srcW << 48) ^ ((uint64_t)srcH << 32) ^
+						   ((uint64_t)(uint32_t)cell.w << 16) ^ (uint64_t)(uint32_t)cell.h;
+				if (cell_sources_[i].fill_log_hash != h) {
+					cell_sources_[i].fill_log_hash = h;
+					obs_log(LOG_INFO,
+						"[fill] cell (%d,%d) provider=%s src=%ux%u (%.4f) cell=%dx%d "
+						"content=%dx%d (%.4f) vr=%dx%d snap=%s",
+						cell.gridRow, cell.gridCol,
+						signal_provider_to_string(cell_sources_[i].provider_type), srcW, srcH,
+						srcAspect, cell.w, cell.h, contentW, contentH, contentAspect, vrW, vrH,
+						snapped ? "yes" : "no");
+				}
 			}
 
 			hasSignalRect = true;

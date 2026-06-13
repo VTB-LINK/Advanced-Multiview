@@ -317,6 +317,14 @@ private:
 		uint64_t render_skipped_no_src = 0;
 		uint64_t render_skipped_zero_dim = 0;
 		uint64_t last_perf_log_ns = 0;
+
+		/* Phase 3 / M6.6 fill diag: one-shot log per (cell, source-dim,
+		 * cell-dim) combination so we can diagnose pillarbox /
+		 * letterbox surprises without spamming the OBS log. The hash
+		 * mixes srcW / srcH / cellW / cellH so resizing the window
+		 * or the source switching resolution emits exactly one fresh
+		 * line. */
+		uint64_t fill_log_hash = 0;
 	};
 	std::vector<CellSource> cell_sources_;
 	std::recursive_mutex source_mutex_;
