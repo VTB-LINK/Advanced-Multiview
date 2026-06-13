@@ -208,10 +208,9 @@ void SignalLostSettingsDialog::build_ui()
 	connect(cmb_internal_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		[this](int) { update_enabled_state(); });
 
-	/* External source lost group. Reserved scaffolding for M6, but
-	 * persisted now so users can prepare configurations ahead of provider
-	 * landing. */
-	auto *grp_external = new QGroupBox(QStringLiteral("External source lost (Phase 3 / M6)"), this);
+	/* External source lost group. Provider-backed cells (FFmpeg / NDI / Spout
+	 * / VLC) use this branch when the private source is alive but unhealthy. */
+	auto *grp_external = new QGroupBox(QStringLiteral("External source lost"), this);
 	auto *form_external = new QFormLayout(grp_external);
 	cmb_external_behavior_ = new QComboBox(grp_external);
 	cmb_external_behavior_->addItem(QStringLiteral("Signal Lost overlay"));
