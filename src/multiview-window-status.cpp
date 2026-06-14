@@ -256,7 +256,7 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 	if (cs.pending_clear)
 		return;
 
-	const StatusOverlayKind kind = cs.audio_only
+	const StatusOverlayKind kind = (cs.audio_only && cs.state == SignalRuntimeState::Active)
 					       ? StatusOverlayKind::AudioOnly
 					       : status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
 	if (kind == StatusOverlayKind::None)
@@ -272,12 +272,12 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 	switch (kind) {
 	case StatusOverlayKind::MissingSource:
 		text = "MISSING SOURCE";
-		bandColor = 0xC0202020;
+		bandColor = 0xC0601020; /* same red family as SIGNAL LOST */
 		entry = &status_missing_source_;
 		break;
 	case StatusOverlayKind::MissingScene:
 		text = "MISSING SCENE";
-		bandColor = 0xC0202020;
+		bandColor = 0xC0601020;
 		entry = &status_missing_scene_;
 		break;
 	case StatusOverlayKind::Fallback:

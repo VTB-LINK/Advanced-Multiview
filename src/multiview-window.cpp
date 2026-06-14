@@ -1690,6 +1690,8 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 				/* scene/source: use cached ref, or lazy re-resolve */
 				if (cs.weak_ref)
 					srcHolder = OBSGetStrongRef(cs.weak_ref);
+				if (!srcHolder)
+					cell_sources_[i].audio_only = false;
 				if (!srcHolder && !cs.name.empty() && re_resolve_counter_ == 0) {
 					/* Source may have been re-added (undo) - throttled */
 					obs_source_t *resolved = obs_get_source_by_name(cs.name.c_str());
@@ -1993,6 +1995,8 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 			} else if (src) {
 				newState = SignalRuntimeState::Active;
 			} else {
+				if (cs.type == "source")
+					cell_sources_[i].audio_only = false;
 				newState = SignalRuntimeState::MissingInternal;
 			}
 			if (newState != cs.state) {
