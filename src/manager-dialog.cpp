@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "manager-dialog.hpp"
 #include "amv-logging.hpp"
+#include "amv-i18n.hpp"
 #include "cell-display-settings-dialog.hpp"
 #include "signal-lost-settings-dialog.hpp"
 #include "grid-preview-widget.hpp"
@@ -119,7 +120,7 @@ static QIcon make_open_icon()
 
 ManagerDialog::ManagerDialog(ConfigManager *config, QWidget *parent) : QDialog(parent), config_(config)
 {
-	setWindowTitle(QStringLiteral("OBS Advanced Multiview"));
+	setWindowTitle(amv::text("OBSAdvancedMultiview"));
 	setMinimumSize(800, 500);
 	setWindowFlags(windowFlags() | Qt::WindowMinMaxButtonsHint);
 
@@ -184,11 +185,11 @@ void ManagerDialog::setup_ui()
 
 	auto *instances_tab = new QWidget();
 	setup_instances_tab(instances_tab);
-	tab_widget_->addTab(instances_tab, QStringLiteral("Instances"));
+	tab_widget_->addTab(instances_tab, amv::text("AMVPlugin.Manager.Tab.Instances"));
 
 	auto *settings_tab = new QWidget();
 	setup_settings_tab(settings_tab);
-	tab_widget_->addTab(settings_tab, QStringLiteral("Settings"));
+	tab_widget_->addTab(settings_tab, amv::text("AMVPlugin.Manager.Tab.Settings"));
 
 	main_layout->addWidget(tab_widget_);
 }
@@ -269,7 +270,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_new_->setFixedSize(btn_sz, btn_sz);
 	btn_new_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_new_->setAutoRaise(true);
-	btn_new_->setToolTip(QStringLiteral("New Instance"));
+	btn_new_->setToolTip(amv::text("AMVPlugin.Manager.Instance.New"));
 	toolbar->addWidget(btn_new_);
 
 	btn_delete_ = new QToolButton(panel);
@@ -277,7 +278,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_delete_->setFixedSize(btn_sz, btn_sz);
 	btn_delete_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_delete_->setAutoRaise(true);
-	btn_delete_->setToolTip(QStringLiteral("Delete"));
+	btn_delete_->setToolTip(amv::text("AMVPlugin.Common.Delete"));
 	toolbar->addWidget(btn_delete_);
 
 	btn_clone_ = new QToolButton(panel);
@@ -285,7 +286,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_clone_->setFixedSize(btn_sz, btn_sz);
 	btn_clone_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_clone_->setAutoRaise(true);
-	btn_clone_->setToolTip(QStringLiteral("Clone Instance"));
+	btn_clone_->setToolTip(amv::text("AMVPlugin.Manager.Instance.Clone"));
 	toolbar->addWidget(btn_clone_);
 
 	btn_open_ = new QToolButton(panel);
@@ -293,7 +294,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_open_->setFixedSize(btn_sz, btn_sz);
 	btn_open_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_open_->setAutoRaise(true);
-	btn_open_->setToolTip(QStringLiteral("Open Multiview Window"));
+	btn_open_->setToolTip(amv::text("AMVPlugin.Manager.Instance.OpenWindow"));
 	toolbar->addWidget(btn_open_);
 
 	toolbar->addStretch();
@@ -303,7 +304,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_move_up_->setFixedSize(btn_sz, btn_sz);
 	btn_move_up_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_move_up_->setAutoRaise(true);
-	btn_move_up_->setToolTip(QStringLiteral("Move Up"));
+	btn_move_up_->setToolTip(amv::text("AMVPlugin.Common.MoveUp"));
 	btn_move_up_->setEnabled(false);
 	toolbar->addWidget(btn_move_up_);
 
@@ -312,7 +313,7 @@ void ManagerDialog::setup_left_panel(QWidget *panel)
 	btn_move_down_->setFixedSize(btn_sz, btn_sz);
 	btn_move_down_->setIconSize(QSize(ico_sz, ico_sz));
 	btn_move_down_->setAutoRaise(true);
-	btn_move_down_->setToolTip(QStringLiteral("Move Down"));
+	btn_move_down_->setToolTip(amv::text("AMVPlugin.Common.MoveDown"));
 	btn_move_down_->setEnabled(false);
 	toolbar->addWidget(btn_move_down_);
 
@@ -362,7 +363,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	/* Page 0: empty placeholder */
 	page_empty_ = new QWidget();
 	auto *empty_layout = new QVBoxLayout(page_empty_);
-	auto *empty_label = new QLabel(QStringLiteral("Select an instance or create a new one"), page_empty_);
+	auto *empty_label = new QLabel(amv::text("AMVPlugin.Manager.Placeholder.SelectInstance"), page_empty_);
 	empty_label->setAlignment(Qt::AlignCenter);
 	empty_layout->addWidget(empty_label);
 	right_stack_->addWidget(page_empty_);
@@ -387,7 +388,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	btn_detail_open_->setFixedSize(24, 24);
 	btn_detail_open_->setIconSize(QSize(16, 16));
 	btn_detail_open_->setAutoRaise(true);
-	btn_detail_open_->setToolTip(QStringLiteral("Open"));
+	btn_detail_open_->setToolTip(amv::text("AMVPlugin.Common.Open"));
 	top_row->addWidget(btn_detail_open_);
 
 	btn_detail_delete_ = new QToolButton(page_instance_);
@@ -395,7 +396,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	btn_detail_delete_->setFixedSize(24, 24);
 	btn_detail_delete_->setIconSize(QSize(16, 16));
 	btn_detail_delete_->setAutoRaise(true);
-	btn_detail_delete_->setToolTip(QStringLiteral("Delete"));
+	btn_detail_delete_->setToolTip(amv::text("AMVPlugin.Common.Delete"));
 	top_row->addWidget(btn_detail_delete_);
 
 	btn_detail_clone_ = new QToolButton(page_instance_);
@@ -403,7 +404,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	btn_detail_clone_->setFixedSize(24, 24);
 	btn_detail_clone_->setIconSize(QSize(16, 16));
 	btn_detail_clone_->setAutoRaise(true);
-	btn_detail_clone_->setToolTip(QStringLiteral("Clone"));
+	btn_detail_clone_->setToolTip(amv::text("AMVPlugin.Common.Clone"));
 	top_row->addWidget(btn_detail_clone_);
 
 	p_layout->addLayout(top_row);
@@ -421,10 +422,10 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 
 	/* --- Gutter settings (single row) --- */
 	auto *gutter_row = new QHBoxLayout();
-	detail_use_global_gutter_ = new QCheckBox(QStringLiteral("Inherit gutter from Settings"), page_instance_);
+	detail_use_global_gutter_ = new QCheckBox(amv::text("AMVPlugin.Manager.Gutter.Inherit"), page_instance_);
 	gutter_row->addWidget(detail_use_global_gutter_);
 	gutter_row->addStretch();
-	gutter_row->addWidget(new QLabel(QStringLiteral("Gutter (px):"), page_instance_));
+	gutter_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Gutter.Label"), page_instance_));
 	detail_gutter_spin_ = new QSpinBox(page_instance_);
 	detail_gutter_spin_->setRange(0, 50);
 	detail_gutter_spin_->setMinimumWidth(60);
@@ -437,16 +438,11 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	/* --- Scene-click switching row (instance override) --- */
 	auto *scene_click_row = new QHBoxLayout();
 	detail_use_global_scene_click_ =
-		new QCheckBox(QStringLiteral("Inherit scene-click switching from Settings"), page_instance_);
+		new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.Inherit"), page_instance_);
 	scene_click_row->addWidget(detail_use_global_scene_click_);
 	scene_click_row->addStretch();
-	detail_scene_click_enabled_ =
-		new QCheckBox(QStringLiteral("Click scene cells to switch Preview/Program"), page_instance_);
-	detail_scene_click_enabled_->setToolTip(
-		QStringLiteral("Per-instance override of the global scene-click switching toggle.\n"
-			       "Studio Mode: left-clicking a scene cell sets it as Preview.\n"
-			       "Non-Studio Mode: it becomes Program directly.\n"
-			       "Non-scene cells (sources, audio-only, external feeds, PGM/PRVW, empty) are ignored."));
+	detail_scene_click_enabled_ = new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.Enable"), page_instance_);
+	detail_scene_click_enabled_->setToolTip(amv::text("AMVPlugin.Manager.SceneClick.InstanceTooltip"));
 	scene_click_row->addWidget(detail_scene_click_enabled_);
 	detail_scene_click_effective_ = new QLabel(page_instance_);
 	detail_scene_click_effective_->setStyleSheet(QString("color: %1;").arg(secondary_text_color()));
@@ -454,7 +450,8 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	p_layout->addLayout(scene_click_row);
 
 	/* --- Instance Visual Settings button --- */
-	auto *btn_instance_visual = new QPushButton(QStringLiteral("Instance Visual Settings..."), page_instance_);
+	auto *btn_instance_visual =
+		new QPushButton(amv::text("AMVPlugin.Manager.Instance.VisualSettings"), page_instance_);
 	p_layout->addWidget(btn_instance_visual);
 	connect(btn_instance_visual, &QPushButton::clicked, this, [this]() {
 		MultiviewInstance *inst = config_->find_instance(current_detail_uuid_);
@@ -477,13 +474,13 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 
 	/* --- Grid controls row --- */
 	auto *grid_ctrl_row = new QHBoxLayout();
-	grid_ctrl_row->addWidget(new QLabel(QStringLiteral("Rows:"), page_instance_));
+	grid_ctrl_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Grid.Rows"), page_instance_));
 	grid_rows_spin_ = new QSpinBox(page_instance_);
 	grid_rows_spin_->setRange(1, 10);
 	grid_rows_spin_->setMinimumWidth(60);
 	grid_ctrl_row->addWidget(grid_rows_spin_);
 
-	grid_ctrl_row->addWidget(new QLabel(QStringLiteral("Cols:"), page_instance_));
+	grid_ctrl_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Grid.Cols"), page_instance_));
 	grid_cols_spin_ = new QSpinBox(page_instance_);
 	grid_cols_spin_->setRange(1, 10);
 	grid_cols_spin_->setMinimumWidth(60);
@@ -491,11 +488,11 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 
 	grid_ctrl_row->addStretch();
 
-	btn_add_span_ = new QPushButton(QStringLiteral("Merge"), page_instance_);
+	btn_add_span_ = new QPushButton(amv::text("AMVPlugin.Manager.Grid.Merge"), page_instance_);
 	btn_add_span_->setEnabled(false);
 	grid_ctrl_row->addWidget(btn_add_span_);
 
-	btn_remove_span_ = new QPushButton(QStringLiteral("Unmerge"), page_instance_);
+	btn_remove_span_ = new QPushButton(amv::text("AMVPlugin.Manager.Grid.Unmerge"), page_instance_);
 	btn_remove_span_->setEnabled(false);
 	grid_ctrl_row->addWidget(btn_remove_span_);
 
@@ -506,7 +503,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	grid_span_info_ = new QLabel(page_instance_);
 	grid_span_info_->setStyleSheet(QString("color: %1;").arg(secondary_text_color()));
 	span_row->addWidget(grid_span_info_, 1);
-	btn_reset_all_ = new QPushButton(QStringLiteral("Reset All"), page_instance_);
+	btn_reset_all_ = new QPushButton(amv::text("AMVPlugin.Manager.Grid.ResetAll"), page_instance_);
 	btn_reset_all_->setFixedWidth(btn_remove_span_->sizeHint().width());
 	span_row->addWidget(btn_reset_all_);
 	p_layout->addLayout(span_row);
@@ -536,7 +533,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		if (!checked)
 			inst->layout.gutterPx = detail_gutter_spin_->value();
 		int eff = inst->effective_gutter(config_->global_settings().defaultGutterPx);
-		detail_gutter_effective_->setText(QStringLiteral("Effective: %1px").arg(eff));
+		detail_gutter_effective_->setText(amv::text("AMVPlugin.Manager.EffectivePx").arg(eff));
 		config_->save();
 		notify_multiview_layout_changed(current_detail_uuid_);
 	});
@@ -546,7 +543,7 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		if (!inst || inst->useGlobalGutter)
 			return;
 		inst->layout.gutterPx = value;
-		detail_gutter_effective_->setText(QStringLiteral("Effective: %1px").arg(value));
+		detail_gutter_effective_->setText(amv::text("AMVPlugin.Manager.EffectivePx").arg(value));
 		config_->save();
 		notify_multiview_layout_changed(current_detail_uuid_);
 	});
@@ -561,7 +558,8 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		bool effEnabled =
 			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
 		detail_scene_click_effective_->setText(
-			QStringLiteral("Effective: %1").arg(effEnabled ? QStringLiteral("on") : QStringLiteral("off")));
+			amv::text("AMVPlugin.Manager.EffectiveValue")
+				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
 		config_->save();
 	});
 
@@ -573,7 +571,8 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		bool effEnabled =
 			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
 		detail_scene_click_effective_->setText(
-			QStringLiteral("Effective: %1").arg(effEnabled ? QStringLiteral("on") : QStringLiteral("off")));
+			amv::text("AMVPlugin.Manager.EffectiveValue")
+				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
 		config_->save();
 	});
 
@@ -682,25 +681,25 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 
 		if (sel.size() == 1) {
 			auto [r, c] = *sel.begin();
-			grid_span_info_->setText(has_span ? QStringLiteral("Span cell at %1,%2").arg(r).arg(c)
-							  : QStringLiteral("Cell %1,%2").arg(r).arg(c));
+			grid_span_info_->setText(has_span ? amv::text("AMVPlugin.Manager.Grid.SpanCellAt").arg(r).arg(c)
+							  : amv::text("AMVPlugin.Manager.Grid.CellAt").arg(r).arg(c));
 		} else if (mergeable && !has_span) {
-			grid_span_info_->setText(QStringLiteral("%1x%2 at %3,%4 - ready to merge")
+			grid_span_info_->setText(amv::text("AMVPlugin.Manager.Grid.ReadyToMerge")
 							 .arg(sr.rowSpan)
 							 .arg(sr.colSpan)
 							 .arg(sr.row)
 							 .arg(sr.col));
 		} else if (can_absorb) {
-			grid_span_info_->setText(QStringLiteral("%1x%2 at %3,%4 - absorb %5 span(s)")
+			grid_span_info_->setText(amv::text("AMVPlugin.Manager.Grid.AbsorbSpans")
 							 .arg(sr.rowSpan)
 							 .arg(sr.colSpan)
 							 .arg(sr.row)
 							 .arg(sr.col)
 							 .arg(absorbed.size()));
 		} else if (!mergeable) {
-			grid_span_info_->setText(QStringLiteral("Not a valid rectangle"));
+			grid_span_info_->setText(amv::text("AMVPlugin.Manager.Grid.InvalidRectangle"));
 		} else {
-			grid_span_info_->setText(QStringLiteral("Overlaps existing span"));
+			grid_span_info_->setText(amv::text("AMVPlugin.Manager.Grid.OverlapsSpan"));
 		}
 	});
 
@@ -712,12 +711,12 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	auto *layout = new QVBoxLayout(tab);
 	layout->setContentsMargins(12, 12, 12, 12);
 
-	auto *apply_label = new QLabel(QStringLiteral("Settings Requiring Apply"), tab);
+	auto *apply_label = new QLabel(amv::text("AMVPlugin.Manager.Settings.RequireApply"), tab);
 	apply_label->setStyleSheet(QStringLiteral("font-weight: bold;"));
 	layout->addWidget(apply_label);
 
 	auto *gutter_row = new QHBoxLayout();
-	gutter_row->addWidget(new QLabel(QStringLiteral("Default Gutter (px):"), tab));
+	gutter_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Settings.DefaultGutter"), tab));
 	spin_default_gutter_ = new QSpinBox(tab);
 	spin_default_gutter_->setRange(0, 50);
 	spin_default_gutter_->setValue(config_->global_settings().defaultGutterPx);
@@ -727,11 +726,11 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 
 	/* Re-resolve interval */
 	auto *resolve_row = new QHBoxLayout();
-	chk_re_resolve_inherit_ = new QCheckBox(QStringLiteral("Inherit re-resolve rate from OBS"), tab);
+	chk_re_resolve_inherit_ = new QCheckBox(amv::text("AMVPlugin.Manager.Settings.InheritReResolve"), tab);
 	chk_re_resolve_inherit_->setChecked(config_->global_settings().reResolveInheritObs);
 	resolve_row->addWidget(chk_re_resolve_inherit_);
 
-	resolve_row->addWidget(new QLabel(QStringLiteral("Custom (fps):"), tab));
+	resolve_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Settings.CustomFps"), tab));
 	spin_re_resolve_fps_ = new QDoubleSpinBox(tab);
 	spin_re_resolve_fps_->setRange(1.0, 120.0);
 	spin_re_resolve_fps_->setDecimals(2);
@@ -758,7 +757,7 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	connect(spin_re_resolve_fps_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
 		[this](double) { update_re_resolve_effective_label(); });
 
-	auto *gs_apply = new QPushButton(QStringLiteral("Apply"), tab);
+	auto *gs_apply = new QPushButton(amv::text("AMVPlugin.Common.Apply"), tab);
 	layout->addWidget(gs_apply);
 
 	connect(gs_apply, &QPushButton::clicked, this, [this]() {
@@ -775,7 +774,7 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 
 	/* Visual Settings button */
 	layout->addSpacing(12);
-	auto *vs_label = new QLabel(QStringLiteral("Immediate Settings"), tab);
+	auto *vs_label = new QLabel(amv::text("AMVPlugin.Manager.Settings.Immediate"), tab);
 	vs_label->setStyleSheet(QStringLiteral("font-weight: bold;"));
 	layout->addWidget(vs_label);
 
@@ -783,13 +782,9 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	 * MultiviewMouseSwitch: when on, left-clicking a scene cell calls
 	 * obs_frontend_set_current_scene which routes to PRVW under Studio Mode
 	 * or to PGM otherwise. Non-scene cells are silently ignored. */
-	chk_scene_click_switch_ =
-		new QCheckBox(QStringLiteral("Click scene cells to switch Preview/Program (Studio Mode aware)"), tab);
+	chk_scene_click_switch_ = new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.GlobalEnable"), tab);
 	chk_scene_click_switch_->setChecked(config_->global_settings().sceneClickSwitch.enabled);
-	chk_scene_click_switch_->setToolTip(QStringLiteral(
-		"When enabled, left-clicking a cell whose assignment is a scene switches the OBS scene.\n"
-		"In Studio Mode the scene goes to Preview; otherwise it goes to Program.\n"
-		"Non-scene cells (sources, audio-only, external feeds, PGM/PRVW, empty) ignore left clicks."));
+	chk_scene_click_switch_->setToolTip(amv::text("AMVPlugin.Manager.SceneClick.GlobalTooltip"));
 	layout->addWidget(chk_scene_click_switch_);
 
 	connect(chk_scene_click_switch_, &QCheckBox::toggled, this, [this](bool checked) {
@@ -798,7 +793,7 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 		obs_log(LOG_INFO, "scene click switch %s (global)", checked ? "enabled" : "disabled");
 	});
 
-	auto *btn_global_visual = new QPushButton(QStringLiteral("Edit Global Visual Settings..."), tab);
+	auto *btn_global_visual = new QPushButton(amv::text("AMVPlugin.Manager.Settings.EditGlobalVisual"), tab);
 	layout->addWidget(btn_global_visual);
 
 	connect(btn_global_visual, &QPushButton::clicked, this, [this]() {
@@ -815,7 +810,8 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	 * existing Global Visual Settings button so users can reach both project-
 	 * wide defaults from the same place. Per-cell overrides live in the
 	 * MultiviewWindow right-click menu (Signal Lost Settings...). */
-	auto *btn_global_signal_lost = new QPushButton(QStringLiteral("Edit Global Signal Lost Settings..."), tab);
+	auto *btn_global_signal_lost =
+		new QPushButton(amv::text("AMVPlugin.Manager.Settings.EditGlobalSignalLost"), tab);
 	layout->addWidget(btn_global_signal_lost);
 
 	connect(btn_global_signal_lost, &QPushButton::clicked, this, [this]() {
@@ -833,14 +829,12 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	 * [fill] aspect/snap, VU rebuild summaries, provider "created private
 	 * source" success). WARNING / ERROR are not affected. */
 	layout->addSpacing(12);
-	auto *diagnostics_label = new QLabel(QStringLiteral("Diagnostics"), tab);
+	auto *diagnostics_label = new QLabel(amv::text("AMVPlugin.Manager.Settings.Diagnostics"), tab);
 	diagnostics_label->setStyleSheet(QStringLiteral("font-weight: bold;"));
 	layout->addWidget(diagnostics_label);
-	chk_detailed_logs_ = new QCheckBox(QStringLiteral("Detailed logs (verbose diagnostics)"), tab);
+	chk_detailed_logs_ = new QCheckBox(amv::text("AMVPlugin.Manager.Settings.DetailedLogs"), tab);
 	chk_detailed_logs_->setChecked(config_->global_settings().detailedLogs);
-	chk_detailed_logs_->setToolTip(QStringLiteral(
-		"Log per-cell render FPS, health retries, aspect/snap, VU rebuilds, and provider creates.\n"
-		"Warnings and errors are always logged regardless of this setting."));
+	chk_detailed_logs_->setToolTip(amv::text("AMVPlugin.Manager.Settings.DetailedLogsTooltip"));
 	layout->addWidget(chk_detailed_logs_);
 
 	connect(chk_detailed_logs_, &QCheckBox::toggled, this, [this](bool checked) {
@@ -865,7 +859,7 @@ void ManagerDialog::update_re_resolve_effective_label()
 	} else {
 		fps = spin_re_resolve_fps_->value();
 	}
-	lbl_re_resolve_effective_->setText(QStringLiteral("Effective: %1 fps").arg(fps, 0, 'f', 2));
+	lbl_re_resolve_effective_->setText(amv::text("AMVPlugin.Manager.EffectiveFps").arg(fps, 0, 'f', 2));
 }
 
 /* ---- instance list ---- */
@@ -948,8 +942,9 @@ void ManagerDialog::on_instance_selection_changed()
 void ManagerDialog::on_new_instance()
 {
 	bool ok;
-	QString name = QInputDialog::getText(this, QStringLiteral("New Instance"), QStringLiteral("Instance name:"),
-					     QLineEdit::Normal, QString(), &ok);
+	QString name = QInputDialog::getText(this, amv::text("AMVPlugin.Manager.Instance.New"),
+					     amv::text("AMVPlugin.Manager.Instance.NamePrompt"), QLineEdit::Normal,
+					     QString(), &ok);
 	if (!ok || name.trimmed().isEmpty())
 		return;
 
@@ -974,8 +969,9 @@ void ManagerDialog::on_rename_instance()
 	std::string uuid = get_item_uuid(item);
 
 	bool ok;
-	QString name = QInputDialog::getText(this, QStringLiteral("Rename Instance"), QStringLiteral("New name:"),
-					     QLineEdit::Normal, item->text(0), &ok);
+	QString name = QInputDialog::getText(this, amv::text("AMVPlugin.Manager.Instance.Rename"),
+					     amv::text("AMVPlugin.Manager.Instance.NewNamePrompt"), QLineEdit::Normal,
+					     item->text(0), &ok);
 	if (!ok || name.trimmed().isEmpty())
 		return;
 
@@ -996,9 +992,9 @@ void ManagerDialog::on_clone_instance()
 	std::string uuid = get_item_uuid(item);
 
 	bool ok;
-	QString name = QInputDialog::getText(this, QStringLiteral("Clone Instance"),
-					     QStringLiteral("Name for cloned instance:"), QLineEdit::Normal,
-					     item->text(0) + QStringLiteral(" (Copy)"), &ok);
+	QString name = QInputDialog::getText(this, amv::text("AMVPlugin.Manager.Instance.Clone"),
+					     amv::text("AMVPlugin.Manager.Instance.CloneNamePrompt"), QLineEdit::Normal,
+					     item->text(0) + amv::text("AMVPlugin.Manager.Instance.CopySuffix"), &ok);
 	if (!ok || name.trimmed().isEmpty())
 		return;
 
@@ -1029,11 +1025,12 @@ void ManagerDialog::on_delete_instance()
 	/* Build confirmation message */
 	QString msg;
 	if (uuids.size() == 1)
-		msg = QStringLiteral("Delete instance \"%1\"?").arg(names.first());
+		msg = amv::text("AMVPlugin.Manager.Instance.DeleteOneConfirm").arg(names.first());
 	else
-		msg = QStringLiteral("Delete %1 instance(s)?").arg(uuids.size());
+		msg = amv::text("AMVPlugin.Manager.Instance.DeleteManyConfirm").arg(uuids.size());
 
-	auto ret = QMessageBox::question(this, QStringLiteral("Delete"), msg, QMessageBox::Yes | QMessageBox::No);
+	auto ret = QMessageBox::question(this, amv::text("AMVPlugin.Common.Delete"), msg,
+					 QMessageBox::Yes | QMessageBox::No);
 	if (ret != QMessageBox::Yes)
 		return;
 
@@ -1072,14 +1069,14 @@ void ManagerDialog::show_context_menu(const QPoint &pos)
 	bool single = (selected.size() == 1);
 	bool is_on_item = (item != nullptr);
 
-	QAction *act_new = menu.addAction(QStringLiteral("New Instance"));
+	QAction *act_new = menu.addAction(amv::text("AMVPlugin.Manager.Instance.New"));
 	menu.addSeparator();
 
-	QAction *act_open = menu.addAction(QStringLiteral("Open"));
-	QAction *act_rename = menu.addAction(QStringLiteral("Rename"));
-	QAction *act_clone = menu.addAction(QStringLiteral("Clone"));
+	QAction *act_open = menu.addAction(amv::text("AMVPlugin.Common.Open"));
+	QAction *act_rename = menu.addAction(amv::text("AMVPlugin.Common.Rename"));
+	QAction *act_clone = menu.addAction(amv::text("AMVPlugin.Common.Clone"));
 	menu.addSeparator();
-	QAction *act_delete = menu.addAction(QStringLiteral("Delete"));
+	QAction *act_delete = menu.addAction(amv::text("AMVPlugin.Common.Delete"));
 
 	act_open->setEnabled(is_on_item && has_selection);
 	act_rename->setEnabled(is_on_item && single);
@@ -1131,7 +1128,7 @@ void ManagerDialog::show_instance_detail(const std::string &uuid)
 	detail_gutter_spin_->setEnabled(!inst->useGlobalGutter);
 
 	int eff = inst->effective_gutter(config_->global_settings().defaultGutterPx);
-	detail_gutter_effective_->setText(QStringLiteral("Effective: %1px").arg(eff));
+	detail_gutter_effective_->setText(amv::text("AMVPlugin.Manager.EffectivePx").arg(eff));
 
 	detail_use_global_gutter_->blockSignals(false);
 	detail_gutter_spin_->blockSignals(false);
@@ -1146,7 +1143,8 @@ void ManagerDialog::show_instance_detail(const std::string &uuid)
 		bool effEnabled =
 			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
 		detail_scene_click_effective_->setText(
-			QStringLiteral("Effective: %1").arg(effEnabled ? QStringLiteral("on") : QStringLiteral("off")));
+			amv::text("AMVPlugin.Manager.EffectiveValue")
+				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
 	}
 	detail_use_global_scene_click_->blockSignals(false);
 	detail_scene_click_enabled_->blockSignals(false);
@@ -1188,5 +1186,5 @@ void ManagerDialog::auto_save_layout()
 void ManagerDialog::update_grid_preview()
 {
 	grid_preview_->set_layout(grid_edit_layout_);
-	grid_span_info_->setText(QStringLiteral("%1 span(s)").arg(grid_edit_layout_.spans.size()));
+	grid_span_info_->setText(amv::text("AMVPlugin.Manager.Grid.SpanCount").arg(grid_edit_layout_.spans.size()));
 }

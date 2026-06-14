@@ -14,6 +14,7 @@ License: GPL-2.0-or-later
 */
 
 #include "multiview-window.hpp"
+#include "amv-i18n.hpp"
 #include "cell-display-settings-dialog.hpp"
 #include "config-manager.hpp"
 #include "edit-source-dialog.hpp"
@@ -141,12 +142,12 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 
 	/* ---------- Section 1: window / instance ---------- */
 
-	QAction *fullscreenAction = menu.addAction(QStringLiteral("Fullscreen"));
+	QAction *fullscreenAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.Fullscreen"));
 	fullscreenAction->setCheckable(true);
 	fullscreenAction->setChecked(isFullScreen());
 	connect(fullscreenAction, &QAction::triggered, this, &MultiviewWindow::on_toggle_fullscreen);
 
-	QAction *onTopAction = menu.addAction(QStringLiteral("Always on Top"));
+	QAction *onTopAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.AlwaysOnTop"));
 	onTopAction->setCheckable(true);
 	onTopAction->setChecked(is_always_on_top_);
 	connect(onTopAction, &QAction::triggered, this, &MultiviewWindow::on_toggle_always_on_top);
@@ -160,7 +161,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			else
 				safeEnabled = config_->global_settings().visualSettings.safeArea.enabled;
 
-			QAction *safeAreaAction = menu.addAction(QStringLiteral("Safe Area"));
+			QAction *safeAreaAction = menu.addAction(amv::text("AMVPlugin.Visual.SafeArea.Title"));
 			safeAreaAction->setCheckable(true);
 			safeAreaAction->setChecked(safeEnabled);
 			connect(safeAreaAction, &QAction::triggered, this, [this, safeEnabled]() {
@@ -184,7 +185,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			else
 				vuEnabled = config_->global_settings().visualSettings.vuMeter.enabled;
 
-			QAction *vuAction = menu.addAction(QStringLiteral("VU Meter"));
+			QAction *vuAction = menu.addAction(amv::text("AMVPlugin.Visual.VUMeter.Title"));
 			vuAction->setCheckable(true);
 			vuAction->setChecked(vuEnabled);
 			connect(vuAction, &QAction::triggered, this, [this, vuEnabled]() {
@@ -204,7 +205,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 	if (cellIndex >= 0) {
 		menu.addSeparator();
 
-		QAction *cellSettingsAction = menu.addAction(QStringLiteral("Cell Display Settings..."));
+		QAction *cellSettingsAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.CellDisplaySettings"));
 		connect(cellSettingsAction, &QAction::triggered, this, [this, cellIndex]() {
 			MultiviewInstance *inst = config_->find_instance(uuid_);
 			if (!inst)
@@ -269,7 +270,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 		/* Phase 3 / M5.2: Cell-scoped Signal Lost Settings entry. Kept as a
 		 * separate dialog from Cell Display Settings to honor the design
 		 * doc §9 split between visual config and runtime/strategy config. */
-		QAction *signalLostAction = menu.addAction(QStringLiteral("Signal Lost Settings..."));
+		QAction *signalLostAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.SignalLostSettings"));
 		connect(signalLostAction, &QAction::triggered, this, [this, cellIndex]() {
 			MultiviewInstance *inst = config_->find_instance(uuid_);
 			if (!inst)
@@ -347,7 +348,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 		menu.addSeparator();
 
 		if (hasSource) {
-			QAction *changeAction = menu.addAction(QStringLiteral("Change Source..."));
+			QAction *changeAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.ChangeSource"));
 			connect(changeAction, &QAction::triggered, this,
 				[this, cellIndex]() { on_change_source(cellIndex); });
 
@@ -356,12 +357,12 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			 * have Change Source... covering the same surface; a
 			 * second entry would be confusing. */
 			if (isExternal) {
-				QAction *editAction = menu.addAction(QStringLiteral("Edit Source..."));
+				QAction *editAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.EditSource"));
 				connect(editAction, &QAction::triggered, this,
 					[this, cellIndex]() { on_edit_source(cellIndex); });
 			}
 
-			QAction *clearAction = menu.addAction(QStringLiteral("Clear Cell"));
+			QAction *clearAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.ClearCell"));
 			connect(clearAction, &QAction::triggered, this,
 				[this, cellIndex]() { on_clear_cell(cellIndex); });
 
@@ -449,8 +450,9 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			 * obs_source_media_restart, semantically identical to a
 			 * local-file FFmpeg replay. */
 			const bool useReplayLabel = isExternalLocalFile || isVlcCell;
-			QAction *reconnectAction = menu.addAction(useReplayLabel ? QStringLiteral("Replay Now")
-										 : QStringLiteral("Reconnect Now"));
+			QAction *reconnectAction =
+				menu.addAction(useReplayLabel ? amv::text("AMVPlugin.ContextMenu.ReplayNow")
+							      : amv::text("AMVPlugin.ContextMenu.ReconnectNow"));
 			reconnectAction->setEnabled(canReconnect);
 			connect(reconnectAction, &QAction::triggered, this,
 				[this, cellIndex]() { (void)force_reconnect_cell(cellIndex); });
@@ -462,9 +464,9 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			 * obs_source_media_* which vlc_source registers via
 			 * media_previous / media_play_pause / media_next. */
 			if (isVlcCell && vlcSourceSnapshot) {
-				QAction *prevAction = menu.addAction(QStringLiteral("Previous"));
-				QAction *playPauseAction = menu.addAction(QStringLiteral("Play / Pause"));
-				QAction *nextAction = menu.addAction(QStringLiteral("Next"));
+				QAction *prevAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.Previous"));
+				QAction *playPauseAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.PlayPause"));
+				QAction *nextAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.Next"));
 				const obs_media_state st = obs_source_media_get_state(vlcSourceSnapshot);
 				const bool currentlyPlaying = (st == OBS_MEDIA_STATE_PLAYING);
 				connect(prevAction, &QAction::triggered, this, [src = vlcSourceSnapshot]() {
@@ -484,7 +486,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 				/* FFmpeg has no playlist, so only Play/Pause is
 				 * meaningful (and only on local files \u2014 see the
 				 * snapshot site for why network streams skip this). */
-				QAction *playPauseAction = menu.addAction(QStringLiteral("Play / Pause"));
+				QAction *playPauseAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.PlayPause"));
 				const obs_media_state st = obs_source_media_get_state(ffmpegLocalSourceSnapshot);
 				const bool currentlyPlaying = (st == OBS_MEDIA_STATE_PLAYING);
 				connect(playPauseAction, &QAction::triggered, this,
@@ -495,7 +497,7 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			}
 		} else {
 			/* Empty cell: Add Source. No playback section follows. */
-			QAction *addAction = menu.addAction(QStringLiteral("Add Source..."));
+			QAction *addAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.AddSource"));
 			connect(addAction, &QAction::triggered, this,
 				[this, cellIndex]() { on_add_source(cellIndex); });
 		}
@@ -505,15 +507,15 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 
 	menu.addSeparator();
 
-	QAction *editGridAction = menu.addAction(QStringLiteral("Edit Grid..."));
+	QAction *editGridAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.EditGrid"));
 	connect(editGridAction, &QAction::triggered, this, &MultiviewWindow::on_edit_grid);
 
 	menu.addSeparator();
 
-	QAction *settingsAction = menu.addAction(QStringLiteral("Global Settings"));
+	QAction *settingsAction = menu.addAction(amv::text("AMVPlugin.ContextMenu.GlobalSettings"));
 	connect(settingsAction, &QAction::triggered, this, &MultiviewWindow::on_global_settings);
 
-	QAction *closeAction = menu.addAction(QStringLiteral("Close"));
+	QAction *closeAction = menu.addAction(amv::text("AMVPlugin.Common.Close"));
 	connect(closeAction, &QAction::triggered, this, &QWidget::close);
 
 	menu.exec(pos);

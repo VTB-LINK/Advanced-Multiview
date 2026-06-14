@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "multiview-window.hpp"
 #include "amv-logging.hpp"
+#include "amv-i18n.hpp"
 #include "cell-display-settings-dialog.hpp"
 #include "edit-source-dialog.hpp"
 #include "signal-lost-settings-dialog.hpp"
@@ -228,7 +229,7 @@ void MultiviewWindow::refresh_title()
 {
 	MultiviewInstance *inst = config_->find_instance(uuid_);
 	if (inst)
-		setWindowTitle(QStringLiteral("Advanced Multiview - %1").arg(QString::fromStdString(inst->name)));
+		setWindowTitle(amv::text("AMVPlugin.Multiview.Title").arg(QString::fromStdString(inst->name)));
 }
 
 void MultiviewWindow::refresh_layout()
