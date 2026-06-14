@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "cell-display-settings-dialog.hpp"
+#include "amv-i18n.hpp"
 
 #include <QApplication>
 #include <QClipboard>
@@ -41,8 +42,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 static QComboBox *create_inherit_combo(QWidget *parent)
 {
 	auto *cmb = new QComboBox(parent);
-	cmb->addItem(QStringLiteral("Inherit"), (int)InheritanceMode::Inherit);
-	cmb->addItem(QStringLiteral("Override"), (int)InheritanceMode::Override);
+	cmb->addItem(amv::text("AMVPlugin.Common.Inherit"), (int)InheritanceMode::Inherit);
+	cmb->addItem(amv::text("AMVPlugin.Common.Override"), (int)InheritanceMode::Override);
 	return cmb;
 }
 
@@ -97,7 +98,7 @@ static QWidget *build_color_picker(QLineEdit *edit, QWidget *parent, const QStri
 	auto *swatch = new QPushButton(container);
 	swatch->setFixedSize(28, 22);
 	swatch->setCursor(Qt::PointingHandCursor);
-	swatch->setToolTip(QObject::tr("Pick color"));
+	swatch->setToolTip(amv::text("AMVPlugin.Common.PickColor"));
 
 	auto refresh_swatch = [swatch, edit]() {
 		QString hex = edit->text().trimmed();
@@ -146,7 +147,7 @@ static QWidget *build_file_picker(QLineEdit *edit, QWidget *parent, const QStrin
 	edit->setParent(container);
 	h->addWidget(edit, 1);
 
-	auto *browse = new QPushButton(QObject::tr("Browse..."), container);
+	auto *browse = new QPushButton(amv::text("AMVPlugin.Common.Browse"), container);
 	browse->setCursor(Qt::PointingHandCursor);
 
 	QObject::connect(browse, &QPushButton::clicked, browse, [edit, parent, title]() {
@@ -156,7 +157,8 @@ static QWidget *build_file_picker(QLineEdit *edit, QWidget *parent, const QStrin
 			QFileInfo fi(current);
 			startDir = fi.exists() ? fi.absolutePath() : current;
 		}
-		QString fn = QFileDialog::getOpenFileName(parent, title, startDir, QObject::tr("All Files (*)"));
+		QString fn =
+			QFileDialog::getOpenFileName(parent, title, startDir, amv::text("AMVPlugin.Common.AllFiles"));
 		if (!fn.isEmpty())
 			edit->setText(fn);
 	});
@@ -178,7 +180,7 @@ static void font_picker_refresh(QPushButton *btn)
 	QString family = btn->property("fontFamily").toString();
 	QFont f = btn->font();
 	if (family.isEmpty()) {
-		btn->setText(QObject::tr("Select Font (system default)"));
+		btn->setText(amv::text("AMVPlugin.Common.FontDefault"));
 		f.setFamily(QApplication::font().family());
 	} else {
 		btn->setText(family);
@@ -201,7 +203,7 @@ static QPushButton *build_font_picker(QWidget *parent, std::function<void()> on_
 			initial.setFamily(current);
 
 		bool ok = false;
-		QFont chosen = QFontDialog::getFont(&ok, initial, parent, QObject::tr("Pick a Font"));
+		QFont chosen = QFontDialog::getFont(&ok, initial, parent, amv::text("AMVPlugin.Common.PickFont"));
 		if (!ok)
 			return;
 		if (chosen.family() == current)
@@ -239,7 +241,7 @@ void CellDisplaySettingsDialog::set_cell_position(int row, int col)
 	cell_row_ = row;
 	cell_col_ = col;
 	if (mode_ == Mode::Cell) {
-		setWindowTitle(QStringLiteral("Cell Display Settings [%1, %2]").arg(row).arg(col));
+		setWindowTitle(amv::text("AMVPlugin.Visual.Title.CellPosition").arg(row).arg(col));
 	}
 }
 
@@ -249,7 +251,7 @@ void CellDisplaySettingsDialog::set_external_cell(bool external)
 	if (cmb_vu_track_mode_ && mode_ == Mode::Cell) {
 		int externalIdx = cmb_vu_track_mode_->findData((int)VuMeterTrackMode::ExternalSource);
 		if (external && externalIdx < 0) {
-			cmb_vu_track_mode_->addItem(QStringLiteral("External Source"),
+			cmb_vu_track_mode_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Track.ExternalSource"),
 						    (int)VuMeterTrackMode::ExternalSource);
 		} else if (!external && externalIdx >= 0) {
 			cmb_vu_track_mode_->removeItem(externalIdx);
@@ -264,13 +266,13 @@ void CellDisplaySettingsDialog::setup_ui()
 {
 	switch (mode_) {
 	case Mode::Global:
-		setWindowTitle(QStringLiteral("Global Visual Settings"));
+		setWindowTitle(amv::text("AMVPlugin.Visual.Title.Global"));
 		break;
 	case Mode::Instance:
-		setWindowTitle(QStringLiteral("Instance Visual Settings"));
+		setWindowTitle(amv::text("AMVPlugin.Visual.Title.Instance"));
 		break;
 	case Mode::Cell:
-		setWindowTitle(QStringLiteral("Cell Display Settings"));
+		setWindowTitle(amv::text("AMVPlugin.Visual.Title.Cell"));
 		break;
 	}
 	setMinimumSize(420, 500);
@@ -299,9 +301,9 @@ void CellDisplaySettingsDialog::setup_ui()
 
 	/* Copy/Paste/Reset + Button box */
 	auto *bottomLayout = new QHBoxLayout;
-	auto *btnCopy = new QPushButton(tr("Copy"), this);
-	auto *btnPaste = new QPushButton(tr("Paste"), this);
-	auto *btnReset = new QPushButton(tr("Reset"), this);
+	auto *btnCopy = new QPushButton(amv::text("AMVPlugin.Common.Copy"), this);
+	auto *btnPaste = new QPushButton(amv::text("AMVPlugin.Common.Paste"), this);
+	auto *btnReset = new QPushButton(amv::text("AMVPlugin.Common.Reset"), this);
 	bottomLayout->addWidget(btnCopy);
 	bottomLayout->addWidget(btnPaste);
 	bottomLayout->addWidget(btnReset);
@@ -352,13 +354,13 @@ static QFormLayout *add_subzone(QVBoxLayout *layout, QWidget *parent, const QStr
 
 QGroupBox *CellDisplaySettingsDialog::create_background_group()
 {
-	grp_background_ = new QGroupBox(QStringLiteral("Background"), this);
+	grp_background_ = new QGroupBox(amv::text("AMVPlugin.Visual.Background.Title"), this);
 	auto *layout = new QVBoxLayout(grp_background_);
 
 	/* Inheritance combo (Instance/Cell only) */
 	if (mode_ != Mode::Global) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_background_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_background_));
 		cmb_bg_inherit_ = create_inherit_combo(grp_background_);
 		inh_row->addWidget(cmb_bg_inherit_);
 		inh_row->addStretch();
@@ -370,33 +372,37 @@ QGroupBox *CellDisplaySettingsDialog::create_background_group()
 		});
 	}
 
-	auto *fillForm = add_subzone(layout, grp_background_, QStringLiteral("Fill"));
+	auto *fillForm = add_subzone(layout, grp_background_, amv::text("AMVPlugin.Visual.Background.Fill"));
 
 	chk_bg_color_enabled_ = new QCheckBox(grp_background_);
-	fillForm->addRow(QStringLiteral("Color Enabled:"), chk_bg_color_enabled_);
+	fillForm->addRow(amv::text("AMVPlugin.Visual.Background.ColorEnabled"), chk_bg_color_enabled_);
 
 	edit_bg_color_ = new QLineEdit(QStringLiteral("#000000"), grp_background_);
-	fillForm->addRow(QStringLiteral("Color:"),
-			 build_color_picker(edit_bg_color_, grp_background_, QStringLiteral("Background Color")));
+	fillForm->addRow(amv::text("AMVPlugin.Common.Color"),
+			 build_color_picker(edit_bg_color_, grp_background_,
+					    amv::text("AMVPlugin.Visual.Background.Color")));
 
 	cmb_bg_fill_mode_ = new QComboBox(grp_background_);
-	cmb_bg_fill_mode_->addItem(QStringLiteral("Fill Signal Only"), (int)BackgroundFillMode::FillSignalOnly);
-	cmb_bg_fill_mode_->addItem(QStringLiteral("Fill Entire Cell"), (int)BackgroundFillMode::FillEntireCell);
-	fillForm->addRow(QStringLiteral("Fill Mode:"), cmb_bg_fill_mode_);
+	cmb_bg_fill_mode_->addItem(amv::text("AMVPlugin.Visual.Background.FillSignalOnly"),
+				   (int)BackgroundFillMode::FillSignalOnly);
+	cmb_bg_fill_mode_->addItem(amv::text("AMVPlugin.Visual.Background.FillEntireCell"),
+				   (int)BackgroundFillMode::FillEntireCell);
+	fillForm->addRow(amv::text("AMVPlugin.Visual.Background.FillMode"), cmb_bg_fill_mode_);
 
-	auto *imageForm = add_subzone(layout, grp_background_, QStringLiteral("Image"));
+	auto *imageForm = add_subzone(layout, grp_background_, amv::text("AMVPlugin.Visual.Common.Image"));
 
 	chk_bg_image_enabled_ = new QCheckBox(grp_background_);
-	imageForm->addRow(QStringLiteral("Image Enabled:"), chk_bg_image_enabled_);
+	imageForm->addRow(amv::text("AMVPlugin.Visual.Common.ImageEnabled"), chk_bg_image_enabled_);
 
 	edit_bg_image_path_ = new QLineEdit(grp_background_);
-	imageForm->addRow(QStringLiteral("Image Path:"), build_file_picker(edit_bg_image_path_, grp_background_,
-									   QStringLiteral("Select Background Image")));
+	imageForm->addRow(amv::text("AMVPlugin.Visual.Common.ImagePath"),
+			  build_file_picker(edit_bg_image_path_, grp_background_,
+					    amv::text("AMVPlugin.Visual.Background.SelectImage")));
 
 	cmb_bg_image_fit_ = new QComboBox(grp_background_);
-	cmb_bg_image_fit_->addItem(QStringLiteral("Fit"), (int)ImageFitMode::Fit);
-	cmb_bg_image_fit_->addItem(QStringLiteral("Stretch"), (int)ImageFitMode::Stretch);
-	imageForm->addRow(QStringLiteral("Image Fit:"), cmb_bg_image_fit_);
+	cmb_bg_image_fit_->addItem(amv::text("AMVPlugin.Common.Fit"), (int)ImageFitMode::Fit);
+	cmb_bg_image_fit_->addItem(amv::text("AMVPlugin.Common.Stretch"), (int)ImageFitMode::Stretch);
+	imageForm->addRow(amv::text("AMVPlugin.Visual.Common.ImageFit"), cmb_bg_image_fit_);
 
 	HOOK_CHECK(chk_bg_color_enabled_);
 	HOOK_EDIT(edit_bg_color_);
@@ -412,12 +418,12 @@ QGroupBox *CellDisplaySettingsDialog::create_background_group()
 
 QGroupBox *CellDisplaySettingsDialog::create_label_group()
 {
-	grp_label_ = new QGroupBox(QStringLiteral("Label"), this);
+	grp_label_ = new QGroupBox(amv::text("AMVPlugin.Visual.Label.Title"), this);
 	auto *layout = new QVBoxLayout(grp_label_);
 
 	if (mode_ != Mode::Global) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_label_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_label_));
 		cmb_label_inherit_ = create_inherit_combo(grp_label_);
 		inh_row->addWidget(cmb_label_inherit_);
 		inh_row->addStretch();
@@ -429,67 +435,69 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 		});
 	}
 
-	auto *displayForm = add_subzone(layout, grp_label_, QStringLiteral("Display"));
+	auto *displayForm = add_subzone(layout, grp_label_, amv::text("AMVPlugin.Visual.Label.Display"));
 
 	cmb_label_display_ = new QComboBox(grp_label_);
-	cmb_label_display_->addItem(QStringLiteral("None"), (int)LabelDisplayMode::None);
-	cmb_label_display_->addItem(QStringLiteral("Overlay"), (int)LabelDisplayMode::Overlay);
-	cmb_label_display_->addItem(QStringLiteral("Below"), (int)LabelDisplayMode::Below);
-	displayForm->addRow(QStringLiteral("Display:"), cmb_label_display_);
+	cmb_label_display_->addItem(amv::text("AMVPlugin.Common.None"), (int)LabelDisplayMode::None);
+	cmb_label_display_->addItem(amv::text("AMVPlugin.Visual.Overlay.Title"), (int)LabelDisplayMode::Overlay);
+	cmb_label_display_->addItem(amv::text("AMVPlugin.Visual.Label.Below"), (int)LabelDisplayMode::Below);
+	displayForm->addRow(amv::text("AMVPlugin.Visual.Label.DisplayLabel"), cmb_label_display_);
 
 	cmb_label_position_ = new QComboBox(grp_label_);
-	cmb_label_position_->addItem(QStringLiteral("Top"), (int)LabelPosition::Top);
-	cmb_label_position_->addItem(QStringLiteral("Bottom"), (int)LabelPosition::Bottom);
-	displayForm->addRow(QStringLiteral("Position:"), cmb_label_position_);
+	cmb_label_position_->addItem(amv::text("AMVPlugin.Common.Top"), (int)LabelPosition::Top);
+	cmb_label_position_->addItem(amv::text("AMVPlugin.Common.Bottom"), (int)LabelPosition::Bottom);
+	displayForm->addRow(amv::text("AMVPlugin.Common.Position"), cmb_label_position_);
 
-	auto *typographyForm = add_subzone(layout, grp_label_, QStringLiteral("Typography"));
+	auto *typographyForm = add_subzone(layout, grp_label_, amv::text("AMVPlugin.Visual.Label.Typography"));
 
 	btn_label_font_ = build_font_picker(grp_label_, [this]() {
 		dirty_ = true;
 		emit settings_changed();
 	});
-	typographyForm->addRow(QStringLiteral("Font Family:"), btn_label_font_);
+	typographyForm->addRow(amv::text("AMVPlugin.Visual.Label.FontFamily"), btn_label_font_);
 
 	spin_label_font_size_ = new QSpinBox(grp_label_);
 	spin_label_font_size_->setRange(6, 96);
-	typographyForm->addRow(QStringLiteral("Font Size:"), spin_label_font_size_);
+	typographyForm->addRow(amv::text("AMVPlugin.Visual.Label.FontSize"), spin_label_font_size_);
 
 	cmb_label_scale_mode_ = new QComboBox(grp_label_);
-	cmb_label_scale_mode_->addItem(QStringLiteral("Fixed"), (int)FontScaleMode::Fixed);
-	cmb_label_scale_mode_->addItem(QStringLiteral("Scale With Cell"), (int)FontScaleMode::ScaleWithCell);
-	typographyForm->addRow(QStringLiteral("Scale Mode:"), cmb_label_scale_mode_);
+	cmb_label_scale_mode_->addItem(amv::text("AMVPlugin.Visual.Label.ScaleFixed"), (int)FontScaleMode::Fixed);
+	cmb_label_scale_mode_->addItem(amv::text("AMVPlugin.Visual.Label.ScaleWithCell"),
+				       (int)FontScaleMode::ScaleWithCell);
+	typographyForm->addRow(amv::text("AMVPlugin.Visual.Label.ScaleMode"), cmb_label_scale_mode_);
 
 	spin_label_min_font_ = new QSpinBox(grp_label_);
 	spin_label_min_font_->setRange(4, 48);
-	typographyForm->addRow(QStringLiteral("Min Font Size:"), spin_label_min_font_);
+	typographyForm->addRow(amv::text("AMVPlugin.Visual.Label.MinFontSize"), spin_label_min_font_);
 
 	spin_label_max_font_ = new QSpinBox(grp_label_);
 	spin_label_max_font_->setRange(12, 144);
-	typographyForm->addRow(QStringLiteral("Max Font Size:"), spin_label_max_font_);
+	typographyForm->addRow(amv::text("AMVPlugin.Visual.Label.MaxFontSize"), spin_label_max_font_);
 
-	auto *colorsForm = add_subzone(layout, grp_label_, QStringLiteral("Colors"));
+	auto *colorsForm = add_subzone(layout, grp_label_, amv::text("AMVPlugin.Visual.Common.Colors"));
 
 	edit_label_text_color_ = new QLineEdit(QStringLiteral("#FFFFFF"), grp_label_);
-	colorsForm->addRow(QStringLiteral("Text Color:"),
-			   build_color_picker(edit_label_text_color_, grp_label_, QStringLiteral("Label Text Color")));
+	colorsForm->addRow(amv::text("AMVPlugin.Visual.Label.TextColor"),
+			   build_color_picker(edit_label_text_color_, grp_label_,
+					      amv::text("AMVPlugin.Visual.Label.TextColorTitle")));
 
 	spin_label_bg_opacity_ = new QDoubleSpinBox(grp_label_);
 	spin_label_bg_opacity_->setRange(0.0, 1.0);
 	spin_label_bg_opacity_->setSingleStep(0.05);
 	spin_label_bg_opacity_->setDecimals(2);
-	colorsForm->addRow(QStringLiteral("BG Opacity:"), spin_label_bg_opacity_);
+	colorsForm->addRow(amv::text("AMVPlugin.Visual.Label.BackgroundOpacity"), spin_label_bg_opacity_);
 
-	auto *boxForm = add_subzone(layout, grp_label_, QStringLiteral("Box"));
+	auto *boxForm = add_subzone(layout, grp_label_, amv::text("AMVPlugin.Visual.Label.Box"));
 
 	spin_label_margin_ = new QSpinBox(grp_label_);
 	spin_label_margin_->setRange(0, 32);
-	boxForm->addRow(QStringLiteral("Margin:"), spin_label_margin_);
+	boxForm->addRow(amv::text("AMVPlugin.Visual.Label.Margin"), spin_label_margin_);
 
 	chk_bg_label_fill_ = new QCheckBox(grp_label_);
-	boxForm->addRow(QStringLiteral("Label Region Fill:"), chk_bg_label_fill_);
+	boxForm->addRow(amv::text("AMVPlugin.Visual.Label.RegionFill"), chk_bg_label_fill_);
 
 	chk_label_bg_rounded_ = new QCheckBox(grp_label_);
-	boxForm->addRow(QStringLiteral("BG Rounded:"), chk_label_bg_rounded_);
+	boxForm->addRow(amv::text("AMVPlugin.Visual.Label.BackgroundRounded"), chk_label_bg_rounded_);
 
 	HOOK_COMBO(cmb_label_display_);
 	HOOK_COMBO(cmb_label_position_);
@@ -511,8 +519,7 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 	/* Not implemented in the renderer yet. Keep the persisted field for
 	 * compatibility, but do not present it as editable behavior. */
 	chk_label_bg_rounded_->setEnabled(false);
-	chk_label_bg_rounded_->setToolTip(
-		QStringLiteral("Rounded label backgrounds are reserved for a future update."));
+	chk_label_bg_rounded_->setToolTip(amv::text("AMVPlugin.Visual.Label.BackgroundRoundedTooltip"));
 	update_label_control_states();
 
 	return grp_label_;
@@ -522,12 +529,12 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 
 QGroupBox *CellDisplaySettingsDialog::create_safe_area_group()
 {
-	grp_safe_area_ = new QGroupBox(QStringLiteral("Safe Area"), this);
+	grp_safe_area_ = new QGroupBox(amv::text("AMVPlugin.Visual.SafeArea.Title"), this);
 	auto *layout = new QVBoxLayout(grp_safe_area_);
 
 	if (mode_ != Mode::Global) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_safe_area_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_safe_area_));
 		cmb_safe_area_inherit_ = create_inherit_combo(grp_safe_area_);
 		inh_row->addWidget(cmb_safe_area_inherit_);
 		inh_row->addStretch();
@@ -539,29 +546,30 @@ QGroupBox *CellDisplaySettingsDialog::create_safe_area_group()
 		});
 	}
 
-	auto *visibilityForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Visibility"));
+	auto *visibilityForm = add_subzone(layout, grp_safe_area_, amv::text("AMVPlugin.Visual.Common.Visibility"));
 
 	chk_safe_area_enabled_ = new QCheckBox(grp_safe_area_);
-	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_safe_area_enabled_);
+	visibilityForm->addRow(amv::text("AMVPlugin.Common.Enabled"), chk_safe_area_enabled_);
 
-	auto *styleForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Style"));
+	auto *styleForm = add_subzone(layout, grp_safe_area_, amv::text("AMVPlugin.Visual.Common.Style"));
 
 	edit_safe_area_color_ = new QLineEdit(QStringLiteral("#D0D0D0"), grp_safe_area_);
-	styleForm->addRow(QStringLiteral("Color:"),
-			  build_color_picker(edit_safe_area_color_, grp_safe_area_, QStringLiteral("Safe Area Color")));
+	styleForm->addRow(amv::text("AMVPlugin.Common.Color"),
+			  build_color_picker(edit_safe_area_color_, grp_safe_area_,
+					     amv::text("AMVPlugin.Visual.SafeArea.Color")));
 
 	spin_safe_area_opacity_ = new QDoubleSpinBox(grp_safe_area_);
 	spin_safe_area_opacity_->setRange(0.0, 1.0);
 	spin_safe_area_opacity_->setSingleStep(0.1);
 	spin_safe_area_opacity_->setDecimals(2);
-	styleForm->addRow(QStringLiteral("Opacity:"), spin_safe_area_opacity_);
+	styleForm->addRow(amv::text("AMVPlugin.Common.Opacity"), spin_safe_area_opacity_);
 
-	auto *geometryForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Geometry"));
+	auto *geometryForm = add_subzone(layout, grp_safe_area_, amv::text("AMVPlugin.Visual.SafeArea.Geometry"));
 
 	cmb_safe_area_anchor_ = new QComboBox(grp_safe_area_);
-	cmb_safe_area_anchor_->addItem(QStringLiteral("Cell"), (int)SafeAreaAnchorMode::Cell);
-	cmb_safe_area_anchor_->addItem(QStringLiteral("Signal"), (int)SafeAreaAnchorMode::Signal);
-	geometryForm->addRow(QStringLiteral("Anchor:"), cmb_safe_area_anchor_);
+	cmb_safe_area_anchor_->addItem(amv::text("AMVPlugin.Common.Cell"), (int)SafeAreaAnchorMode::Cell);
+	cmb_safe_area_anchor_->addItem(amv::text("AMVPlugin.Common.Signal"), (int)SafeAreaAnchorMode::Signal);
+	geometryForm->addRow(amv::text("AMVPlugin.Common.Anchor"), cmb_safe_area_anchor_);
 
 	HOOK_CHECK(chk_safe_area_enabled_);
 	HOOK_COMBO(cmb_safe_area_anchor_);
@@ -575,12 +583,12 @@ QGroupBox *CellDisplaySettingsDialog::create_safe_area_group()
 
 QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 {
-	grp_vu_meter_ = new QGroupBox(QStringLiteral("VU Meter"), this);
+	grp_vu_meter_ = new QGroupBox(amv::text("AMVPlugin.Visual.VUMeter.Title"), this);
 	auto *layout = new QVBoxLayout(grp_vu_meter_);
 
 	if (mode_ != Mode::Global) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_vu_meter_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_vu_meter_));
 		cmb_vu_meter_inherit_ = create_inherit_combo(grp_vu_meter_);
 		inh_row->addWidget(cmb_vu_meter_inherit_);
 		inh_row->addStretch();
@@ -592,135 +600,136 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 		});
 	}
 
-	auto *visibilityForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Visibility"));
+	auto *visibilityForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.Common.Visibility"));
 
 	chk_vu_enabled_ = new QCheckBox(grp_vu_meter_);
-	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_vu_enabled_);
+	visibilityForm->addRow(amv::text("AMVPlugin.Common.Enabled"), chk_vu_enabled_);
 
-	auto *sourceForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Source"));
+	auto *sourceForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.VUMeter.Source"));
 
 	/* Track selection for internal OBS cells. External-provider cells meter
 	 * their private source directly; the cell-scoped dialog inserts and locks
 	 * External Source only when editing an external cell. */
 	cmb_vu_track_mode_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_track_mode_->addItem(QStringLiteral("Auto-follow Streaming"),
+	cmb_vu_track_mode_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Track.AutoFollowStreaming"),
 				    (int)VuMeterTrackMode::AutoFollowStreaming);
-	cmb_vu_track_mode_->addItem(QStringLiteral("Manual"), (int)VuMeterTrackMode::Manual);
-	sourceForm->addRow(QStringLiteral("Track Source:"), cmb_vu_track_mode_);
+	cmb_vu_track_mode_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Track.Manual"), (int)VuMeterTrackMode::Manual);
+	sourceForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.TrackSource"), cmb_vu_track_mode_);
 
 	spin_vu_manual_track_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_manual_track_->setRange(1, 6);
-	spin_vu_manual_track_->setPrefix(QStringLiteral("Track "));
-	sourceForm->addRow(QStringLiteral("Manual Track:"), spin_vu_manual_track_);
+	spin_vu_manual_track_->setPrefix(amv::text("AMVPlugin.Visual.VUMeter.TrackPrefix"));
+	sourceForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.ManualTrack"), spin_vu_manual_track_);
 
 	/* Manual track spinbox is only meaningful when mode == Manual.
 	 * Gray out otherwise to clarify the inactive field. */
 	connect(cmb_vu_track_mode_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		[this](int) { update_vu_meter_control_states(); });
 
-	auto *placementForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Placement"));
+	auto *placementForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.Common.Placement"));
 
 	cmb_vu_position_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_position_->addItem(QStringLiteral("Left"), (int)VuMeterPosition::Left);
-	cmb_vu_position_->addItem(QStringLiteral("Right"), (int)VuMeterPosition::Right);
-	cmb_vu_position_->addItem(QStringLiteral("Top"), (int)VuMeterPosition::Top);
-	cmb_vu_position_->addItem(QStringLiteral("Bottom"), (int)VuMeterPosition::Bottom);
-	placementForm->addRow(QStringLiteral("Position:"), cmb_vu_position_);
+	cmb_vu_position_->addItem(amv::text("AMVPlugin.Common.Left"), (int)VuMeterPosition::Left);
+	cmb_vu_position_->addItem(amv::text("AMVPlugin.Common.Right"), (int)VuMeterPosition::Right);
+	cmb_vu_position_->addItem(amv::text("AMVPlugin.Common.Top"), (int)VuMeterPosition::Top);
+	cmb_vu_position_->addItem(amv::text("AMVPlugin.Common.Bottom"), (int)VuMeterPosition::Bottom);
+	placementForm->addRow(amv::text("AMVPlugin.Common.Position"), cmb_vu_position_);
 
 	cmb_vu_anchor_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_anchor_->addItem(QStringLiteral("Cell"), (int)VuMeterAnchorMode::Cell);
-	cmb_vu_anchor_->addItem(QStringLiteral("Signal"), (int)VuMeterAnchorMode::Signal);
-	placementForm->addRow(QStringLiteral("Anchor:"), cmb_vu_anchor_);
+	cmb_vu_anchor_->addItem(amv::text("AMVPlugin.Common.Cell"), (int)VuMeterAnchorMode::Cell);
+	cmb_vu_anchor_->addItem(amv::text("AMVPlugin.Common.Signal"), (int)VuMeterAnchorMode::Signal);
+	placementForm->addRow(amv::text("AMVPlugin.Common.Anchor"), cmb_vu_anchor_);
 
 	spin_vu_width_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_width_->setRange(1, 64);
-	placementForm->addRow(QStringLiteral("Width (px):"), spin_vu_width_);
+	placementForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.Width"), spin_vu_width_);
 
 	spin_vu_length_ratio_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_length_ratio_->setRange(0.1, 1.0);
 	spin_vu_length_ratio_->setSingleStep(0.05);
 	spin_vu_length_ratio_->setDecimals(2);
-	placementForm->addRow(QStringLiteral("Length Ratio:"), spin_vu_length_ratio_);
+	placementForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.LengthRatio"), spin_vu_length_ratio_);
 
 	cmb_vu_alignment_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_alignment_->addItem(QStringLiteral("Start (-∞ anchor)"), (int)VuMeterAlignment::Start);
-	cmb_vu_alignment_->addItem(QStringLiteral("Center"), (int)VuMeterAlignment::Center);
-	placementForm->addRow(QStringLiteral("Alignment:"), cmb_vu_alignment_);
+	cmb_vu_alignment_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Alignment.Start"), (int)VuMeterAlignment::Start);
+	cmb_vu_alignment_->addItem(amv::text("AMVPlugin.Common.Center"), (int)VuMeterAlignment::Center);
+	placementForm->addRow(amv::text("AMVPlugin.Common.Alignment"), cmb_vu_alignment_);
 
 	chk_vu_flip_ = new QCheckBox(grp_vu_meter_);
-	placementForm->addRow(QStringLiteral("Flip:"), chk_vu_flip_);
+	placementForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.Flip"), chk_vu_flip_);
 
-	auto *lookForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Look"));
+	auto *lookForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.VUMeter.Look"));
 
 	spin_vu_opacity_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_opacity_->setRange(0.0, 1.0);
 	spin_vu_opacity_->setSingleStep(0.05);
 	spin_vu_opacity_->setDecimals(2);
-	lookForm->addRow(QStringLiteral("Opacity:"), spin_vu_opacity_);
+	lookForm->addRow(amv::text("AMVPlugin.Common.Opacity"), spin_vu_opacity_);
 
-	auto *levelsForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Levels"));
+	auto *levelsForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.VUMeter.Levels"));
 
 	spin_vu_warning_db_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_warning_db_->setRange(-60.0, 0.0);
 	spin_vu_warning_db_->setSingleStep(1.0);
 	spin_vu_warning_db_->setDecimals(1);
 	spin_vu_warning_db_->setSuffix(QStringLiteral(" dB"));
-	levelsForm->addRow(QStringLiteral("Warning:"), spin_vu_warning_db_);
+	levelsForm->addRow(amv::text("AMVPlugin.Common.Warning"), spin_vu_warning_db_);
 
 	spin_vu_error_db_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_error_db_->setRange(-60.0, 0.0);
 	spin_vu_error_db_->setSingleStep(1.0);
 	spin_vu_error_db_->setDecimals(1);
 	spin_vu_error_db_->setSuffix(QStringLiteral(" dB"));
-	levelsForm->addRow(QStringLiteral("Error:"), spin_vu_error_db_);
+	levelsForm->addRow(amv::text("AMVPlugin.Common.Error"), spin_vu_error_db_);
 
 	cmb_vu_decay_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_decay_->addItem(QStringLiteral("Fast (23.5 dB/s)"), (int)VuMeterDecayRate::Fast);
-	cmb_vu_decay_->addItem(QStringLiteral("Medium (11.76 dB/s)"), (int)VuMeterDecayRate::Medium);
-	cmb_vu_decay_->addItem(QStringLiteral("Slow (8.57 dB/s)"), (int)VuMeterDecayRate::Slow);
-	levelsForm->addRow(QStringLiteral("Decay Rate:"), cmb_vu_decay_);
+	cmb_vu_decay_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Decay.Fast"), (int)VuMeterDecayRate::Fast);
+	cmb_vu_decay_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Decay.Medium"), (int)VuMeterDecayRate::Medium);
+	cmb_vu_decay_->addItem(amv::text("AMVPlugin.Visual.VUMeter.Decay.Slow"), (int)VuMeterDecayRate::Slow);
+	levelsForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.DecayRate"), cmb_vu_decay_);
 
 	/* ---- Peak Hold ---- */
-	auto *peakHoldForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Peak Hold"));
+	auto *peakHoldForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.VUMeter.PeakHold"));
 
 	chk_vu_peak_hold_ = new QCheckBox(grp_vu_meter_);
-	peakHoldForm->addRow(QStringLiteral("Peak Hold:"), chk_vu_peak_hold_);
+	peakHoldForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.PeakHold"), chk_vu_peak_hold_);
 
 	spin_vu_peak_hold_ms_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_ms_->setRange(100, 5000);
 	spin_vu_peak_hold_ms_->setSingleStep(100);
 	spin_vu_peak_hold_ms_->setSuffix(QStringLiteral(" ms"));
-	peakHoldForm->addRow(QStringLiteral("Hold Time:"), spin_vu_peak_hold_ms_);
+	peakHoldForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.HoldTime"), spin_vu_peak_hold_ms_);
 
 	spin_vu_peak_hold_decay_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_decay_->setRange(1.0, 60.0);
 	spin_vu_peak_hold_decay_->setSingleStep(1.0);
 	spin_vu_peak_hold_decay_->setDecimals(2);
 	spin_vu_peak_hold_decay_->setSuffix(QStringLiteral(" dB/s"));
-	peakHoldForm->addRow(QStringLiteral("Hold Decay:"), spin_vu_peak_hold_decay_);
+	peakHoldForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.HoldDecay"), spin_vu_peak_hold_decay_);
 
 	spin_vu_peak_hold_width_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_width_->setRange(1, 4);
-	peakHoldForm->addRow(QStringLiteral("Hold Width (px):"), spin_vu_peak_hold_width_);
+	peakHoldForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.HoldWidth"), spin_vu_peak_hold_width_);
 
 	/* ---- dB Scale ---- */
-	auto *scaleForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Scale"));
+	auto *scaleForm = add_subzone(layout, grp_vu_meter_, amv::text("AMVPlugin.Visual.VUMeter.Scale"));
 
 	chk_vu_scale_ = new QCheckBox(grp_vu_meter_);
-	scaleForm->addRow(QStringLiteral("Show Scale:"), chk_vu_scale_);
+	scaleForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.ShowScale"), chk_vu_scale_);
 
 	edit_vu_scale_ticks_ = new QLineEdit(grp_vu_meter_);
 	edit_vu_scale_ticks_->setPlaceholderText(QStringLiteral("-60,-40,-20,-9,0"));
-	scaleForm->addRow(QStringLiteral("Scale Ticks (dB):"), edit_vu_scale_ticks_);
+	scaleForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.ScaleTicks"), edit_vu_scale_ticks_);
 
 	chk_vu_scale_labels_ = new QCheckBox(grp_vu_meter_);
-	scaleForm->addRow(QStringLiteral("Show Labels:"), chk_vu_scale_labels_);
+	scaleForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.ShowLabels"), chk_vu_scale_labels_);
 
 	cmb_vu_scale_side_ = new QComboBox(grp_vu_meter_);
-	cmb_vu_scale_side_->addItem(QStringLiteral("Auto"), (int)VuMeterScaleSide::Auto);
-	cmb_vu_scale_side_->addItem(QStringLiteral("Same side"), (int)VuMeterScaleSide::Same);
-	cmb_vu_scale_side_->addItem(QStringLiteral("Opposite side"), (int)VuMeterScaleSide::Opposite);
-	scaleForm->addRow(QStringLiteral("Scale Side:"), cmb_vu_scale_side_);
+	cmb_vu_scale_side_->addItem(amv::text("AMVPlugin.Common.Auto"), (int)VuMeterScaleSide::Auto);
+	cmb_vu_scale_side_->addItem(amv::text("AMVPlugin.Visual.VUMeter.ScaleSide.Same"), (int)VuMeterScaleSide::Same);
+	cmb_vu_scale_side_->addItem(amv::text("AMVPlugin.Visual.VUMeter.ScaleSide.Opposite"),
+				    (int)VuMeterScaleSide::Opposite);
+	scaleForm->addRow(amv::text("AMVPlugin.Visual.VUMeter.ScaleSide"), cmb_vu_scale_side_);
 
 	HOOK_CHECK(chk_vu_enabled_);
 	HOOK_COMBO(cmb_vu_track_mode_);
@@ -751,12 +760,12 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 
 QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
 {
-	grp_overlay_ = new QGroupBox(QStringLiteral("Overlay"), this);
+	grp_overlay_ = new QGroupBox(amv::text("AMVPlugin.Visual.Overlay.Title"), this);
 	auto *layout = new QVBoxLayout(grp_overlay_);
 
 	if (mode_ != Mode::Global) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_overlay_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_overlay_));
 		cmb_overlay_inherit_ = create_inherit_combo(grp_overlay_);
 		inh_row->addWidget(cmb_overlay_inherit_);
 		inh_row->addStretch();
@@ -768,36 +777,37 @@ QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
 		});
 	}
 
-	auto *visibilityForm = add_subzone(layout, grp_overlay_, QStringLiteral("Visibility"));
+	auto *visibilityForm = add_subzone(layout, grp_overlay_, amv::text("AMVPlugin.Visual.Common.Visibility"));
 
 	chk_overlay_enabled_ = new QCheckBox(grp_overlay_);
-	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_overlay_enabled_);
+	visibilityForm->addRow(amv::text("AMVPlugin.Common.Enabled"), chk_overlay_enabled_);
 
-	auto *imageForm = add_subzone(layout, grp_overlay_, QStringLiteral("Image"));
+	auto *imageForm = add_subzone(layout, grp_overlay_, amv::text("AMVPlugin.Visual.Common.Image"));
 
 	edit_overlay_path_ = new QLineEdit(grp_overlay_);
-	imageForm->addRow(QStringLiteral("Image Path:"),
-			  build_file_picker(edit_overlay_path_, grp_overlay_, QStringLiteral("Select Overlay Image")));
+	imageForm->addRow(amv::text("AMVPlugin.Visual.Common.ImagePath"),
+			  build_file_picker(edit_overlay_path_, grp_overlay_,
+					    amv::text("AMVPlugin.Visual.Overlay.SelectImage")));
 
-	auto *placementForm = add_subzone(layout, grp_overlay_, QStringLiteral("Placement"));
+	auto *placementForm = add_subzone(layout, grp_overlay_, amv::text("AMVPlugin.Visual.Common.Placement"));
 
 	cmb_overlay_fit_ = new QComboBox(grp_overlay_);
-	cmb_overlay_fit_->addItem(QStringLiteral("Fit"), (int)OverlayFitMode::Fit);
-	cmb_overlay_fit_->addItem(QStringLiteral("Stretch"), (int)OverlayFitMode::Stretch);
-	placementForm->addRow(QStringLiteral("Fit Mode:"), cmb_overlay_fit_);
+	cmb_overlay_fit_->addItem(amv::text("AMVPlugin.Common.Fit"), (int)OverlayFitMode::Fit);
+	cmb_overlay_fit_->addItem(amv::text("AMVPlugin.Common.Stretch"), (int)OverlayFitMode::Stretch);
+	placementForm->addRow(amv::text("AMVPlugin.Visual.Common.FitMode"), cmb_overlay_fit_);
 
 	cmb_overlay_anchor_ = new QComboBox(grp_overlay_);
-	cmb_overlay_anchor_->addItem(QStringLiteral("Cell"), (int)OverlayAnchorMode::Cell);
-	cmb_overlay_anchor_->addItem(QStringLiteral("Signal"), (int)OverlayAnchorMode::Signal);
-	placementForm->addRow(QStringLiteral("Anchor:"), cmb_overlay_anchor_);
+	cmb_overlay_anchor_->addItem(amv::text("AMVPlugin.Common.Cell"), (int)OverlayAnchorMode::Cell);
+	cmb_overlay_anchor_->addItem(amv::text("AMVPlugin.Common.Signal"), (int)OverlayAnchorMode::Signal);
+	placementForm->addRow(amv::text("AMVPlugin.Common.Anchor"), cmb_overlay_anchor_);
 
-	auto *styleForm = add_subzone(layout, grp_overlay_, QStringLiteral("Style"));
+	auto *styleForm = add_subzone(layout, grp_overlay_, amv::text("AMVPlugin.Visual.Common.Style"));
 
 	spin_overlay_opacity_ = new QDoubleSpinBox(grp_overlay_);
 	spin_overlay_opacity_->setRange(0.0, 1.0);
 	spin_overlay_opacity_->setSingleStep(0.05);
 	spin_overlay_opacity_->setDecimals(2);
-	styleForm->addRow(QStringLiteral("Opacity:"), spin_overlay_opacity_);
+	styleForm->addRow(amv::text("AMVPlugin.Common.Opacity"), spin_overlay_opacity_);
 
 	HOOK_CHECK(chk_overlay_enabled_);
 	HOOK_EDIT(edit_overlay_path_);
@@ -818,7 +828,7 @@ QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
  * tree — per-cell override has no useful semantics. */
 QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 {
-	grp_highlight_ = new QGroupBox(QStringLiteral("Highlight (PGM / PRVW)"), this);
+	grp_highlight_ = new QGroupBox(amv::text("AMVPlugin.Visual.Highlight.Title"), this);
 	auto *layout = new QVBoxLayout(grp_highlight_);
 
 	if (mode_ == Mode::Cell) {
@@ -826,12 +836,12 @@ QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 		 * Wording is deliberate — "instance-level" tells the user where
 		 * to go to actually edit it (Instance Settings dialog), not just
 		 * that it's disabled here. */
-		lbl_highlight_cell_note_ = new QLabel(QStringLiteral("Highlight is instance-level"), grp_highlight_);
+		lbl_highlight_cell_note_ = new QLabel(amv::text("AMVPlugin.Visual.Highlight.CellNote"), grp_highlight_);
 		lbl_highlight_cell_note_->setStyleSheet(QStringLiteral("QLabel { color: #888; font-style: italic; }"));
 		layout->addWidget(lbl_highlight_cell_note_);
 	} else if (mode_ == Mode::Instance) {
 		auto *inh_row = new QHBoxLayout();
-		inh_row->addWidget(new QLabel(QStringLiteral("Inheritance:"), grp_highlight_));
+		inh_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance"), grp_highlight_));
 		cmb_highlight_inherit_ = create_inherit_combo(grp_highlight_);
 		inh_row->addWidget(cmb_highlight_inherit_);
 		inh_row->addStretch();
@@ -843,43 +853,46 @@ QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 		});
 	}
 
-	auto *visibilityForm = add_subzone(layout, grp_highlight_, QStringLiteral("Visibility"));
+	auto *visibilityForm = add_subzone(layout, grp_highlight_, amv::text("AMVPlugin.Visual.Common.Visibility"));
 
 	chk_highlight_enabled_ = new QCheckBox(grp_highlight_);
-	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_highlight_enabled_);
+	visibilityForm->addRow(amv::text("AMVPlugin.Common.Enabled"), chk_highlight_enabled_);
 
-	auto *colorsForm = add_subzone(layout, grp_highlight_, QStringLiteral("Colors"));
+	auto *colorsForm = add_subzone(layout, grp_highlight_, amv::text("AMVPlugin.Visual.Common.Colors"));
 
 	edit_highlight_pgm_color_ = new QLineEdit(QStringLiteral("#D00000"), grp_highlight_);
-	colorsForm->addRow(QStringLiteral("PGM Color:"), build_color_picker(edit_highlight_pgm_color_, grp_highlight_,
-									    QStringLiteral("PGM Border Color")));
+	colorsForm->addRow(amv::text("AMVPlugin.Visual.Highlight.PGMColor"),
+			   build_color_picker(edit_highlight_pgm_color_, grp_highlight_,
+					      amv::text("AMVPlugin.Visual.Highlight.PGMBorderColor")));
 
 	edit_highlight_prvw_color_ = new QLineEdit(QStringLiteral("#00D000"), grp_highlight_);
-	colorsForm->addRow(QStringLiteral("PRVW Color:"), build_color_picker(edit_highlight_prvw_color_, grp_highlight_,
-									     QStringLiteral("PRVW Border Color")));
+	colorsForm->addRow(amv::text("AMVPlugin.Visual.Highlight.PRVWColor"),
+			   build_color_picker(edit_highlight_prvw_color_, grp_highlight_,
+					      amv::text("AMVPlugin.Visual.Highlight.PRVWBorderColor")));
 
-	auto *nestedStyleForm = add_subzone(layout, grp_highlight_, QStringLiteral("Nested Scene Style"));
+	auto *nestedStyleForm =
+		add_subzone(layout, grp_highlight_, amv::text("AMVPlugin.Visual.Highlight.NestedSceneStyle"));
 
 	chk_highlight_nested_dashed_ = new QCheckBox(grp_highlight_);
-	nestedStyleForm->addRow(QStringLiteral("Nested cells use dashed border:"), chk_highlight_nested_dashed_);
+	nestedStyleForm->addRow(amv::text("AMVPlugin.Visual.Highlight.NestedDashed"), chk_highlight_nested_dashed_);
 
 	spin_highlight_dash_length_ = new QSpinBox(grp_highlight_);
 	spin_highlight_dash_length_->setRange(4, 32);
 	spin_highlight_dash_length_->setSuffix(QStringLiteral(" px"));
-	nestedStyleForm->addRow(QStringLiteral("Dash Length:"), spin_highlight_dash_length_);
+	nestedStyleForm->addRow(amv::text("AMVPlugin.Visual.Highlight.DashLength"), spin_highlight_dash_length_);
 
 	spin_highlight_dash_gap_ = new QSpinBox(grp_highlight_);
 	spin_highlight_dash_gap_->setRange(2, 16);
 	spin_highlight_dash_gap_->setSuffix(QStringLiteral(" px"));
-	nestedStyleForm->addRow(QStringLiteral("Dash Gap:"), spin_highlight_dash_gap_);
+	nestedStyleForm->addRow(amv::text("AMVPlugin.Visual.Highlight.DashGap"), spin_highlight_dash_gap_);
 
-	auto *borderForm = add_subzone(layout, grp_highlight_, QStringLiteral("Border"));
+	auto *borderForm = add_subzone(layout, grp_highlight_, amv::text("AMVPlugin.Visual.Highlight.Border"));
 
 	spin_highlight_min_thickness_ = new QSpinBox(grp_highlight_);
 	spin_highlight_min_thickness_->setRange(2, 16);
 	spin_highlight_min_thickness_->setSuffix(QStringLiteral(" px"));
-	spin_highlight_min_thickness_->setToolTip(QStringLiteral("Inner border thickness used when gutter width is 0"));
-	borderForm->addRow(QStringLiteral("Min Thickness:"), spin_highlight_min_thickness_);
+	spin_highlight_min_thickness_->setToolTip(amv::text("AMVPlugin.Visual.Highlight.MinThicknessTooltip"));
+	borderForm->addRow(amv::text("AMVPlugin.Visual.Highlight.MinThickness"), spin_highlight_min_thickness_);
 
 	HOOK_CHECK(chk_highlight_enabled_);
 	HOOK_EDIT(edit_highlight_pgm_color_);
