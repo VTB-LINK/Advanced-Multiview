@@ -143,9 +143,12 @@ void SourcePicker::populate_list()
 		if (obs_source_get_type(src) == OBS_SOURCE_TYPE_SCENE)
 			return true;
 
-		/* Only show video-capable sources */
+		/* Show any renderable signal source: video-capable sources and
+		 * audio-only sources (Audio Input/Output Capture, Application
+		 * Audio Capture, etc.). Audio-only cells render an AUDIO ONLY
+		 * status band in the multiview window. */
 		uint32_t flags = obs_source_get_output_flags(src);
-		if (!(flags & OBS_SOURCE_VIDEO))
+		if (!(flags & (OBS_SOURCE_VIDEO | OBS_SOURCE_AUDIO)))
 			return true;
 
 		const char *name = obs_source_get_name(src);
