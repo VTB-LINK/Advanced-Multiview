@@ -52,6 +52,14 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 /* ---- helpers (same as OBS internal) ---- */
 
+static bool source_is_audio_only(obs_source_t *src)
+{
+	if (!src)
+		return false;
+	const uint32_t flags = obs_source_get_output_flags(src);
+	return (flags & OBS_SOURCE_AUDIO) && !(flags & OBS_SOURCE_VIDEO);
+}
+
 static inline void startRegion(int vX, int vY, int vCX, int vCY, float oL, float oR, float oT, float oB)
 {
 	gs_projection_push();
@@ -347,6 +355,7 @@ bool MultiviewWindow::refresh_cell(int row, int col)
 		cs.type.clear();
 		cs.name.clear();
 		cs.prvw_fallback = false;
+		cs.audio_only = false;
 		cs.state = SignalRuntimeState::Empty;
 		cs.last_active_ns = 0;
 		cs.last_reconnect_ns = 0;
@@ -390,6 +399,7 @@ bool MultiviewWindow::refresh_cell(int row, int col)
 					cs.state = SignalRuntimeState::MissingInternal;
 				} else if (src) {
 					cs.weak_ref = OBSGetWeakRef(src);
+					cs.audio_only = ca->type == "source" && source_is_audio_only(src);
 					obs_source_inc_showing(src);
 					cs.showing = true;
 					cs.state = SignalRuntimeState::Active;
@@ -622,6 +632,7 @@ void MultiviewWindow::on_source_being_removed(obs_source_t *source)
 			 * never call obs_source_video_render() through this binding. */
 			cs.showing = false;
 			cs.weak_ref = nullptr;
+			cs.audio_only = false;
 			cs.state = SignalRuntimeState::MissingInternal;
 			cs.last_active_ns = 0;
 			any_match = true;
@@ -706,6 +717,7 @@ void MultiviewWindow::on_source_just_created(obs_source_t *source)
 			 * the source is alive and stable, so inc_showing is safe and
 			 * keeps audio meters reachable. */
 			cs.weak_ref = OBSGetWeakRef(source);
+			cs.audio_only = cs.type == "source" && source_is_audio_only(source);
 			obs_source_inc_showing(source);
 			cs.showing = true;
 			cs.state = SignalRuntimeState::Active;
@@ -802,6 +814,7 @@ void MultiviewWindow::update_source_refs_lazy()
 						obs_source_release(src);
 					} else if (src) {
 						cs.weak_ref = OBSGetWeakRef(src);
+						cs.audio_only = newType == "source" && source_is_audio_only(src);
 						if (!cs.showing) {
 							obs_source_inc_showing(src);
 							cs.showing = true;
@@ -828,6 +841,7 @@ void MultiviewWindow::update_source_refs_lazy()
 		cs.type = newType;
 		cs.name = newName;
 		cs.prvw_fallback = false;
+		cs.audio_only = false;
 		cs.state = SignalRuntimeState::Empty;
 		cs.last_active_ns = 0;
 		cs.last_reconnect_ns = 0;
@@ -846,6 +860,7 @@ void MultiviewWindow::update_source_refs_lazy()
 		obs_source_t *src = obs_get_source_by_name(newName.c_str());
 		if (src) {
 			cs.weak_ref = OBSGetWeakRef(src);
+			cs.audio_only = newType == "source" && source_is_audio_only(src);
 			obs_source_inc_showing(src);
 			cs.showing = true;
 			cs.state = SignalRuntimeState::Active;
@@ -1111,6 +1126,7 @@ bool MultiviewWindow::force_reconnect_cell(int cellIndex)
 		}
 		if (resolved) {
 			cs.weak_ref = OBSGetWeakRef(resolved);
+			cs.audio_only = cs.type == "source" && source_is_audio_only(resolved);
 			obs_source_inc_showing(resolved);
 			cs.showing = true;
 			cs.state = SignalRuntimeState::Active;
@@ -1168,6 +1184,7 @@ void MultiviewWindow::update_source_refs()
 			cell_sources_[i].weak_ref = nullptr;
 			cell_sources_[i].showing = false;
 			cell_sources_[i].prvw_fallback = false;
+			cell_sources_[i].audio_only = false;
 			cell_sources_[i].state = SignalRuntimeState::Empty;
 			cell_sources_[i].last_active_ns = 0;
 			cell_sources_[i].last_reconnect_ns = 0;
@@ -1237,6 +1254,7 @@ void MultiviewWindow::update_source_refs()
 			}
 			if (src) {
 				cell_sources_[i].weak_ref = OBSGetWeakRef(src);
+				cell_sources_[i].audio_only = ca->type == "source" && source_is_audio_only(src);
 				obs_source_inc_showing(src);
 				cell_sources_[i].showing = true;
 				cell_sources_[i].state = SignalRuntimeState::Active;
@@ -1677,6 +1695,8 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 					obs_source_t *resolved = obs_get_source_by_name(cs.name.c_str());
 					if (resolved) {
 						cell_sources_[i].weak_ref = OBSGetWeakRef(resolved);
+						cell_sources_[i].audio_only = cs.type == "source" &&
+									      source_is_audio_only(resolved);
 						obs_source_inc_showing(resolved);
 						cell_sources_[i].showing = true;
 						srcHolder = resolved;

@@ -244,6 +244,7 @@ private:
 		OBSWeakSource weak_ref; /* cached for scene/source only */
 		bool showing = false;
 		bool prvw_fallback = false; /* PRVW fell back to PGM */
+		bool audio_only = false;    /* direct OBS source has audio output but no video output */
 
 		/* Phase 3 / M5 runtime state. Read on render thread, mutated under
 		 * source_mutex_ on UI thread (refresh_sources) and render thread
@@ -453,6 +454,7 @@ private:
 		Fallback,
 		ProviderMissing,
 		Paused,
+		AudioOnly,
 	};
 	StatusTextEntry status_missing_source_;
 	StatusTextEntry status_missing_scene_;
@@ -461,6 +463,7 @@ private:
 	StatusTextEntry status_fallback_;         /* M5.4 */
 	StatusTextEntry status_provider_missing_; /* M6.2 host-plugin missing */
 	StatusTextEntry status_paused_;           /* M6.6 user-paused media */
+	StatusTextEntry status_audio_only_;       /* direct OBS audio input/output capture */
 	void ensure_status_text_source(StatusTextEntry &entry, const char *text);
 	void release_status_text_sources();
 	StatusOverlayKind status_overlay_kind_for_state(SignalRuntimeState state, const std::string &cellType,

@@ -175,6 +175,9 @@ void MultiviewWindow::release_status_text_sources()
 	status_paused_.source = nullptr;
 	status_paused_.width = 0;
 	status_paused_.height = 0;
+	status_audio_only_.source = nullptr;
+	status_audio_only_.width = 0;
+	status_audio_only_.height = 0;
 }
 
 MultiviewWindow::StatusOverlayKind MultiviewWindow::status_overlay_kind_for_state(SignalRuntimeState state,
@@ -253,7 +256,9 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 	if (cs.pending_clear)
 		return;
 
-	const StatusOverlayKind kind = status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
+	const StatusOverlayKind kind = cs.audio_only
+					       ? StatusOverlayKind::AudioOnly
+					       : status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
 	if (kind == StatusOverlayKind::None)
 		return;
 
@@ -325,6 +330,11 @@ void MultiviewWindow::render_status_overlay(int cellIndex, int cellX, int cellY,
 		text = "PAUSED";
 		bandColor = 0xC0205060; /* desaturated teal, ~75% opacity */
 		entry = &status_paused_;
+		break;
+	case StatusOverlayKind::AudioOnly:
+		text = "AUDIO ONLY";
+		bandColor = 0xC0204060; /* same blue family as CONNECTING... */
+		entry = &status_audio_only_;
 		break;
 	default:
 		return;
