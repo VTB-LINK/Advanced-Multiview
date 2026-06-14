@@ -85,7 +85,6 @@ struct BackgroundSettings {
 	bool colorEnabled = true;
 	uint32_t color = 0xFF000000; /* ARGB black */
 	BackgroundFillMode fillMode = BackgroundFillMode::FillEntireCell;
-	bool labelRegionFill = false; /* Below mode: fill label row with bgColor */
 	bool imageEnabled = false;
 	std::string imagePath;
 	ImageFitMode imageFitMode = ImageFitMode::Fit;
@@ -106,6 +105,7 @@ struct LabelSettings {
 	double backgroundOpacity = 0.2;
 	bool backgroundRounded = false;
 	int margin = 4;
+	bool labelRegionFill = false; /* Below mode: fill label row with bgColor */
 
 	obs_data_t *to_obs_data() const;
 	static LabelSettings from_obs_data(obs_data_t *data);

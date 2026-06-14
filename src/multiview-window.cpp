@@ -56,7 +56,7 @@ static bool source_is_audio_only(obs_source_t *src)
 {
 	if (!src)
 		return false;
-	const uint32_t flags = obs_source_get_output_flags(src);
+	uint32_t flags = obs_source_get_output_flags(src);
 	return (flags & OBS_SOURCE_AUDIO) && !(flags & OBS_SOURCE_VIDEO);
 }
 
@@ -2423,7 +2423,7 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		/* Fill label region background (Below mode only, when labelRegionFill enabled) */
 		if (i < (int)effective_visuals_.size() &&
 		    effective_visuals_[i].label.displayMode == LabelDisplayMode::Below &&
-		    effective_visuals_[i].background.labelRegionFill) {
+		    effective_visuals_[i].label.labelRegionFill) {
 			int labelRegionH = cell.h / 6;
 			if (labelRegionH < 16)
 				labelRegionH = 16;

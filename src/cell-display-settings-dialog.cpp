@@ -333,6 +333,21 @@ void CellDisplaySettingsDialog::setup_ui()
 #define HOOK_EDIT(edit) \
 	connect(edit, &QLineEdit::textChanged, this, [this](const QString &) { dirty_ = true; emit settings_changed(); })
 
+static QFormLayout *add_subzone(QVBoxLayout *layout, QWidget *parent, const QString &title)
+{
+	auto *label = new QLabel(title, parent);
+	QFont font = label->font();
+	font.setBold(true);
+	label->setFont(font);
+	label->setStyleSheet(QStringLiteral("QLabel { margin-top: 8px; }"));
+	layout->addWidget(label);
+
+	auto *form = new QFormLayout();
+	form->setContentsMargins(8, 0, 0, 0);
+	layout->addLayout(form);
+	return form;
+}
+
 /* ---- Background Group ---- */
 
 QGroupBox *CellDisplaySettingsDialog::create_background_group()
@@ -355,33 +370,33 @@ QGroupBox *CellDisplaySettingsDialog::create_background_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *fillForm = add_subzone(layout, grp_background_, QStringLiteral("Fill"));
 
 	chk_bg_color_enabled_ = new QCheckBox(grp_background_);
-	form->addRow(QStringLiteral("Color Enabled:"), chk_bg_color_enabled_);
+	fillForm->addRow(QStringLiteral("Color Enabled:"), chk_bg_color_enabled_);
 
 	edit_bg_color_ = new QLineEdit(QStringLiteral("#000000"), grp_background_);
-	form->addRow(QStringLiteral("Color:"),
-		     build_color_picker(edit_bg_color_, grp_background_, QStringLiteral("Background Color")));
+	fillForm->addRow(QStringLiteral("Color:"),
+			 build_color_picker(edit_bg_color_, grp_background_, QStringLiteral("Background Color")));
 
 	cmb_bg_fill_mode_ = new QComboBox(grp_background_);
 	cmb_bg_fill_mode_->addItem(QStringLiteral("Fill Signal Only"), (int)BackgroundFillMode::FillSignalOnly);
 	cmb_bg_fill_mode_->addItem(QStringLiteral("Fill Entire Cell"), (int)BackgroundFillMode::FillEntireCell);
-	form->addRow(QStringLiteral("Fill Mode:"), cmb_bg_fill_mode_);
+	fillForm->addRow(QStringLiteral("Fill Mode:"), cmb_bg_fill_mode_);
+
+	auto *imageForm = add_subzone(layout, grp_background_, QStringLiteral("Image"));
 
 	chk_bg_image_enabled_ = new QCheckBox(grp_background_);
-	form->addRow(QStringLiteral("Image Enabled:"), chk_bg_image_enabled_);
+	imageForm->addRow(QStringLiteral("Image Enabled:"), chk_bg_image_enabled_);
 
 	edit_bg_image_path_ = new QLineEdit(grp_background_);
-	form->addRow(QStringLiteral("Image Path:"), build_file_picker(edit_bg_image_path_, grp_background_,
-								      QStringLiteral("Select Background Image")));
+	imageForm->addRow(QStringLiteral("Image Path:"), build_file_picker(edit_bg_image_path_, grp_background_,
+									   QStringLiteral("Select Background Image")));
 
 	cmb_bg_image_fit_ = new QComboBox(grp_background_);
 	cmb_bg_image_fit_->addItem(QStringLiteral("Fit"), (int)ImageFitMode::Fit);
 	cmb_bg_image_fit_->addItem(QStringLiteral("Stretch"), (int)ImageFitMode::Stretch);
-	form->addRow(QStringLiteral("Image Fit:"), cmb_bg_image_fit_);
-
-	layout->addLayout(form);
+	imageForm->addRow(QStringLiteral("Image Fit:"), cmb_bg_image_fit_);
 
 	HOOK_CHECK(chk_bg_color_enabled_);
 	HOOK_EDIT(edit_bg_color_);
@@ -414,63 +429,67 @@ QGroupBox *CellDisplaySettingsDialog::create_label_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *displayForm = add_subzone(layout, grp_label_, QStringLiteral("Display"));
 
 	cmb_label_display_ = new QComboBox(grp_label_);
 	cmb_label_display_->addItem(QStringLiteral("None"), (int)LabelDisplayMode::None);
 	cmb_label_display_->addItem(QStringLiteral("Overlay"), (int)LabelDisplayMode::Overlay);
 	cmb_label_display_->addItem(QStringLiteral("Below"), (int)LabelDisplayMode::Below);
-	form->addRow(QStringLiteral("Display:"), cmb_label_display_);
+	displayForm->addRow(QStringLiteral("Display:"), cmb_label_display_);
 
 	cmb_label_position_ = new QComboBox(grp_label_);
 	cmb_label_position_->addItem(QStringLiteral("Top"), (int)LabelPosition::Top);
 	cmb_label_position_->addItem(QStringLiteral("Bottom"), (int)LabelPosition::Bottom);
-	form->addRow(QStringLiteral("Position:"), cmb_label_position_);
+	displayForm->addRow(QStringLiteral("Position:"), cmb_label_position_);
+
+	auto *typographyForm = add_subzone(layout, grp_label_, QStringLiteral("Typography"));
 
 	btn_label_font_ = build_font_picker(grp_label_, [this]() {
 		dirty_ = true;
 		emit settings_changed();
 	});
-	form->addRow(QStringLiteral("Font Family:"), btn_label_font_);
+	typographyForm->addRow(QStringLiteral("Font Family:"), btn_label_font_);
 
 	spin_label_font_size_ = new QSpinBox(grp_label_);
 	spin_label_font_size_->setRange(6, 96);
-	form->addRow(QStringLiteral("Font Size:"), spin_label_font_size_);
+	typographyForm->addRow(QStringLiteral("Font Size:"), spin_label_font_size_);
 
 	cmb_label_scale_mode_ = new QComboBox(grp_label_);
 	cmb_label_scale_mode_->addItem(QStringLiteral("Fixed"), (int)FontScaleMode::Fixed);
 	cmb_label_scale_mode_->addItem(QStringLiteral("Scale With Cell"), (int)FontScaleMode::ScaleWithCell);
-	form->addRow(QStringLiteral("Scale Mode:"), cmb_label_scale_mode_);
+	typographyForm->addRow(QStringLiteral("Scale Mode:"), cmb_label_scale_mode_);
 
 	spin_label_min_font_ = new QSpinBox(grp_label_);
 	spin_label_min_font_->setRange(4, 48);
-	form->addRow(QStringLiteral("Min Font Size:"), spin_label_min_font_);
+	typographyForm->addRow(QStringLiteral("Min Font Size:"), spin_label_min_font_);
 
 	spin_label_max_font_ = new QSpinBox(grp_label_);
 	spin_label_max_font_->setRange(12, 144);
-	form->addRow(QStringLiteral("Max Font Size:"), spin_label_max_font_);
+	typographyForm->addRow(QStringLiteral("Max Font Size:"), spin_label_max_font_);
+
+	auto *colorsForm = add_subzone(layout, grp_label_, QStringLiteral("Colors"));
 
 	edit_label_text_color_ = new QLineEdit(QStringLiteral("#FFFFFF"), grp_label_);
-	form->addRow(QStringLiteral("Text Color:"),
-		     build_color_picker(edit_label_text_color_, grp_label_, QStringLiteral("Label Text Color")));
+	colorsForm->addRow(QStringLiteral("Text Color:"),
+			   build_color_picker(edit_label_text_color_, grp_label_, QStringLiteral("Label Text Color")));
 
 	spin_label_bg_opacity_ = new QDoubleSpinBox(grp_label_);
 	spin_label_bg_opacity_->setRange(0.0, 1.0);
 	spin_label_bg_opacity_->setSingleStep(0.05);
 	spin_label_bg_opacity_->setDecimals(2);
-	form->addRow(QStringLiteral("BG Opacity:"), spin_label_bg_opacity_);
+	colorsForm->addRow(QStringLiteral("BG Opacity:"), spin_label_bg_opacity_);
 
-	chk_label_bg_rounded_ = new QCheckBox(grp_label_);
-	form->addRow(QStringLiteral("BG Rounded:"), chk_label_bg_rounded_);
+	auto *boxForm = add_subzone(layout, grp_label_, QStringLiteral("Box"));
 
 	spin_label_margin_ = new QSpinBox(grp_label_);
 	spin_label_margin_->setRange(0, 32);
-	form->addRow(QStringLiteral("Margin:"), spin_label_margin_);
+	boxForm->addRow(QStringLiteral("Margin:"), spin_label_margin_);
 
 	chk_bg_label_fill_ = new QCheckBox(grp_label_);
-	form->addRow(QStringLiteral("Label Region Fill:"), chk_bg_label_fill_);
+	boxForm->addRow(QStringLiteral("Label Region Fill:"), chk_bg_label_fill_);
 
-	layout->addLayout(form);
+	chk_label_bg_rounded_ = new QCheckBox(grp_label_);
+	boxForm->addRow(QStringLiteral("BG Rounded:"), chk_label_bg_rounded_);
 
 	HOOK_COMBO(cmb_label_display_);
 	HOOK_COMBO(cmb_label_position_);
@@ -520,27 +539,29 @@ QGroupBox *CellDisplaySettingsDialog::create_safe_area_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *visibilityForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Visibility"));
 
 	chk_safe_area_enabled_ = new QCheckBox(grp_safe_area_);
-	form->addRow(QStringLiteral("Enabled:"), chk_safe_area_enabled_);
+	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_safe_area_enabled_);
 
-	cmb_safe_area_anchor_ = new QComboBox(grp_safe_area_);
-	cmb_safe_area_anchor_->addItem(QStringLiteral("Cell"), (int)SafeAreaAnchorMode::Cell);
-	cmb_safe_area_anchor_->addItem(QStringLiteral("Signal"), (int)SafeAreaAnchorMode::Signal);
-	form->addRow(QStringLiteral("Anchor:"), cmb_safe_area_anchor_);
+	auto *styleForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Style"));
 
 	edit_safe_area_color_ = new QLineEdit(QStringLiteral("#D0D0D0"), grp_safe_area_);
-	form->addRow(QStringLiteral("Color:"),
-		     build_color_picker(edit_safe_area_color_, grp_safe_area_, QStringLiteral("Safe Area Color")));
+	styleForm->addRow(QStringLiteral("Color:"),
+			  build_color_picker(edit_safe_area_color_, grp_safe_area_, QStringLiteral("Safe Area Color")));
 
 	spin_safe_area_opacity_ = new QDoubleSpinBox(grp_safe_area_);
 	spin_safe_area_opacity_->setRange(0.0, 1.0);
 	spin_safe_area_opacity_->setSingleStep(0.1);
 	spin_safe_area_opacity_->setDecimals(2);
-	form->addRow(QStringLiteral("Opacity:"), spin_safe_area_opacity_);
+	styleForm->addRow(QStringLiteral("Opacity:"), spin_safe_area_opacity_);
 
-	layout->addLayout(form);
+	auto *geometryForm = add_subzone(layout, grp_safe_area_, QStringLiteral("Geometry"));
+
+	cmb_safe_area_anchor_ = new QComboBox(grp_safe_area_);
+	cmb_safe_area_anchor_->addItem(QStringLiteral("Cell"), (int)SafeAreaAnchorMode::Cell);
+	cmb_safe_area_anchor_->addItem(QStringLiteral("Signal"), (int)SafeAreaAnchorMode::Signal);
+	geometryForm->addRow(QStringLiteral("Anchor:"), cmb_safe_area_anchor_);
 
 	HOOK_CHECK(chk_safe_area_enabled_);
 	HOOK_COMBO(cmb_safe_area_anchor_);
@@ -571,10 +592,12 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *visibilityForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Visibility"));
 
 	chk_vu_enabled_ = new QCheckBox(grp_vu_meter_);
-	form->addRow(QStringLiteral("Enabled:"), chk_vu_enabled_);
+	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_vu_enabled_);
+
+	auto *sourceForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Source"));
 
 	/* Track selection for internal OBS cells. External-provider cells meter
 	 * their private source directly; the cell-scoped dialog inserts and locks
@@ -583,113 +606,121 @@ QGroupBox *CellDisplaySettingsDialog::create_vu_meter_group()
 	cmb_vu_track_mode_->addItem(QStringLiteral("Auto-follow Streaming"),
 				    (int)VuMeterTrackMode::AutoFollowStreaming);
 	cmb_vu_track_mode_->addItem(QStringLiteral("Manual"), (int)VuMeterTrackMode::Manual);
-	form->addRow(QStringLiteral("Track Source:"), cmb_vu_track_mode_);
+	sourceForm->addRow(QStringLiteral("Track Source:"), cmb_vu_track_mode_);
 
 	spin_vu_manual_track_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_manual_track_->setRange(1, 6);
 	spin_vu_manual_track_->setPrefix(QStringLiteral("Track "));
-	form->addRow(QStringLiteral("Manual Track:"), spin_vu_manual_track_);
+	sourceForm->addRow(QStringLiteral("Manual Track:"), spin_vu_manual_track_);
 
 	/* Manual track spinbox is only meaningful when mode == Manual.
 	 * Gray out otherwise to clarify the inactive field. */
 	connect(cmb_vu_track_mode_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		[this](int) { update_vu_meter_control_states(); });
 
+	auto *placementForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Placement"));
+
 	cmb_vu_position_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_position_->addItem(QStringLiteral("Left"), (int)VuMeterPosition::Left);
 	cmb_vu_position_->addItem(QStringLiteral("Right"), (int)VuMeterPosition::Right);
 	cmb_vu_position_->addItem(QStringLiteral("Top"), (int)VuMeterPosition::Top);
 	cmb_vu_position_->addItem(QStringLiteral("Bottom"), (int)VuMeterPosition::Bottom);
-	form->addRow(QStringLiteral("Position:"), cmb_vu_position_);
+	placementForm->addRow(QStringLiteral("Position:"), cmb_vu_position_);
 
 	cmb_vu_anchor_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_anchor_->addItem(QStringLiteral("Cell"), (int)VuMeterAnchorMode::Cell);
 	cmb_vu_anchor_->addItem(QStringLiteral("Signal"), (int)VuMeterAnchorMode::Signal);
-	form->addRow(QStringLiteral("Anchor:"), cmb_vu_anchor_);
+	placementForm->addRow(QStringLiteral("Anchor:"), cmb_vu_anchor_);
 
 	spin_vu_width_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_width_->setRange(1, 64);
-	form->addRow(QStringLiteral("Width (px):"), spin_vu_width_);
-
-	spin_vu_opacity_ = new QDoubleSpinBox(grp_vu_meter_);
-	spin_vu_opacity_->setRange(0.0, 1.0);
-	spin_vu_opacity_->setSingleStep(0.05);
-	spin_vu_opacity_->setDecimals(2);
-	form->addRow(QStringLiteral("Opacity:"), spin_vu_opacity_);
+	placementForm->addRow(QStringLiteral("Width (px):"), spin_vu_width_);
 
 	spin_vu_length_ratio_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_length_ratio_->setRange(0.1, 1.0);
 	spin_vu_length_ratio_->setSingleStep(0.05);
 	spin_vu_length_ratio_->setDecimals(2);
-	form->addRow(QStringLiteral("Length Ratio:"), spin_vu_length_ratio_);
+	placementForm->addRow(QStringLiteral("Length Ratio:"), spin_vu_length_ratio_);
 
 	cmb_vu_alignment_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_alignment_->addItem(QStringLiteral("Start (-∞ anchor)"), (int)VuMeterAlignment::Start);
 	cmb_vu_alignment_->addItem(QStringLiteral("Center"), (int)VuMeterAlignment::Center);
-	form->addRow(QStringLiteral("Alignment:"), cmb_vu_alignment_);
+	placementForm->addRow(QStringLiteral("Alignment:"), cmb_vu_alignment_);
+
+	chk_vu_flip_ = new QCheckBox(grp_vu_meter_);
+	placementForm->addRow(QStringLiteral("Flip:"), chk_vu_flip_);
+
+	auto *lookForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Look"));
+
+	spin_vu_opacity_ = new QDoubleSpinBox(grp_vu_meter_);
+	spin_vu_opacity_->setRange(0.0, 1.0);
+	spin_vu_opacity_->setSingleStep(0.05);
+	spin_vu_opacity_->setDecimals(2);
+	lookForm->addRow(QStringLiteral("Opacity:"), spin_vu_opacity_);
+
+	auto *levelsForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Levels"));
 
 	spin_vu_warning_db_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_warning_db_->setRange(-60.0, 0.0);
 	spin_vu_warning_db_->setSingleStep(1.0);
 	spin_vu_warning_db_->setDecimals(1);
 	spin_vu_warning_db_->setSuffix(QStringLiteral(" dB"));
-	form->addRow(QStringLiteral("Warning:"), spin_vu_warning_db_);
+	levelsForm->addRow(QStringLiteral("Warning:"), spin_vu_warning_db_);
 
 	spin_vu_error_db_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_error_db_->setRange(-60.0, 0.0);
 	spin_vu_error_db_->setSingleStep(1.0);
 	spin_vu_error_db_->setDecimals(1);
 	spin_vu_error_db_->setSuffix(QStringLiteral(" dB"));
-	form->addRow(QStringLiteral("Error:"), spin_vu_error_db_);
+	levelsForm->addRow(QStringLiteral("Error:"), spin_vu_error_db_);
 
 	cmb_vu_decay_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_decay_->addItem(QStringLiteral("Fast (23.5 dB/s)"), (int)VuMeterDecayRate::Fast);
 	cmb_vu_decay_->addItem(QStringLiteral("Medium (11.76 dB/s)"), (int)VuMeterDecayRate::Medium);
 	cmb_vu_decay_->addItem(QStringLiteral("Slow (8.57 dB/s)"), (int)VuMeterDecayRate::Slow);
-	form->addRow(QStringLiteral("Decay Rate:"), cmb_vu_decay_);
-
-	chk_vu_flip_ = new QCheckBox(grp_vu_meter_);
-	form->addRow(QStringLiteral("Flip:"), chk_vu_flip_);
+	levelsForm->addRow(QStringLiteral("Decay Rate:"), cmb_vu_decay_);
 
 	/* ---- Peak Hold ---- */
+	auto *peakHoldForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Peak Hold"));
+
 	chk_vu_peak_hold_ = new QCheckBox(grp_vu_meter_);
-	form->addRow(QStringLiteral("Peak Hold:"), chk_vu_peak_hold_);
+	peakHoldForm->addRow(QStringLiteral("Peak Hold:"), chk_vu_peak_hold_);
 
 	spin_vu_peak_hold_ms_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_ms_->setRange(100, 5000);
 	spin_vu_peak_hold_ms_->setSingleStep(100);
 	spin_vu_peak_hold_ms_->setSuffix(QStringLiteral(" ms"));
-	form->addRow(QStringLiteral("Hold Time:"), spin_vu_peak_hold_ms_);
+	peakHoldForm->addRow(QStringLiteral("Hold Time:"), spin_vu_peak_hold_ms_);
 
 	spin_vu_peak_hold_decay_ = new QDoubleSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_decay_->setRange(1.0, 60.0);
 	spin_vu_peak_hold_decay_->setSingleStep(1.0);
 	spin_vu_peak_hold_decay_->setDecimals(2);
 	spin_vu_peak_hold_decay_->setSuffix(QStringLiteral(" dB/s"));
-	form->addRow(QStringLiteral("Hold Decay:"), spin_vu_peak_hold_decay_);
+	peakHoldForm->addRow(QStringLiteral("Hold Decay:"), spin_vu_peak_hold_decay_);
 
 	spin_vu_peak_hold_width_ = new QSpinBox(grp_vu_meter_);
 	spin_vu_peak_hold_width_->setRange(1, 4);
-	form->addRow(QStringLiteral("Hold Width (px):"), spin_vu_peak_hold_width_);
+	peakHoldForm->addRow(QStringLiteral("Hold Width (px):"), spin_vu_peak_hold_width_);
 
 	/* ---- dB Scale ---- */
+	auto *scaleForm = add_subzone(layout, grp_vu_meter_, QStringLiteral("Scale"));
+
 	chk_vu_scale_ = new QCheckBox(grp_vu_meter_);
-	form->addRow(QStringLiteral("Show Scale:"), chk_vu_scale_);
+	scaleForm->addRow(QStringLiteral("Show Scale:"), chk_vu_scale_);
 
 	edit_vu_scale_ticks_ = new QLineEdit(grp_vu_meter_);
 	edit_vu_scale_ticks_->setPlaceholderText(QStringLiteral("-60,-40,-20,-9,0"));
-	form->addRow(QStringLiteral("Scale Ticks (dB):"), edit_vu_scale_ticks_);
+	scaleForm->addRow(QStringLiteral("Scale Ticks (dB):"), edit_vu_scale_ticks_);
 
 	chk_vu_scale_labels_ = new QCheckBox(grp_vu_meter_);
-	form->addRow(QStringLiteral("Show Labels:"), chk_vu_scale_labels_);
+	scaleForm->addRow(QStringLiteral("Show Labels:"), chk_vu_scale_labels_);
 
 	cmb_vu_scale_side_ = new QComboBox(grp_vu_meter_);
 	cmb_vu_scale_side_->addItem(QStringLiteral("Auto"), (int)VuMeterScaleSide::Auto);
 	cmb_vu_scale_side_->addItem(QStringLiteral("Same side"), (int)VuMeterScaleSide::Same);
 	cmb_vu_scale_side_->addItem(QStringLiteral("Opposite side"), (int)VuMeterScaleSide::Opposite);
-	form->addRow(QStringLiteral("Scale Side:"), cmb_vu_scale_side_);
-
-	layout->addLayout(form);
+	scaleForm->addRow(QStringLiteral("Scale Side:"), cmb_vu_scale_side_);
 
 	HOOK_CHECK(chk_vu_enabled_);
 	HOOK_COMBO(cmb_vu_track_mode_);
@@ -737,32 +768,36 @@ QGroupBox *CellDisplaySettingsDialog::create_overlay_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *visibilityForm = add_subzone(layout, grp_overlay_, QStringLiteral("Visibility"));
 
 	chk_overlay_enabled_ = new QCheckBox(grp_overlay_);
-	form->addRow(QStringLiteral("Enabled:"), chk_overlay_enabled_);
+	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_overlay_enabled_);
+
+	auto *imageForm = add_subzone(layout, grp_overlay_, QStringLiteral("Image"));
 
 	edit_overlay_path_ = new QLineEdit(grp_overlay_);
-	form->addRow(QStringLiteral("Image Path:"),
-		     build_file_picker(edit_overlay_path_, grp_overlay_, QStringLiteral("Select Overlay Image")));
+	imageForm->addRow(QStringLiteral("Image Path:"),
+			  build_file_picker(edit_overlay_path_, grp_overlay_, QStringLiteral("Select Overlay Image")));
+
+	auto *placementForm = add_subzone(layout, grp_overlay_, QStringLiteral("Placement"));
+
+	cmb_overlay_fit_ = new QComboBox(grp_overlay_);
+	cmb_overlay_fit_->addItem(QStringLiteral("Fit"), (int)OverlayFitMode::Fit);
+	cmb_overlay_fit_->addItem(QStringLiteral("Stretch"), (int)OverlayFitMode::Stretch);
+	placementForm->addRow(QStringLiteral("Fit Mode:"), cmb_overlay_fit_);
+
+	cmb_overlay_anchor_ = new QComboBox(grp_overlay_);
+	cmb_overlay_anchor_->addItem(QStringLiteral("Cell"), (int)OverlayAnchorMode::Cell);
+	cmb_overlay_anchor_->addItem(QStringLiteral("Signal"), (int)OverlayAnchorMode::Signal);
+	placementForm->addRow(QStringLiteral("Anchor:"), cmb_overlay_anchor_);
+
+	auto *styleForm = add_subzone(layout, grp_overlay_, QStringLiteral("Style"));
 
 	spin_overlay_opacity_ = new QDoubleSpinBox(grp_overlay_);
 	spin_overlay_opacity_->setRange(0.0, 1.0);
 	spin_overlay_opacity_->setSingleStep(0.05);
 	spin_overlay_opacity_->setDecimals(2);
-	form->addRow(QStringLiteral("Opacity:"), spin_overlay_opacity_);
-
-	cmb_overlay_fit_ = new QComboBox(grp_overlay_);
-	cmb_overlay_fit_->addItem(QStringLiteral("Fit"), (int)OverlayFitMode::Fit);
-	cmb_overlay_fit_->addItem(QStringLiteral("Stretch"), (int)OverlayFitMode::Stretch);
-	form->addRow(QStringLiteral("Fit Mode:"), cmb_overlay_fit_);
-
-	cmb_overlay_anchor_ = new QComboBox(grp_overlay_);
-	cmb_overlay_anchor_->addItem(QStringLiteral("Cell"), (int)OverlayAnchorMode::Cell);
-	cmb_overlay_anchor_->addItem(QStringLiteral("Signal"), (int)OverlayAnchorMode::Signal);
-	form->addRow(QStringLiteral("Anchor:"), cmb_overlay_anchor_);
-
-	layout->addLayout(form);
+	styleForm->addRow(QStringLiteral("Opacity:"), spin_overlay_opacity_);
 
 	HOOK_CHECK(chk_overlay_enabled_);
 	HOOK_EDIT(edit_overlay_path_);
@@ -808,39 +843,43 @@ QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 		});
 	}
 
-	auto *form = new QFormLayout();
+	auto *visibilityForm = add_subzone(layout, grp_highlight_, QStringLiteral("Visibility"));
 
 	chk_highlight_enabled_ = new QCheckBox(grp_highlight_);
-	form->addRow(QStringLiteral("Enabled:"), chk_highlight_enabled_);
+	visibilityForm->addRow(QStringLiteral("Enabled:"), chk_highlight_enabled_);
+
+	auto *colorsForm = add_subzone(layout, grp_highlight_, QStringLiteral("Colors"));
 
 	edit_highlight_pgm_color_ = new QLineEdit(QStringLiteral("#D00000"), grp_highlight_);
-	form->addRow(QStringLiteral("PGM Color:"),
-		     build_color_picker(edit_highlight_pgm_color_, grp_highlight_, QStringLiteral("PGM Border Color")));
+	colorsForm->addRow(QStringLiteral("PGM Color:"), build_color_picker(edit_highlight_pgm_color_, grp_highlight_,
+									    QStringLiteral("PGM Border Color")));
 
 	edit_highlight_prvw_color_ = new QLineEdit(QStringLiteral("#00D000"), grp_highlight_);
-	form->addRow(QStringLiteral("PRVW Color:"), build_color_picker(edit_highlight_prvw_color_, grp_highlight_,
-								       QStringLiteral("PRVW Border Color")));
+	colorsForm->addRow(QStringLiteral("PRVW Color:"), build_color_picker(edit_highlight_prvw_color_, grp_highlight_,
+									     QStringLiteral("PRVW Border Color")));
+
+	auto *nestedStyleForm = add_subzone(layout, grp_highlight_, QStringLiteral("Nested Scene Style"));
 
 	chk_highlight_nested_dashed_ = new QCheckBox(grp_highlight_);
-	form->addRow(QStringLiteral("Nested cells use dashed border:"), chk_highlight_nested_dashed_);
+	nestedStyleForm->addRow(QStringLiteral("Nested cells use dashed border:"), chk_highlight_nested_dashed_);
 
 	spin_highlight_dash_length_ = new QSpinBox(grp_highlight_);
 	spin_highlight_dash_length_->setRange(4, 32);
 	spin_highlight_dash_length_->setSuffix(QStringLiteral(" px"));
-	form->addRow(QStringLiteral("Dash Length:"), spin_highlight_dash_length_);
+	nestedStyleForm->addRow(QStringLiteral("Dash Length:"), spin_highlight_dash_length_);
 
 	spin_highlight_dash_gap_ = new QSpinBox(grp_highlight_);
 	spin_highlight_dash_gap_->setRange(2, 16);
 	spin_highlight_dash_gap_->setSuffix(QStringLiteral(" px"));
-	form->addRow(QStringLiteral("Dash Gap:"), spin_highlight_dash_gap_);
+	nestedStyleForm->addRow(QStringLiteral("Dash Gap:"), spin_highlight_dash_gap_);
+
+	auto *borderForm = add_subzone(layout, grp_highlight_, QStringLiteral("Border"));
 
 	spin_highlight_min_thickness_ = new QSpinBox(grp_highlight_);
 	spin_highlight_min_thickness_->setRange(2, 16);
 	spin_highlight_min_thickness_->setSuffix(QStringLiteral(" px"));
 	spin_highlight_min_thickness_->setToolTip(QStringLiteral("Inner border thickness used when gutter width is 0"));
-	form->addRow(QStringLiteral("Min Thickness:"), spin_highlight_min_thickness_);
-
-	layout->addLayout(form);
+	borderForm->addRow(QStringLiteral("Min Thickness:"), spin_highlight_min_thickness_);
 
 	HOOK_CHECK(chk_highlight_enabled_);
 	HOOK_EDIT(edit_highlight_pgm_color_);
@@ -962,7 +1001,7 @@ void CellDisplaySettingsDialog::set_global_settings(const GlobalVisualSettings &
 	chk_bg_color_enabled_->setChecked(gs.background.colorEnabled);
 	edit_bg_color_->setText(color_to_hex(gs.background.color));
 	cmb_bg_fill_mode_->setCurrentIndex(gs.background.fillMode == BackgroundFillMode::FillEntireCell ? 1 : 0);
-	chk_bg_label_fill_->setChecked(gs.background.labelRegionFill);
+	chk_bg_label_fill_->setChecked(gs.label.labelRegionFill);
 	chk_bg_image_enabled_->setChecked(gs.background.imageEnabled);
 	edit_bg_image_path_->setText(QString::fromStdString(gs.background.imagePath));
 	cmb_bg_image_fit_->setCurrentIndex(gs.background.imageFitMode == ImageFitMode::Stretch ? 1 : 0);
@@ -1045,7 +1084,7 @@ GlobalVisualSettings CellDisplaySettingsDialog::get_global_settings() const
 	gs.background.color = hex_to_color(edit_bg_color_->text(), 0xFF000000);
 	gs.background.fillMode = cmb_bg_fill_mode_->currentIndex() == 1 ? BackgroundFillMode::FillEntireCell
 									: BackgroundFillMode::FillSignalOnly;
-	gs.background.labelRegionFill = chk_bg_label_fill_->isChecked();
+	gs.label.labelRegionFill = chk_bg_label_fill_->isChecked();
 	gs.background.imageEnabled = chk_bg_image_enabled_->isChecked();
 	gs.background.imagePath = edit_bg_image_path_->text().toStdString();
 	gs.background.imageFitMode = cmb_bg_image_fit_->currentIndex() == 1 ? ImageFitMode::Stretch : ImageFitMode::Fit;
@@ -1130,7 +1169,7 @@ void CellDisplaySettingsDialog::set_instance_settings(const InstanceVisualSettin
 	chk_bg_color_enabled_->setChecked(is.background.colorEnabled);
 	edit_bg_color_->setText(color_to_hex(is.background.color));
 	cmb_bg_fill_mode_->setCurrentIndex(is.background.fillMode == BackgroundFillMode::FillEntireCell ? 1 : 0);
-	chk_bg_label_fill_->setChecked(is.background.labelRegionFill);
+	chk_bg_label_fill_->setChecked(is.label.labelRegionFill);
 	chk_bg_image_enabled_->setChecked(is.background.imageEnabled);
 	edit_bg_image_path_->setText(QString::fromStdString(is.background.imagePath));
 	cmb_bg_image_fit_->setCurrentIndex(is.background.imageFitMode == ImageFitMode::Stretch ? 1 : 0);
@@ -1223,7 +1262,7 @@ InstanceVisualSettings CellDisplaySettingsDialog::get_instance_settings() const
 	is.background.color = hex_to_color(edit_bg_color_->text(), 0xFF000000);
 	is.background.fillMode = cmb_bg_fill_mode_->currentIndex() == 1 ? BackgroundFillMode::FillEntireCell
 									: BackgroundFillMode::FillSignalOnly;
-	is.background.labelRegionFill = chk_bg_label_fill_->isChecked();
+	is.label.labelRegionFill = chk_bg_label_fill_->isChecked();
 	is.background.imageEnabled = chk_bg_image_enabled_->isChecked();
 	is.background.imagePath = edit_bg_image_path_->text().toStdString();
 	is.background.imageFitMode = cmb_bg_image_fit_->currentIndex() == 1 ? ImageFitMode::Stretch : ImageFitMode::Fit;
@@ -1310,7 +1349,7 @@ void CellDisplaySettingsDialog::set_cell_settings(const CellVisualSettings &cs)
 	chk_bg_color_enabled_->setChecked(cs.background.colorEnabled);
 	edit_bg_color_->setText(color_to_hex(cs.background.color));
 	cmb_bg_fill_mode_->setCurrentIndex(cs.background.fillMode == BackgroundFillMode::FillEntireCell ? 1 : 0);
-	chk_bg_label_fill_->setChecked(cs.background.labelRegionFill);
+	chk_bg_label_fill_->setChecked(cs.label.labelRegionFill);
 	chk_bg_image_enabled_->setChecked(cs.background.imageEnabled);
 	edit_bg_image_path_->setText(QString::fromStdString(cs.background.imagePath));
 	cmb_bg_image_fit_->setCurrentIndex(cs.background.imageFitMode == ImageFitMode::Stretch ? 1 : 0);
@@ -1408,7 +1447,7 @@ CellVisualSettings CellDisplaySettingsDialog::get_cell_settings() const
 	cs.background.color = hex_to_color(edit_bg_color_->text(), 0xFF000000);
 	cs.background.fillMode = cmb_bg_fill_mode_->currentIndex() == 1 ? BackgroundFillMode::FillEntireCell
 									: BackgroundFillMode::FillSignalOnly;
-	cs.background.labelRegionFill = chk_bg_label_fill_->isChecked();
+	cs.label.labelRegionFill = chk_bg_label_fill_->isChecked();
 	cs.background.imageEnabled = chk_bg_image_enabled_->isChecked();
 	cs.background.imagePath = edit_bg_image_path_->text().toStdString();
 	cs.background.imageFitMode = cmb_bg_image_fit_->currentIndex() == 1 ? ImageFitMode::Stretch : ImageFitMode::Fit;
