@@ -482,15 +482,14 @@ LostSignalSettings resolve_effective_lost_signal(const LostSignalSettings &globa
 
 /* Scene-click switching behavior settings.
  *
- * Mirrors OBS built-in multiview's MultiviewMouseSwitch toggle: when
- * enabled, left-clicking a cell whose CellAssignment is a scene calls
- * obs_frontend_set_current_scene(scene). OBS frontend routes that call to
- * Preview when Studio Mode is on, or directly to Program otherwise — same
- * semantics as the upstream multiview projector. Non-scene cells
- * (source/audio-only/external/PGM/PRVW/empty) silently ignore left clicks
- * regardless of this flag. */
+ * `enabled` mirrors OBS built-in multiview's single-click behavior: when
+ * enabled, left-clicking a scene cell sends it to Preview in Studio Mode or
+ * Program otherwise. `doubleClickProgramEnabled` is a separate opt-in action:
+ * double-clicking a scene cell sends it to Program. Non-scene cells silently
+ * ignore both gestures. */
 struct SceneClickSwitchSettings {
 	bool enabled = true;
+	bool doubleClickProgramEnabled = false;
 
 	obs_data_t *to_obs_data() const;
 	static SceneClickSwitchSettings from_obs_data(obs_data_t *data);

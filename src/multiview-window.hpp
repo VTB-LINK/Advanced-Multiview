@@ -25,6 +25,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QWidget>
 #include <QWindow>
+#include <QPointF>
 
 #include <atomic>
 #include <memory>
@@ -156,6 +157,7 @@ protected:
 	void closeEvent(QCloseEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 	void mousePressEvent(QMouseEvent *event) override;
+	void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
 	void create_display();
@@ -175,10 +177,12 @@ private:
 	void render(uint32_t cx, uint32_t cy);
 
 	/* Context menu */
+	int cell_index_at_widget_pos(const QPointF &position);
 	void show_context_menu(const QPoint &pos, int cellIndex);
 	void on_add_source(int cellIndex);
 	void on_change_source(int cellIndex);
 	void on_clear_cell(int cellIndex);
+	OBSSourceAutoRelease resolve_scene_cell_source_for_switch(int cellIndex);
 
 	/* Left-click scene switching: when the resolved (instance ⇐ global)
 	 * SceneClickSwitchSettings.enabled is true and the clicked cell is a
@@ -186,6 +190,7 @@ private:
 	 * Program (Studio Mode off). Non-scene cells are silently ignored.
 	 * Mirrors the OBS built-in multiview projector left-click. */
 	void handle_scene_click_switch(int cellIndex);
+	void handle_scene_program_switch(int cellIndex);
 
 	/* Phase 3 / M6.1+ task 9.1.C: Edit Source for external-provider
 	 * cells. Opens a provider-specific form populated from the cell's

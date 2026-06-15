@@ -445,6 +445,11 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	detail_scene_click_enabled_ = new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.Enable"), page_instance_);
 	detail_scene_click_enabled_->setToolTip(amv::text("AMVPlugin.Manager.SceneClick.InstanceTooltip"));
 	scene_click_row->addWidget(detail_scene_click_enabled_);
+	detail_scene_double_click_program_ =
+		new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.DoubleClickProgram"), page_instance_);
+	detail_scene_double_click_program_->setToolTip(
+		amv::text("AMVPlugin.Manager.SceneClick.DoubleClickProgramTooltip"));
+	scene_click_row->addWidget(detail_scene_double_click_program_);
 	detail_scene_click_effective_ = new QLabel(page_instance_);
 	detail_scene_click_effective_->setStyleSheet(QString("color: %1;").arg(secondary_text_color()));
 	scene_click_row->addWidget(detail_scene_click_effective_);
@@ -552,15 +557,18 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 	/* Scene-click switching: instance inheritance + override */
 	connect(detail_use_global_scene_click_, &QCheckBox::toggled, this, [this](bool checked) {
 		detail_scene_click_enabled_->setEnabled(!checked);
+		detail_scene_double_click_program_->setEnabled(!checked);
 		MultiviewInstance *inst = config_->find_instance(current_detail_uuid_);
 		if (!inst)
 			return;
 		inst->useGlobalSceneClickSwitch = checked;
-		bool effEnabled =
-			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
+		SceneClickSwitchSettings eff =
+			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch);
 		detail_scene_click_effective_->setText(
-			amv::text("AMVPlugin.Manager.EffectiveValue")
-				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
+			amv::text("AMVPlugin.Manager.SceneClick.Effective")
+				.arg(amv::text(eff.enabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off"))
+				.arg(amv::text(eff.doubleClickProgramEnabled ? "AMVPlugin.Common.On"
+									     : "AMVPlugin.Common.Off")));
 		config_->save();
 	});
 
@@ -569,11 +577,28 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 		if (!inst || inst->useGlobalSceneClickSwitch)
 			return;
 		inst->sceneClickSwitch.enabled = checked;
-		bool effEnabled =
-			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
+		SceneClickSwitchSettings eff =
+			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch);
 		detail_scene_click_effective_->setText(
-			amv::text("AMVPlugin.Manager.EffectiveValue")
-				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
+			amv::text("AMVPlugin.Manager.SceneClick.Effective")
+				.arg(amv::text(eff.enabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off"))
+				.arg(amv::text(eff.doubleClickProgramEnabled ? "AMVPlugin.Common.On"
+									     : "AMVPlugin.Common.Off")));
+		config_->save();
+	});
+
+	connect(detail_scene_double_click_program_, &QCheckBox::toggled, this, [this](bool checked) {
+		MultiviewInstance *inst = config_->find_instance(current_detail_uuid_);
+		if (!inst || inst->useGlobalSceneClickSwitch)
+			return;
+		inst->sceneClickSwitch.doubleClickProgramEnabled = checked;
+		SceneClickSwitchSettings eff =
+			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch);
+		detail_scene_click_effective_->setText(
+			amv::text("AMVPlugin.Manager.SceneClick.Effective")
+				.arg(amv::text(eff.enabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off"))
+				.arg(amv::text(eff.doubleClickProgramEnabled ? "AMVPlugin.Common.On"
+									     : "AMVPlugin.Common.Off")));
 		config_->save();
 	});
 
@@ -787,11 +812,24 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 	chk_scene_click_switch_->setChecked(config_->global_settings().sceneClickSwitch.enabled);
 	chk_scene_click_switch_->setToolTip(amv::text("AMVPlugin.Manager.SceneClick.GlobalTooltip"));
 	layout->addWidget(chk_scene_click_switch_);
+	chk_scene_double_click_program_ =
+		new QCheckBox(amv::text("AMVPlugin.Manager.SceneClick.GlobalDoubleClickProgram"), tab);
+	chk_scene_double_click_program_->setChecked(
+		config_->global_settings().sceneClickSwitch.doubleClickProgramEnabled);
+	chk_scene_double_click_program_->setToolTip(
+		amv::text("AMVPlugin.Manager.SceneClick.GlobalDoubleClickProgramTooltip"));
+	layout->addWidget(chk_scene_double_click_program_);
 
 	connect(chk_scene_click_switch_, &QCheckBox::toggled, this, [this](bool checked) {
 		config_->global_settings().sceneClickSwitch.enabled = checked;
 		config_->save();
 		obs_log(LOG_INFO, "scene click switch %s (global)", checked ? "enabled" : "disabled");
+	});
+
+	connect(chk_scene_double_click_program_, &QCheckBox::toggled, this, [this](bool checked) {
+		config_->global_settings().sceneClickSwitch.doubleClickProgramEnabled = checked;
+		config_->save();
+		obs_log(LOG_INFO, "scene double-click program switch %s (global)", checked ? "enabled" : "disabled");
 	});
 
 	auto *btn_global_visual = new QPushButton(amv::text("AMVPlugin.Manager.Settings.EditGlobalVisual"), tab);
@@ -1137,18 +1175,24 @@ void ManagerDialog::show_instance_detail(const std::string &uuid)
 	/* Scene-click switching */
 	detail_use_global_scene_click_->blockSignals(true);
 	detail_scene_click_enabled_->blockSignals(true);
+	detail_scene_double_click_program_->blockSignals(true);
 	detail_use_global_scene_click_->setChecked(inst->useGlobalSceneClickSwitch);
 	detail_scene_click_enabled_->setChecked(inst->sceneClickSwitch.enabled);
+	detail_scene_double_click_program_->setChecked(inst->sceneClickSwitch.doubleClickProgramEnabled);
 	detail_scene_click_enabled_->setEnabled(!inst->useGlobalSceneClickSwitch);
+	detail_scene_double_click_program_->setEnabled(!inst->useGlobalSceneClickSwitch);
 	{
-		bool effEnabled =
-			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch).enabled;
+		SceneClickSwitchSettings eff =
+			inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch);
 		detail_scene_click_effective_->setText(
-			amv::text("AMVPlugin.Manager.EffectiveValue")
-				.arg(amv::text(effEnabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off")));
+			amv::text("AMVPlugin.Manager.SceneClick.Effective")
+				.arg(amv::text(eff.enabled ? "AMVPlugin.Common.On" : "AMVPlugin.Common.Off"))
+				.arg(amv::text(eff.doubleClickProgramEnabled ? "AMVPlugin.Common.On"
+									     : "AMVPlugin.Common.Off")));
 	}
 	detail_use_global_scene_click_->blockSignals(false);
 	detail_scene_click_enabled_->blockSignals(false);
+	detail_scene_double_click_program_->blockSignals(false);
 
 	/* Grid editor */
 	grid_edit_layout_ = inst->layout;

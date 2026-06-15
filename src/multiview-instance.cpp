@@ -1132,6 +1132,7 @@ obs_data_t *SceneClickSwitchSettings::to_obs_data() const
 {
 	obs_data_t *data = obs_data_create();
 	obs_data_set_bool(data, "enabled", enabled);
+	obs_data_set_bool(data, "doubleClickProgramEnabled", doubleClickProgramEnabled);
 	return data;
 }
 
@@ -1144,6 +1145,8 @@ SceneClickSwitchSettings SceneClickSwitchSettings::from_obs_data(obs_data_t *dat
 	 * is absent on legacy configs. */
 	if (obs_data_has_user_value(data, "enabled"))
 		s.enabled = obs_data_get_bool(data, "enabled");
+	if (obs_data_has_user_value(data, "doubleClickProgramEnabled"))
+		s.doubleClickProgramEnabled = obs_data_get_bool(data, "doubleClickProgramEnabled");
 	return s;
 }
 

@@ -356,6 +356,48 @@ static bool collect_audio_sources(obs_source_t *src, std::vector<obs_source_t *>
 
 void MultiviewWindow::rebuild_volmeters()
 {
+	struct CellVolmeterBallistics {
+		bool valid = false;
+		float displayPeak = VU_SILENCE_DB;
+		uint64_t last_render_ns = 0;
+		float holdPeak = VU_SILENCE_DB;
+		uint64_t holdSetAtNs = 0;
+	};
+
+	/* Rebuilding obs_volmeter attachments is sometimes necessary for PGM/PRVW
+	 * scene switches, but the visual ballistic state belongs to the cell, not
+	 * to the transient OBS volmeter objects. Preserve it across rebuilds so an
+	 * unrelated cell does not visibly drop to -inf for a frame after a scene
+	 * click changes the Program/Preview bus. */
+	std::vector<CellVolmeterBallistics> previousBallistics;
+	{
+		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+		previousBallistics.resize(cell_volmeters_.size());
+		for (size_t i = 0; i < cell_volmeters_.size(); i++) {
+			CellVolmeter *cellVm = cell_volmeters_[i];
+			if (!cellVm)
+				continue;
+			auto &snap = previousBallistics[i];
+			snap.valid = true;
+			snap.displayPeak = cellVm->displayPeak;
+			snap.last_render_ns = cellVm->last_render_ns;
+			snap.holdPeak = cellVm->holdPeak;
+			snap.holdSetAtNs = cellVm->holdSetAtNs;
+		}
+	}
+
+	auto restore_ballistics = [&previousBallistics](size_t index, CellVolmeter *cellVm) {
+		if (!cellVm || index >= previousBallistics.size())
+			return;
+		const auto &snap = previousBallistics[index];
+		if (!snap.valid)
+			return;
+		cellVm->displayPeak = snap.displayPeak;
+		cellVm->last_render_ns = snap.last_render_ns;
+		cellVm->holdPeak = snap.holdPeak;
+		cellVm->holdSetAtNs = snap.holdSetAtNs;
+	};
+
 	release_volmeters();
 
 	std::lock_guard<std::recursive_mutex> lock(source_mutex_);
@@ -430,6 +472,7 @@ void MultiviewWindow::rebuild_volmeters()
 				continue;
 
 			auto *cellVm = new CellVolmeter();
+			restore_ballistics(i, cellVm);
 			cellVm->meters.reserve(1);
 
 			auto sv = std::make_unique<SingleVolmeter>();
@@ -547,6 +590,7 @@ void MultiviewWindow::rebuild_volmeters()
 			continue;
 
 		auto *cellVm = new CellVolmeter();
+		restore_ballistics(i, cellVm);
 		cellVm->meters.reserve(audioSources.size());
 
 		for (auto *audioSrc : audioSources) {

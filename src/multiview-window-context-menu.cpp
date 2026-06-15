@@ -51,43 +51,51 @@ static QSize GetPixelSize(QWidget *w)
 	const qreal dpr = w->devicePixelRatioF();
 	return QSize(qRound((qreal)w->width() * dpr), qRound((qreal)w->height() * dpr));
 }
+
+int MultiviewWindow::cell_index_at_widget_pos(const QPointF &position)
+{
+	QSize pixelSize = GetPixelSize(this);
+	if (width() <= 0 || height() <= 0 || pixelSize.width() <= 0 || pixelSize.height() <= 0)
+		return -1;
+
+	float ratio = (float)pixelSize.width() / (float)width();
+	int mx = (int)(position.x() * ratio);
+	int my = (int)(position.y() * ratio);
+
+	/* Account for canvas aspect ratio viewport offset */
+	int totalW = pixelSize.width();
+	int totalH = pixelSize.height();
+	double windowAspect = (double)totalW / (double)totalH;
+	int vpX = 0, vpY = 0;
+	int vpW = totalW, vpH = totalH;
+
+	if (windowAspect > canvas_aspect_) {
+		vpW = (int)((double)totalH * canvas_aspect_);
+		vpX = (totalW - vpW) / 2;
+	} else if (windowAspect < canvas_aspect_) {
+		vpH = (int)((double)totalW / canvas_aspect_);
+		vpY = (totalH - vpH) / 2;
+	}
+
+	/* Translate mouse to layout-local coordinates */
+	int lx = mx - vpX;
+	int ly = my - vpY;
+
+	engine_.set_layout(layout_);
+	engine_.set_viewport(vpW, vpH);
+	engine_.compute();
+
+	auto hit = engine_.hit_test(lx, ly);
+	if (hit && hit->type == HitType::Cell)
+		return hit->cellIndex;
+	return -1;
+}
+
 void MultiviewWindow::mousePressEvent(QMouseEvent *event)
 {
 	const Qt::MouseButton btn = event->button();
 	if (btn == Qt::RightButton || btn == Qt::LeftButton) {
-		/* Hit test to determine which cell was clicked */
-		QSize pixelSize = GetPixelSize(this);
-		float ratio = (float)pixelSize.width() / (float)width();
-		int mx = (int)(event->position().x() * ratio);
-		int my = (int)(event->position().y() * ratio);
-
-		/* Account for canvas aspect ratio viewport offset */
-		int totalW = pixelSize.width();
-		int totalH = pixelSize.height();
-		double windowAspect = (double)totalW / (double)totalH;
-		int vpX = 0, vpY = 0;
-		int vpW = totalW, vpH = totalH;
-
-		if (windowAspect > canvas_aspect_) {
-			vpW = (int)((double)totalH * canvas_aspect_);
-			vpX = (totalW - vpW) / 2;
-		} else if (windowAspect < canvas_aspect_) {
-			vpH = (int)((double)totalW / canvas_aspect_);
-			vpY = (totalH - vpH) / 2;
-		}
-
-		/* Translate mouse to layout-local coordinates */
-		int lx = mx - vpX;
-		int ly = my - vpY;
-
-		engine_.set_layout(layout_);
-		engine_.set_viewport(vpW, vpH);
-		engine_.compute();
-
-		auto hit = engine_.hit_test(lx, ly);
-		int cellIndex = -1;
-		if (hit && hit->type == HitType::Cell)
-			cellIndex = hit->cellIndex;
+		int cellIndex = cell_index_at_widget_pos(event->position());
 
 		if (btn == Qt::RightButton) {
 			show_context_menu(event->globalPosition().toPoint(), cellIndex);
@@ -101,6 +109,17 @@ void MultiviewWindow::mousePressEvent(QMouseEvent *event)
 	}
 
 	QWidget::mousePressEvent(event);
+}
+
+void MultiviewWindow::mouseDoubleClickEvent(QMouseEvent *event)
+{
+	if (event->button() == Qt::LeftButton) {
+		int cellIndex = cell_index_at_widget_pos(event->position());
+		if (cellIndex >= 0)
+			handle_scene_program_switch(cellIndex);
+	}
+
+	QWidget::mouseDoubleClickEvent(event);
 }
 
 /* ---- Context Menu ---- */
@@ -807,27 +826,51 @@ void MultiviewWindow::handle_scene_click_switch(int cellIndex)
 	if (!effective.enabled)
 		return;
 
-	OBSSourceAutoRelease scene;
-	{
-		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
-		if (cellIndex < 0 || cellIndex >= (int)cell_sources_.size())
-			return;
-		const auto &cs = cell_sources_[cellIndex];
-		if (cs.type != "scene")
-			return;
-		scene = OBSGetStrongRef(cs.weak_ref);
-	}
+	OBSSourceAutoRelease scene = resolve_scene_cell_source_for_switch(cellIndex);
 	if (!scene)
-		return;
-	/* Defensive: a scene cell's weak_ref should always point at a scene,
-	 * but a renamed-then-recreated source could in theory swap types under
-	 * a stale weak_ref. Skip silently rather than mis-route a video source
-	 * into the scene change pipeline. */
-	if (!obs_source_is_scene(scene))
 		return;
 
 	if (obs_frontend_preview_program_mode_active())
 		obs_frontend_set_current_preview_scene(scene);
 	else
 		obs_frontend_set_current_scene(scene);
+}
+
+void MultiviewWindow::handle_scene_program_switch(int cellIndex)
+{
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (!inst)
+		return;
+	const SceneClickSwitchSettings effective =
+		inst->effective_scene_click_switch(config_->global_settings().sceneClickSwitch);
+	if (!effective.doubleClickProgramEnabled)
+		return;
+
+	OBSSourceAutoRelease scene = resolve_scene_cell_source_for_switch(cellIndex);
+	if (!scene)
+		return;
+
+	obs_frontend_set_current_scene(scene);
+}
+
+OBSSourceAutoRelease MultiviewWindow::resolve_scene_cell_source_for_switch(int cellIndex)
+{
+	OBSSourceAutoRelease scene;
+	{
+		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+		if (cellIndex < 0 || cellIndex >= (int)cell_sources_.size())
+			return scene;
+		const auto &cs = cell_sources_[cellIndex];
+		if (cs.type != "scene")
+			return scene;
+		scene = OBSGetStrongRef(cs.weak_ref);
+	}
+
+	/* Defensive: a scene cell's weak_ref should always point at a scene,
+	 * but a renamed-then-recreated source could in theory swap types under
+	 * a stale weak_ref. Skip silently rather than mis-route a video source
+	 * into the scene change pipeline. */
+	if (!scene || !obs_source_is_scene(scene))
+		return OBSSourceAutoRelease();
+	return scene;
 }

@@ -109,6 +109,7 @@ private:
 	/* Scene-click switch section (instance) */
 	QCheckBox *detail_use_global_scene_click_;
 	QCheckBox *detail_scene_click_enabled_;
+	QCheckBox *detail_scene_double_click_program_;
 	QLabel *detail_scene_click_effective_;
 
 	/* Grid editor (inline) */
@@ -131,6 +132,7 @@ private:
 
 	/* Scene-click switch (global, immediate save) */
 	QCheckBox *chk_scene_click_switch_;
+	QCheckBox *chk_scene_double_click_program_;
 
 	void update_re_resolve_effective_label();
 
