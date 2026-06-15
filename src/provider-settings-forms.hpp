@@ -129,10 +129,8 @@ private:
  * UI shape mirrors OBS's own ndi_source properties dialog for the keys
  * that matter on a multiview cell: source name (with live discovery +
  * Refresh + manual fallback), bandwidth mode, audio, latency,
- * framesync, hardware acceleration. Advanced DistroAV keys
- * (yuv_range / yuv_colorspace / behavior / behavior_timeout /
- * fix_alpha) stay at the provider defaults; round-tripping a config
- * edited by hand still preserves them.
+ * behavior, timeout behavior, framesync, hardware acceleration,
+ * yuv_range / yuv_colorspace, and alpha fix.
  *
  * Discovery is fully driven by signal_provider_ndi_discover_sources()
  * which talks to DistroAV's NDIFinder via a long-lived dormant
@@ -158,6 +156,7 @@ private:
 	QLineEdit *manual_name_edit_ = nullptr;
 	QLabel *resolved_label_ = nullptr;
 	QComboBox *cmb_behavior_ = nullptr;
+	QComboBox *cmb_timeout_ = nullptr;
 	QComboBox *cmb_bandwidth_ = nullptr;
 	QComboBox *cmb_sync_ = nullptr;
 	QComboBox *cmb_latency_ = nullptr;

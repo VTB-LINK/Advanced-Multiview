@@ -114,6 +114,12 @@ NdiSourceForm::NdiSourceForm(QWidget *parent) : QWidget(parent)
 	cmb_behavior_->setToolTip(amv::text("AMVPlugin.Provider.NDI.BehaviorTooltip"));
 	form->addRow(amv::text("AMVPlugin.Provider.NDI.Behavior"), cmb_behavior_);
 
+	cmb_timeout_ = new QComboBox(this);
+	cmb_timeout_->addItem(amv::text("AMVPlugin.Provider.NDI.Timeout.KeepContent"), kNdiTimeoutKeepContent);
+	cmb_timeout_->addItem(amv::text("AMVPlugin.Provider.NDI.Timeout.ClearContent"), kNdiTimeoutClearContent);
+	cmb_timeout_->setToolTip(amv::text("AMVPlugin.Provider.NDI.TimeoutTooltip"));
+	form->addRow(amv::text("AMVPlugin.Provider.NDI.Timeout"), cmb_timeout_);
+
 	cmb_bandwidth_ = new QComboBox(this);
 	cmb_bandwidth_->addItem(amv::text("AMVPlugin.Provider.NDI.Bandwidth.Highest"), kNdiBwHighest);
 	cmb_bandwidth_->addItem(amv::text("AMVPlugin.Provider.NDI.Bandwidth.Lowest"), kNdiBwLowest);
@@ -275,6 +281,11 @@ void NdiSourceForm::load_from(const SignalConfig &cfg)
 		if (idx >= 0)
 			cmb_behavior_->setCurrentIndex(idx);
 	}
+	if (src && obs_data_has_user_value(src, kNdiKeyBehaviorTimeout)) {
+		int idx = cmb_timeout_->findData((int)obs_data_get_int(src, kNdiKeyBehaviorTimeout));
+		if (idx >= 0)
+			cmb_timeout_->setCurrentIndex(idx);
+	}
 	if (src && obs_data_has_user_value(src, kNdiKeyBandwidth)) {
 		int idx = cmb_bandwidth_->findData((int)obs_data_get_int(src, kNdiKeyBandwidth));
 		if (idx >= 0)
@@ -348,6 +359,7 @@ SignalConfig NdiSourceForm::to_signal_config() const
 	obs_data_set_string(d, kNdiKeySourceName, name.toUtf8().constData());
 
 	set_or_default_int(d, kNdiKeyBehavior, cmb_behavior_->currentData().toInt(), kNdiBehaviorKeepActive);
+	set_or_default_int(d, kNdiKeyBehaviorTimeout, cmb_timeout_->currentData().toInt(), kNdiTimeoutKeepContent);
 	set_or_default_int(d, kNdiKeyBandwidth, cmb_bandwidth_->currentData().toInt(), kNdiBwHighest);
 	set_or_default_int(d, kNdiKeySync, cmb_sync_->currentData().toInt(), kNdiSyncNDISourceTimecode);
 	set_or_default_int(d, kNdiKeyLatency, cmb_latency_->currentData().toInt(), kNdiLatencyNormal);
