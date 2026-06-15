@@ -200,45 +200,45 @@ git status  # 应该是干净的
 # 2. 更新版本号
 # 编辑 buildspec.json 中的 version 字段
 
-# 3. 构建 Release 版本
-cmake --build build_x64 --config Release
-
-# 4. 构建 RelWithDebInfo 版本（带符号）
+# 3. 本地验证（日常推荐 RelWithDebInfo）
 cmake --build build_x64 --config RelWithDebInfo
 
-# 5. 创建分发包（详见下文）
+# 4. 部署测试
+.\docs\setup\deploy-plugin.ps1 RelWithDebInfo
 ```
 
-### 创建分发包
+版本号使用语义化版本。正式版本示例：`1.0.0`；发布候选版本示例：`1.0.0-rc.1`。
 
-参考 [setup/DISTRIBUTION.md](setup/DISTRIBUTION.md) 创建分发包：
+> 注意：CMake `project(VERSION ...)` 只接受纯数字版本。CI 的 build action 会在构建阶段临时把 `buildspec.json` 中的 `1.0.0-rc.1` 规范化为 `1.0.0`，构建完成后恢复原始版本号，因此 GitHub artifact / release 名称仍保留 `rc.1`。
+
+### 创建 GitHub Release
 
 ```powershell
-$version = "1.0.0"  # 修改为实际版本号
+# 1. 创建 tag（不要加 v 前缀）
+$version = "1.0.0-rc.1"  # 修改为实际版本号
+git tag $version
+git push origin $version
 
-# 最小分发包（仅 DLL，12 KB）
-New-Item -Path "dist" -ItemType Directory -Force
-Copy-Item "build_x64\Release\obs-advanced-multiview.dll" "dist\"
-Compress-Archive -Path "dist\*" -DestinationPath "OBS-Advanced-Multiview-v$version.zip" -Force
-
-# 带调试符号的分发包（推荐）
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" "dist\"
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.pdb" "dist\"
-Compress-Archive -Path "dist\*" -DestinationPath "OBS-Advanced-Multiview-v$version-with-symbols.zip" -Force
+# 2. GitHub Actions 会自动执行 Release 构建并创建 draft release
 ```
 
-### GitHub Release
+支持的 release tag 格式：
 
-```powershell
-# 1. 创建 Git 标签
-git tag v$version
-git push origin v$version
+- `1.0.0`
+- `1.0.0-rc1`
+- `1.0.0-rc.1`
+- `1.0.0-beta1`
+- `1.0.0-beta.1`
 
-# 2. 在 GitHub 上创建 Release
-# - 上传 OBS-Advanced-Multiview-v$version.zip
-# - 上传 OBS-Advanced-Multiview-v$version-with-symbols.zip
-# - 填写 Release Notes
-```
+CI 会生成 draft release 和以下主要 artifact：
+
+- Windows installer/user-layout zip
+- Windows portable/root-layout zip（`obs-plugins/64bit` + `data/obs-plugins/<plugin>`）
+- Ubuntu package / archive artifacts
+- Source tarball
+- macOS artifact（当前 macOS job 仍按仓库 CI 设置执行；如禁用则不会产出）
+
+本地分发包说明见 [setup/DISTRIBUTION.md](setup/DISTRIBUTION.md)。
 
 ---
 
@@ -365,6 +365,7 @@ build_x64/
    - 验证 git status 干净
 
 4. **发布流程**（如果是发布版本）：
-   - 构建 Release 配置
-   - 创建分发包（参考 DISTRIBUTION.md）
-   - 创建 Git tag 和 GitHub Release
+   - 确认 `buildspec.json` 版本号
+   - 对 `1.0.0-rc.1` 这类 prerelease 版本确认 release workflow 支持；CI 会临时规范化给 CMake 使用
+   - 本地构建/部署测试 RelWithDebInfo
+   - 创建不带 `v` 前缀的 Git tag，并由 GitHub Actions 生成 draft release 与 artifact

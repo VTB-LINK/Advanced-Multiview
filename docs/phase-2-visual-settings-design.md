@@ -1185,7 +1185,7 @@ VU Meter 扩展设置（在 2.6 UI 中暴露）：
 目标：
 
 - 对 Phase 2 全部视觉能力做统一回归；
-- 确认 0.2.x baseline。
+- 确认历史 0.2.x baseline（作为 Phase 2 回归参考；当前 release candidate 状态以 [ROADMAP.md](ROADMAP.md) 为准）。
 
 范围：
 

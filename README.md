@@ -96,7 +96,7 @@ See [docs/setup/README.md](docs/setup/README.md) for first-time setup and troubl
 - [Known limitations](docs/known-limitations.md)
 - [Terminology](docs/TERMINOLOGY.md)
 
-Design and implementation notes are kept under [docs](docs/). The historical project plan has been moved to [docs/ROADMAP.md](docs/ROADMAP.md).
+Design and implementation notes are kept under [docs](docs/). Project milestones and future work are tracked in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 

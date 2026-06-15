@@ -3,7 +3,7 @@
 > 本文档记录 Phase 3 上半段（M5：Signal Lost 与删除行为）的功能完成度与人工验证结果。
 > 术语口径以 [TERMINOLOGY.md](TERMINOLOGY.md) 为准；M5 子任务编号对应
 > [phase-3-signal-lost-and-external-sources-design.md](phase-3-signal-lost-and-external-sources-design.md) §7。
-> M6（外部流接入）尚未开始；硬化 pass 计划在 M6 完成后作为 Phase 3 综合收尾统一进行。
+> M6（外部流接入）与 Phase 3 综合硬化已经完成；本文前半段保留 M5 验收历史，后半段记录 M6 完成状态。剩余跨平台/跨版本回归进入 Phase 4。
 
 图例：
 
@@ -135,7 +135,7 @@
 - **Duplicate Scene / Duplicate Sources**：OBS Studio Mode 启用 Duplicate 后，Preview 中删除的 source 在 Program 仍持有副本时不会触发 `source_remove`。我方按 OBS source identity 语义解析，cell 状态 Active 是符合预期的；只有当 Program 也释放最后一个引用时才进入 MissingInternal。这是 OBS 内置语义，不属于本插件需要修复的范围。如需"PGM tree 不可达即 missing"，属于"逻辑可见性"特性，不在 M5 范围。
 - **OBS 自身 undo/redo 释放路径**：`obs_source_release+0x3d ← undo_stack::redo` 与 `obs_scene_release+0x45 ← OBSBasic::RemoveSelectedScene` 两条 OBS 内部崩溃链路，本插件不在栈链上。我方已在自身路径全面避免持有 / 渲染 marked-removed source；进一步追责需上游 OBS / 第三方插件配合。
 - **placeholder / fallback static image fit**：默认 Stretch（贴满 cell）。Fit 模式保留长宽比但有 letterbox 黑边。FillCrop 暂不实现（与 bg-image 当前不支持 FillCrop 一致；属未来扩展）。
-- **status overlay 多语言**：当前文案为英文常量（`MISSING SOURCE` / `MISSING SCENE` / `FALLBACK`），未走 OBS locale。M6 / Phase 4 再考虑。
+- ~~**status overlay 多语言**：当前文案为英文常量（`MISSING SOURCE` / `MISSING SCENE` / `FALLBACK`），未走 OBS locale。M6 / Phase 4 再考虑。~~ 已在 i18n pass 中接入 locale，详见 `data/locale/en-US.ini` 与 `data/locale/zh-CN.ini`。
 - **placeholder 图片在多个 instance / 多 window 下不共享纹理**：每个 MultiviewWindow 独立 4 阶段加载。同一图片若被多 instance 引用会重复加载。属性能优化项，目前用例下数量级很小（几张图），不做。
 
 ## 下一步

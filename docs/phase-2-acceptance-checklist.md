@@ -2,7 +2,7 @@
 
 > 本文档用于把 Phase 2（M4：视觉参数与辅助功能）已完成内容变成可复测、可交接、可回归的事实。  
 > 术语口径以 [TERMINOLOGY.md](TERMINOLOGY.md) 为准；Phase 2 = M4，本文档中 “M4 子任务 2.0~2.7” 对应 [phase-2-visual-settings-design.md](phase-2-visual-settings-design.md) 第 16 节的拆分。  
-> 进入 Phase 3（M5~M6）之前，应先确认本清单中的关键项均已验证，未确认项需要在 Phase 2.5（M4 收尾 / Phase 3 准备）期间补齐或显式标注为非阻塞。
+> Phase 2.5 与 Phase 3 主体功能已经完成；本文保留为 M4 视觉系统的历史验收与回归清单。未勾选项不再表示当前开发阶段阻塞，只表示该项被推迟到后续回归、明确不做，或已在 Phase 3 / Phase 4 文档中另行覆盖。
 
 图例：
 
@@ -110,7 +110,7 @@
 
 - [ ] 完整复制 OBS Mixer 行为 — **不做**
 - [ ] 5.1 / 7.1 多声道独立 meter — **低优先级**，Phase 2.5 不做
-- [ ] 外部信号（NDI/Spout/媒体流）音频 meter — 属于 Phase 3（M6）
+- [x] 外部信号（NDI/Spout/媒体流）音频 meter — 已在 Phase 3（M6.0 + M6.6）完成；Spout 无音频按 silence 处理
 
 ## 2.6 Visual Settings UI 整合（M4 子任务 2.6）
 
@@ -163,7 +163,7 @@
 - [ ] OBS 32.0 上 Phase 2 功能验证
 - [ ] macOS 构建运行时验证（仅 CI 配置存在）
 - [ ] Linux 构建运行时验证（仅 CI 配置存在）
-- [ ] tag 触发的 GitHub Release artifact 构建验证
+- [x] tag 触发的 GitHub Release artifact 构建验证（release workflow 已支持 stable / rc / beta tag；每个 release 仍需人工检查 artifact 内容）
 
 ## 性能与回归（Phase 2.5 触及，完整验收在 Phase 4 / M8）
 

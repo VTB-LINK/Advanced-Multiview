@@ -96,7 +96,7 @@ cmake --build build_x64 --config RelWithDebInfo --target obs-advanced-multiview
 - [已知限制](docs/known-limitations.md)
 - [术语规范](docs/TERMINOLOGY.md)
 
-设计与实现说明位于 [docs](docs/) 目录。历史项目计划已移动到 [docs/ROADMAP.md](docs/ROADMAP.md)。
+设计与实现说明位于 [docs](docs/) 目录。项目里程碑和后续规划见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 当前状态
 

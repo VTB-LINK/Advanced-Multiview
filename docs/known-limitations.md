@@ -1,6 +1,6 @@
 # 已知限制 (Known Limitations)
 
-> 本文档记录当前版本（0.2.x，Phase 2 / M4 主体完成，Phase 2.5 已完成，Phase 3 / M5 功能已完成）已知的功能缺失、设计边界与跨平台验证缺口。
+> 本文档记录当前 1.0 release candidate 阶段已知的功能缺失、设计边界与跨平台验证缺口。Phase 1（M0~M3）、Phase 2（M4）与 Phase 3（M5~M6）主体功能均已完成；Phase 4（M7~M8）仍用于发布工程、跨平台运行时验证、性能与稳定性回归。
 > 术语口径以 [TERMINOLOGY.md](TERMINOLOGY.md) 为准。
 > 这些不是 bug，而是尚未规划或排期到后续阶段的功能；其中部分项被显式标注为 **设计决策不做**，避免被重复提议。
 
@@ -65,13 +65,15 @@
 
 ## 分发
 
-- **Installer / Portable 正式 Artifacts**：尚未提供正式安装器或便携版打包脚本，当前仅支持手动复制 DLL。属 Phase 4 / M7。
+- **Release artifacts**：GitHub Actions tag workflow 已能产出 release artifact，包括 Windows user-layout zip、Windows portable-root zip、Ubuntu artifact、source tarball，以及按 CI 配置生成的其它平台 artifact。正式发布仍应人工检查 artifact 内容和 draft release 说明。
+- **Installer**：Windows 安装器仍未作为主要发布形态提供；当前推荐 portable-root zip 或 OBS 用户插件布局 zip。
+- **Prerelease 版本号**：`1.0.0-rc.1` / `1.0.0-beta.1` 等版本号可写入 `buildspec.json` 并用于 tag。CI 会临时把版本规范化为 `1.0.0` 供 CMake configure 使用，然后恢复完整 prerelease 版本用于 artifact / release 命名。详见 [DEVELOPMENT.md](DEVELOPMENT.md#发布流程)。
 
 ## 平台与版本验证
 
 - **macOS / Linux 运行时**：CI 构建配置存在，但未经充分运行时测试验证。
-- **OBS 32.0**：尚未在 OBS 32.0 上完整验证 Phase 2 功能（已确认 31.1.1 与 32.1 单机可用）。
-- **tag 构建**：尚未通过 GitHub tag 触发完整 Release artifact 构建并验证。
+- **OBS 32.0**：尚未在 OBS 32.0 上完整验证；已确认 31.1.1 与 32.1.x Windows portable 单机可用。
+- **tag 构建**：`1.0.0-rc.1` / `1.0.0-rc.2` tag workflow 已跑通过并暴露过 artifact 命名 / portable zip 布局问题，相关 CI 修复已落地。后续每个 release tag 仍需人工检查 draft release 与下载包结构。
 
 ---
 

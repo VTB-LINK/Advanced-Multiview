@@ -142,9 +142,12 @@ build_x64\RelWithDebInfo\
 
 ### 手动部署或分发
 
-**最小分发包**（仅需 DLL）：
-- `build_x64\RelWithDebInfo\obs-advanced-multiview.dll`（12 KB）
-- 复制到 OBS 的 `obs-plugins\64bit\` 目录
+公开发布优先使用 GitHub Actions tag workflow 生成的 release artifact；不要只分发 DLL。插件运行时还需要 `data/obs-plugins/obs-advanced-multiview/locale` 等数据文件。
+
+**便携版完整布局**：
+- `obs-plugins\64bit\obs-advanced-multiview.dll`
+- `data\obs-plugins\obs-advanced-multiview\locale\en-US.ini`
+- `data\obs-plugins\obs-advanced-multiview\locale\zh-CN.ini`
 
 **带调试符号的分发包**（便于用户反馈崩溃信息）：
 - `obs-advanced-multiview.dll`（12 KB）
@@ -153,12 +156,20 @@ build_x64\RelWithDebInfo\
 **手动部署步骤**：
 ```powershell
 # 复制到 OBS Portable
+New-Item -Path "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\data\obs-plugins\obs-advanced-multiview" -ItemType Directory -Force
 Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" `
           "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\obs-plugins\64bit\"
+Copy-Item "data\*" `
+          "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\data\obs-plugins\obs-advanced-multiview\" `
+          -Recurse -Force
 
 # 或复制到已安装的 OBS（需管理员权限）
+New-Item -Path "C:\Program Files\obs-studio\data\obs-plugins\obs-advanced-multiview" -ItemType Directory -Force
 Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" `
           "C:\Program Files\obs-studio\obs-plugins\64bit\"
+Copy-Item "data\*" `
+          "C:\Program Files\obs-studio\data\obs-plugins\obs-advanced-multiview\" `
+          -Recurse -Force
 ```
 
 ## 📖 相关文档

@@ -170,10 +170,12 @@ build_x64/               # 构建输出（Git 忽略）
 当用户说"准备发布"时：
 
 1. 确认版本号（buildspec.json）
-2. 构建 Release 和 RelWithDebInfo
-3. 创建分发包（参考 docs/setup/DISTRIBUTION.md）
-4. 创建 Git tag
-5. 创建 GitHub Release
+2. 本地构建并部署测试 RelWithDebInfo
+3. 确认 GitHub Actions release tag 支持当前版本号
+4. 创建 Git tag（不加 `v` 前缀，例如 `1.0.0` 或 `1.0.0-rc.1`）
+5. 推送 tag 后由 GitHub Actions 创建 draft release
+
+⚠️ `1.0.0-rc.1` 这类 prerelease 版本可以写入 buildspec.json；CI build action 会临时把版本规范化为 `1.0.0` 供 CMake configure 使用，打包/上传 artifact 时恢复完整版本号。
 
 详细步骤：[docs/DEVELOPMENT.md#发布流程](docs/DEVELOPMENT.md#发布流程)
 

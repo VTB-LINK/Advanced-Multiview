@@ -109,7 +109,7 @@
 
 - **Phase 3 仅在 RelWithDebInfo + Windows 验证**：与 Phase 2 同源观察项；仍未消除。
 - **portable OBS deploy 脚本仅检测两个固定路径**：[deploy-plugin.ps1](setup/deploy-plugin.ps1) 硬编码 31.1.1 / 32.1.2 portable 安装位置，多版本测试时新增路径需要手动改脚本。后续可改为环境变量或扫描 `C:\Downloads\OBS-Studio-*-Windows-x64`。
-- **dist 包目前是手工拷贝**：Phase 3 没有为 M6 引入新的打包脚本；Phase 4 / GA 阶段需要补一个 release 流程（zip + checksum + GitHub Release upload）。
+- ~~**dist 包目前是手工拷贝**：Phase 3 没有为 M6 引入新的打包脚本；Phase 4 / GA 阶段需要补一个 release 流程（zip + checksum + GitHub Release upload）。~~ 已接入 GitHub Actions release workflow：tag 触发后生成 draft release 与 Windows portable/user-layout、Ubuntu、source 等 artifact。后续仍需人工检查包结构、release notes 与 checksum/签名策略。
 
 ---
 

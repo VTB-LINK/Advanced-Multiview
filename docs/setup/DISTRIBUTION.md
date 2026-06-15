@@ -2,6 +2,8 @@
 
 本文档说明如何准备插件进行分发，包括构建产物位置、文件说明和部署方式。
 
+当前推荐发布路径是 GitHub Actions release workflow：推送不带 `v` 前缀的 release tag（例如 `1.0.0`、`1.0.0-rc.1`）后，CI 自动生成 draft release 与平台 artifact。本文的手工命令仅用于本地调试、临时测试包或排查 CI 打包问题。
+
 ## 📦 构建产物位置
 
 ### 构建版本对比
@@ -32,209 +34,86 @@ build_x64\RelWithDebInfo\
 
 ## 📋 分发包准备
 
-### 方案一：最小分发包（推荐）
+### GitHub Actions artifact（推荐公开发布）
 
-**文件**：
-- `obs-advanced-multiview.dll` (12 KB)
+推送 release tag 后，workflow 会生成 draft release 与平台 artifact。Windows 用户主要使用两种 zip：
 
-**优点**：
-- 文件小，下载快
-- 适合大多数用户
+- **portable/root-layout zip**：面向 OBS portable，解压到 OBS 根目录即可。
+- **user-layout zip**：面向 OBS 用户插件目录或传统插件安装布局。
 
-**缺点**：
-- 用户遇到崩溃时无法提供详细错误信息
+portable/root-layout zip 必须包含：
 
-**打包命令**：
+```text
+obs-plugins/64bit/obs-advanced-multiview.dll
+data/obs-plugins/obs-advanced-multiview/locale/en-US.ini
+data/obs-plugins/obs-advanced-multiview/locale/zh-CN.ini
+```
+
+### 本地临时调试包（不推荐公开分发）
+
+如果只是本机 smoke test，可以直接部署当前构建：
+
 ```powershell
-# 创建分发目录
-New-Item -Path "dist" -ItemType Directory -Force
-
-# 复制 DLL
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" "dist\"
-
-# 创建 ZIP（需要安装 7-Zip 或使用 Windows 内置压缩）
-Compress-Archive -Path "dist\*" -DestinationPath "OBS-Advanced-Multiview-v1.0.0.zip" -Force
+.\docs\setup\deploy-plugin.ps1 RelWithDebInfo
 ```
 
-### 方案二：带调试符号的分发包
+如果必须手工创建临时 zip，请同时放入 DLL 和 data 文件；不要只打包 DLL：
 
-**文件**：
-- `obs-advanced-multiview.dll` (12 KB)
-- `obs-advanced-multiview.pdb` (476 KB)
-
-**优点**：
-- 用户崩溃时可以提供详细堆栈跟踪
-- 便于收集错误报告和调试
-
-**缺点**：
-- 文件稍大（总共约 488 KB）
-
-**打包命令**：
 ```powershell
-New-Item -Path "dist" -ItemType Directory -Force
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" "dist\"
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.pdb" "dist\"
-Compress-Archive -Path "dist\*" -DestinationPath "OBS-Advanced-Multiview-v1.0.0-with-symbols.zip" -Force
+$version = "1.0.0-rc.1"
+$distDir = "dist\OBS-Advanced-Multiview-$version-portable"
+
+New-Item -Path "$distDir\obs-plugins\64bit" -ItemType Directory -Force | Out-Null
+New-Item -Path "$distDir\data\obs-plugins\obs-advanced-multiview" -ItemType Directory -Force | Out-Null
+
+Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" "$distDir\obs-plugins\64bit\"
+Copy-Item "data\*" "$distDir\data\obs-plugins\obs-advanced-multiview\" -Recurse -Force
+Copy-Item "README.md", "README.cn.md", "LICENSE" "$distDir\"
+
+Compress-Archive -Path "$distDir\*" -DestinationPath "OBS-Advanced-Multiview-$version-portable.zip" -Force
 ```
 
-### 方案三：完整分发包（包含文档）
-
-**文件结构**：
-```
-OBS-Advanced-Multiview-v1.0.0\
-  ├── obs-advanced-multiview.dll        ← 插件文件
-  ├── README.txt                        ← 安装说明
-  ├── LICENSE.txt                       ← 许可证
-  └── symbols\                          ← 可选：调试符号
-      └── obs-advanced-multiview.pdb
-```
-
-**创建脚本**：
-```powershell
-$version = "1.0.0"
-$distDir = "dist\OBS-Advanced-Multiview-v$version"
-
-# 创建目录结构
-New-Item -Path "$distDir" -ItemType Directory -Force
-New-Item -Path "$distDir\symbols" -ItemType Directory -Force
-
-# 复制文件
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.dll" "$distDir\"
-Copy-Item "build_x64\RelWithDebInfo\obs-advanced-multiview.pdb" "$distDir\symbols\"
-Copy-Item "LICENSE" "$distDir\LICENSE.txt"
-
-# 创建 README.txt
-@"
-OBS Advanced Multiview Plugin v$version
-
-安装说明：
-1. 关闭 OBS Studio
-2. 将 obs-advanced-multiview.dll 复制到以下目录之一：
-   - OBS Portable: OBS-Studio\obs-plugins\64bit\
-   - OBS 已安装版: C:\Program Files\obs-studio\obs-plugins\64bit\
-3. 重新启动 OBS Studio
-4. 插件应自动加载（查看 OBS 日志确认）
-
-故障排除：
-- 如果插件未加载，检查 OBS 版本是否为 31.1.1 或更高
-- 查看 OBS 日志文件：%APPDATA%\obs-studio\logs\
-- 反馈问题：https://github.com/VTB-LINK/OBS-Advanced-Multiview/issues
-
-许可证：详见 LICENSE.txt
-"@ | Out-File "$distDir\README.txt" -Encoding UTF8
-
-# 打包
-Compress-Archive -Path "$distDir" -DestinationPath "OBS-Advanced-Multiview-v$version-full.zip" -Force
-
-Write-Host "✓ 分发包已创建：OBS-Advanced-Multiview-v$version-full.zip" -ForegroundColor Green
-```
+调试符号（`obs-advanced-multiview.pdb`）可以另行打包给崩溃问题排查使用；公开发布包默认不必包含 PDB。
 
 ## 🚀 部署方式
 
 ### 用户手动部署
+
+推荐用户直接使用 release 中的 portable/root-layout zip，并解压到 OBS portable 根目录。
 
 **OBS Portable 版本**：
 ```powershell
 # 复制到 OBS Portable 目录
 Copy-Item "obs-advanced-multiview.dll" `
           "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\obs-plugins\64bit\"
+Copy-Item "data\*" `
+          "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\data\obs-plugins\obs-advanced-multiview\" `
+          -Recurse -Force
 ```
 
 **OBS 已安装版本**（需管理员权限）：
 ```powershell
 # 以管理员身份运行 PowerShell
-Copy-Item "obs-advanced-multiview.dll" `
-          "C:\Program Files\obs-studio\obs-plugins\64bit\"
+Copy-Item "obs-advanced-multiview.dll" "C:\Program Files\obs-studio\obs-plugins\64bit\"
+Copy-Item "data\*" "C:\Program Files\obs-studio\data\obs-plugins\obs-advanced-multiview\" -Recurse -Force
 ```
 
 **通过 OBS Plugins 文件夹**（推荐）：
 ```powershell
 # 复制到用户插件目录（无需管理员权限）
 $pluginDir = "$env:APPDATA\obs-studio\obs-plugins\64bit"
+$dataDir = "$env:APPDATA\obs-studio\data\obs-plugins\obs-advanced-multiview"
 New-Item -Path $pluginDir -ItemType Directory -Force
+New-Item -Path $dataDir -ItemType Directory -Force
 Copy-Item "obs-advanced-multiview.dll" $pluginDir
+Copy-Item "data\*" $dataDir -Recurse -Force
 ```
 
 ### 自动部署脚本
 
-创建用户友好的安装脚本 `install.ps1`：
+仓库内开发部署请使用 [deploy-plugin.ps1](deploy-plugin.ps1)。公开发布包暂不维护单独的交互式 `install.ps1`；如未来增加安装器，应确保同时安装 DLL 与 `data/obs-plugins/obs-advanced-multiview` 数据目录。
 
-```powershell
-Write-Host "=== OBS Advanced Multiview 插件安装器 ===" -ForegroundColor Cyan
-Write-Host ""
-
-# 检测 OBS 安装路径
-$obsInstalled = "C:\Program Files\obs-studio\obs-plugins\64bit"
-$obsPortable = "C:\Downloads\OBS-Studio-31.1.1-Windows-x64\obs-plugins\64bit"
-$obsUser = "$env:APPDATA\obs-studio\obs-plugins\64bit"
-
-# 检查当前目录中的 DLL
-$dllPath = ".\obs-advanced-multiview.dll"
-if (-not (Test-Path $dllPath)) {
-    Write-Host "✗ 错误：找不到 obs-advanced-multiview.dll" -ForegroundColor Red
-    Write-Host "  请确保在正确的目录中运行此脚本。" -ForegroundColor Yellow
-    pause
-    exit 1
-}
-
-Write-Host "请选择安装位置：" -ForegroundColor Yellow
-Write-Host "1. 用户插件目录（推荐，无需管理员权限）"
-Write-Host "   $obsUser"
-Write-Host "2. OBS 已安装版本（需要管理员权限）"
-Write-Host "   $obsInstalled"
-Write-Host "3. OBS Portable 版本"
-Write-Host "   $obsPortable"
-Write-Host ""
-
-$choice = Read-Host "请输入选项 [1-3]"
-
-switch ($choice) {
-    "1" {
-        $targetDir = $obsUser
-        New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
-    }
-    "2" {
-        $targetDir = $obsInstalled
-    }
-    "3" {
-        $targetDir = $obsPortable
-    }
-    default {
-        Write-Host "✗ 无效选项" -ForegroundColor Red
-        pause
-        exit 1
-    }
-}
-
-if (-not (Test-Path $targetDir)) {
-    Write-Host "✗ 目标目录不存在：$targetDir" -ForegroundColor Red
-    Write-Host "  请确认 OBS Studio 已正确安装。" -ForegroundColor Yellow
-    pause
-    exit 1
-}
-
-try {
-    Copy-Item $dllPath $targetDir -Force
-    Write-Host ""
-    Write-Host "✓ 插件安装成功！" -ForegroundColor Green
-    Write-Host "  位置：$targetDir" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "下一步：" -ForegroundColor Cyan
-    Write-Host "1. 重启 OBS Studio" -ForegroundColor White
-    Write-Host "2. 插件会自动加载" -ForegroundColor White
-    Write-Host "3. 查看 OBS 日志确认加载状态" -ForegroundColor White
-} catch {
-    Write-Host "✗ 安装失败：$_" -ForegroundColor Red
-    if ($choice -eq "2") {
-        Write-Host "  提示：安装到系统目录需要管理员权限" -ForegroundColor Yellow
-        Write-Host "  请右键选择"以管理员身份运行 PowerShell"后重试" -ForegroundColor Yellow
-    }
-    pause
-    exit 1
-}
-
-pause
-```
+历史上使用过的 DLL-only 安装脚本已不再适合公开分发，因为它不会安装 locale 文件。
 
 ## ✅ 验证清单
 
@@ -242,10 +121,11 @@ pause
 - [ ] 使用 RelWithDebInfo 或 Release 配置构建
 - [ ] DLL 文件大小正常（约 12 KB）
 - [ ] 在测试 OBS 环境中验证插件加载
-- [ ] 包含 README.txt 安装说明
-- [ ] 包含 LICENSE.txt 许可证文件
+- [ ] Windows portable 包包含 `obs-plugins/64bit` 与 `data/obs-plugins/obs-advanced-multiview`
+- [ ] 包含 README / README.cn 安装说明
+- [ ] 包含 LICENSE 许可证文件
 - [ ] 版本号正确（文件名、README 等）
-- [ ] 创建 GitHub Release 并上传
+- [ ] GitHub Actions draft release 已创建，artifact 可下载并能解压到预期目录
 
 ## 📊 发布渠道
 
@@ -253,12 +133,13 @@ pause
 
 ```bash
 # 打标签
-git tag v1.0.0
-git push origin v1.0.0
+git tag 1.0.0-rc.1
+git push origin 1.0.0-rc.1
 
-# 在 GitHub 上创建 Release
-# 上传：OBS-Advanced-Multiview-v1.0.0.zip
+# GitHub Actions 会创建 draft release 并上传 artifact
 ```
+
+支持的 tag 格式包括 `1.0.0`、`1.0.0-rc1`、`1.0.0-rc.1`、`1.0.0-beta1`、`1.0.0-beta.1`。`buildspec.json` 可以保留完整 prerelease 版本号；CI build action 会临时把它规范化为 CMake 接受的 core semver（例如 `1.0.0`），打包与 release 命名再恢复完整版本号。
 
 ### OBS Resources/Project
 
