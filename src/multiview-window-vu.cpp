@@ -1304,41 +1304,39 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 					endRegion();
 				}
 			}
+		}
 
-			if (laneMagnitudeLevel > 0.0f) {
-				int markerPx = 5;
-				if (markerPx > barFullLen)
-					markerPx = barFullLen;
-				int magPos = (int)(laneMagnitudeLevel * (float)barFullLen + 0.5f);
-				if (magPos > barFullLen)
-					magPos = barFullLen;
+		if (laneMagnitudeLevel > 0.0f) {
+			int markerPx = 5;
+			if (markerPx > barFullLen)
+				markerPx = barFullLen;
+			int magPos = (int)(laneMagnitudeLevel * (float)barFullLen + 0.5f);
+			if (magPos > barFullLen)
+				magPos = barFullLen;
 
-				gs_effect_set_color(colorParam, magnitudeColor);
-				if (isHorizontal) {
-					int mx = vmSettings.flip ? barX + barFullLen - magPos
-								 : barX + magPos - markerPx;
-					if (mx < barX)
-						mx = barX;
-					if (mx > barX + barFullLen - markerPx)
-						mx = barX + barFullLen - markerPx;
-					startRegion(mx, laneY, markerPx, laneThickness, 0.0f, (float)markerPx, 0.0f,
-						    (float)laneThickness);
-					while (gs_effect_loop(solid, "Solid"))
-						gs_draw_sprite(nullptr, 0, markerPx, laneThickness);
-					endRegion();
-				} else {
-					int my = vmSettings.flip ? barY + magPos - markerPx
-								 : barY + barFullLen - magPos;
-					if (my < barY)
-						my = barY;
-					if (my > barY + barFullLen - markerPx)
-						my = barY + barFullLen - markerPx;
-					startRegion(laneX, my, laneThickness, markerPx, 0.0f, (float)laneThickness,
-						    0.0f, (float)markerPx);
-					while (gs_effect_loop(solid, "Solid"))
-						gs_draw_sprite(nullptr, 0, laneThickness, markerPx);
-					endRegion();
-				}
+			gs_effect_set_color(colorParam, magnitudeColor);
+			if (isHorizontal) {
+				int mx = vmSettings.flip ? barX + barFullLen - magPos : barX + magPos - markerPx;
+				if (mx < barX)
+					mx = barX;
+				if (mx > barX + barFullLen - markerPx)
+					mx = barX + barFullLen - markerPx;
+				startRegion(mx, laneY, markerPx, laneThickness, 0.0f, (float)markerPx, 0.0f,
+					    (float)laneThickness);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, markerPx, laneThickness);
+				endRegion();
+			} else {
+				int my = vmSettings.flip ? barY + magPos - markerPx : barY + barFullLen - magPos;
+				if (my < barY)
+					my = barY;
+				if (my > barY + barFullLen - markerPx)
+					my = barY + barFullLen - markerPx;
+				startRegion(laneX, my, laneThickness, markerPx, 0.0f, (float)laneThickness, 0.0f,
+					    (float)markerPx);
+				while (gs_effect_loop(solid, "Solid"))
+					gs_draw_sprite(nullptr, 0, laneThickness, markerPx);
+				endRegion();
 			}
 		}
 	};
