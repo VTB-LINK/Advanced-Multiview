@@ -1325,13 +1325,8 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 
 		const int totalThickness = (std::max)(1, barW);
 		const int channelCount = (std::min)(detectedChannels, MAX_AUDIO_CHANNELS);
-		int gap = 0;
-		if (channelCount > 1 && totalThickness >= channelCount * 2 + (channelCount - 1))
-			gap = 1;
-		const int totalGap = gap * (channelCount - 1);
-		const int laneBudget = (std::max)(1, totalThickness - totalGap);
-		const int baseLane = laneBudget / channelCount;
-		int remainder = laneBudget % channelCount;
+		const int baseLane = totalThickness / channelCount;
+		int remainder = totalThickness % channelCount;
 		int offset = 0;
 		for (int ch = 0; ch < channelCount; ch++) {
 			int laneThickness = baseLane + (remainder > 0 ? 1 : 0);
@@ -1345,7 +1340,7 @@ void MultiviewWindow::render_vu_meter(int cellIndex, const CellRect &cell, int v
 			else
 				draw_meter_lane(barX + offset, barY, laneThickness, channelLevels[ch],
 						channelHoldLevels[ch]);
-			offset += laneThickness + gap;
+			offset += laneThickness;
 		}
 	} else {
 		draw_meter_lane(barX, barY, barW, level, holdLevel);
