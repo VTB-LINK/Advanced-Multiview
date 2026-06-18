@@ -9,8 +9,9 @@
 > multiview-window.{hpp,cpp}、plugin-main.cpp、multiview-instance.cpp、
 > external-output-settings-dialog.cpp。
 >
-> 本轮针对 Spout 输出 + 通用输出层（backend 无关）的收尾硬化；NDI 后端尚未实现
-> （Phase 3 of the feature plan），因此本轮不覆盖 NDI 专属代码。
+> 第一轮针对 Spout 输出 + 通用输出层（backend 无关）的收尾硬化。
+> **第二轮（NDI 后端落地后）** 追加 NDI 专属硬化，见下方「NDI 后端 / 运行时加载器」节；
+> 修复范围扩展至 multiview-output-ndi.cpp、multiview-ndi-runtime.cpp。
 
 ---
 
@@ -97,6 +98,40 @@
 
 ---
 
+## NDI 后端 / 运行时加载器（第二轮）
+
+### 已修复
+
+- **`NdiRuntime::available()` 每帧在图形线程探测运行时（无谓 loader 往返 / 失败时每帧 LoadLibrary）**：
+  [multiview-ndi-runtime.cpp](../src/multiview-ndi-runtime.cpp)
+  - `MultiviewOutputManager::reconcile` 每帧计算 `want = s.enabled && backend_available(Ndi)`，
+    `backend_available(Ndi) → ndi_supported() → NdiRuntime::available()`。原实现每次都做
+    `GetModuleHandleA` + `GetProcAddress`；当 NDI 已启用但运行时缺失（用户启用了 NDI 却没装
+    运行时）时，更会每帧 `LoadLibraryA` 探测一次失败加载——全部发生在图形线程热路径。
+  - 修复：`available()` 结果用 `static` 缓存（探测一次）。运行时的存在与否在单次会话内不变；
+    会话中途安装运行时于下次重启生效（与 OBS 系 NDI 插件"加载时解析一次运行时"行为一致）。
+    沿用 Spout `warned_*_` 一次性化 / 输出层"冷路径只算一次"的收敛思路。
+
+### 观察项
+
+- **单 stagesurface + 即时 map 的 GPU 回读停顿**：`submit_frame` 内 `gs_stage_texture` 入队后
+  立即 `gs_stagesurface_map` 会阻塞至回读完成（约 1 帧）。首版选择"简单且正确"（与 Spout 首版
+  一致）。**双缓冲异步回读**（stage 第 N 帧、map 第 N-1 帧，配合 `send_send_video_async_v2`）是
+  明确的后续性能硬化项，因增加缓冲生命周期管理复杂度，本轮不引入。
+- **`available()` 仅校验 DLL 可加载、不校验 `initialize()`**：极少数"DLL 在场但 CPU 不受支持"
+  情形下，对话框会把 NDI 显示为可用、用户启用后 `acquire()` 的 `initialize()` 失败 → 后端静默
+  休眠（`acquire` 已一次性 warn）。让 `available()` 跑 `initialize()` 需在 UI 线程 init/destroy
+  往返，得不偿失；保持轻量探测，记录在案。
+- **NDI 帧 `frame_rate` 取 OBS 全局 fps**：half-rate 由 manager 的 `fpsDivisor` 跳过整次合成实现，
+  但帧结构里的标称 `frame_rate_N/D` 仍是全速；NDI 按合成时间戳（`timecode_synthesize`）容忍抖动，
+  接收端表现正常。若需精确标称帧率，可在硬化中按 divisor 修正。
+- **运行时引用计数销毁顺序依赖后端先析构 sender**：`NdiRuntime` 经 `shared_ptr` 引用计数，末个
+  持有者析构时 `NDIlib destroy` + `FreeLibrary`；后端 `stop()` 保证先 `send_destroy` 再释放
+  `shared_ptr`，满足"所有 sender 先于 destroy"的 SDK 约束。后端的 `stop()`/析构、stagesurface
+  创建销毁均在图形锁下（reconcile / teardown_locked），与既有输出层不变量同源。
+
+---
+
 ## 跨平台 / 构建
 
 ### 观察项
@@ -109,7 +144,9 @@
 
 ---
 
-## 修复清单（本次硬化提交）
+## 修复清单
+
+### 第一轮（Spout + 通用输出层）
 
 | 文件 | 修复 | 风险等级 |
 |---|---|---|
@@ -117,6 +154,12 @@
 | `src/multiview-instance.cpp` | OutputBackendSettings customWidth/Height clamp 到 [16,16384] | MED（防恶意 / 损坏配置撑爆纹理分配） |
 | `src/multiview-output-spout.cpp` | ensure_open 失败日志一次性化（warned_open_failed_） | MED（持续失败时每帧日志风暴） |
 | `src/multiview-output.hpp` | 移除死方法 MultiviewOutputManager::has_backends() | LOW（清理） |
+
+### 第二轮（NDI 后端）
+
+| 文件 | 修复 | 风险等级 |
+|---|---|---|
+| `src/multiview-ndi-runtime.cpp` | NdiRuntime::available() 结果缓存，消除 reconcile 每帧在图形线程的 loader 往返 / 失败时每帧 LoadLibrary 探测 | MED（NDI 启用时图形线程热路径无谓开销） |
 
 ---
 

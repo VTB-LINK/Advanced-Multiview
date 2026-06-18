@@ -109,17 +109,32 @@ std::shared_ptr<NdiRuntime> NdiRuntime::acquire()
 
 bool NdiRuntime::available()
 {
-	/* If a backend already holds the runtime, it's obviously available. */
-	if (HMODULE h = GetModuleHandleA(NDILIB_LIBRARY_NAME))
-		return GetProcAddress(h, "NDIlib_v5_load") != nullptr;
+	/* The NDI runtime's presence is fixed for the session, so probe once and
+	 * cache the result. reconcile() reaches this every frame while NDI output
+	 * is enabled (via MultiviewOutputManager::backend_available) on the
+	 * graphics thread — we don't want a LoadLibrary/GetModuleHandle round-trip,
+	 * let alone a failing LoadLibrary probe, per frame. A runtime installed
+	 * mid-session is picked up on the next restart (matching how OBS NDI
+	 * plugins resolve the runtime once at load). */
+	static std::mutex mtx;
+	static int cached = -1;
 
-	/* Otherwise probe a load without initializing or retaining anything — a
-	 * lightweight "is the NDI runtime installed?" check for the settings UI. */
-	HMODULE probe = load_runtime_dll();
-	if (!probe)
-		return false;
-	const bool ok = GetProcAddress(probe, "NDIlib_v5_load") != nullptr;
-	FreeLibrary(probe);
+	std::lock_guard<std::mutex> lock(mtx);
+	if (cached >= 0)
+		return cached != 0;
+
+	bool ok = false;
+	if (HMODULE h = GetModuleHandleA(NDILIB_LIBRARY_NAME)) {
+		/* Already loaded (a backend holds it) — no probe needed. */
+		ok = GetProcAddress(h, "NDIlib_v5_load") != nullptr;
+	} else if (HMODULE probe = load_runtime_dll()) {
+		/* Lightweight "is it installed?" probe: load + resolve, then release
+		 * without initializing or retaining anything. */
+		ok = GetProcAddress(probe, "NDIlib_v5_load") != nullptr;
+		FreeLibrary(probe);
+	}
+
+	cached = ok ? 1 : 0;
 	return ok;
 }
 
