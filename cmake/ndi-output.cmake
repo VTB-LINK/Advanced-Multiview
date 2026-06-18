@@ -7,19 +7,21 @@
 # dynamically at runtime (see src/multiview-ndi-runtime.cpp), so the only thing
 # this module needs is the SDK include directory.
 #
-# Detection is non-fatal: if the SDK is not installed (e.g. on CI runners),
-# we print a STATUS message and turn ENABLE_NDI_OUTPUT OFF so the NDI source
-# files compile to empty translation units (they are guarded by
-# AMV_ENABLE_NDI_OUTPUT). This keeps CI and third-party builds green without
-# the SDK; building or testing the NDI backend simply requires installing it.
+# The headers are also vendored in deps/ndi/include (see deps/ndi/README.md) so
+# CI and contributors without the SDK installed can still build the NDI backend
+# — the same approach DistroAV takes. An installed SDK is preferred and the
+# vendored copy is the fallback, so detection effectively always succeeds. The
+# non-fatal disable branch below only triggers if the vendored headers are also
+# missing (e.g. a partial checkout).
 #
 # Windows-only for now (matches the Spout output gate). Set the NDI_SDK_DIR
-# environment variable to override the default install-path search.
+# environment variable to override and use a specific installed SDK.
 
 # `Processing.NDI.Lib.h` is the umbrella header; finding it pins the Include dir.
-# Search order: explicit NDI_SDK_DIR override, then the default v6 and v5
-# installer locations. Both runtimes are supported at load time, so either SDK
-# version's headers suffice (we only use the ABI-frozen v5 function subset).
+# Search order: explicit NDI_SDK_DIR override, then the default v6/v5 installer
+# locations, then the vendored fallback. Both runtimes are supported at load
+# time, so either SDK version's headers suffice (we only use the ABI-frozen v5
+# function subset).
 find_path(
   NDI_SDK_INCLUDE_DIR
   NAMES Processing.NDI.Lib.h
@@ -28,6 +30,7 @@ find_path(
     "C:/Program Files/NDI/NDI 6 SDK/Include"
     "C:/Program Files/NDI/NDI 5 SDK/Include"
     "C:/Program Files/NewTek/NDI 5 SDK/Include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/deps/ndi/include"
   NO_CACHE
 )
 
