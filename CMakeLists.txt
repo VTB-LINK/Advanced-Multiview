@@ -71,6 +71,10 @@ target_sources(
     src/multiview-output.cpp
     src/multiview-output-spout.hpp
     src/multiview-output-spout.cpp
+    src/multiview-output-ndi.hpp
+    src/multiview-output-ndi.cpp
+    src/multiview-ndi-runtime.hpp
+    src/multiview-ndi-runtime.cpp
     src/signal-provider.hpp
     src/signal-provider.cpp
     src/signal-provider-ffmpeg.cpp
@@ -110,6 +114,24 @@ if(ENABLE_SPOUT_OUTPUT)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/spout-output.cmake")
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE spout-dx)
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_SPOUT_OUTPUT)
+endif()
+
+if(OS_WINDOWS)
+  option(ENABLE_NDI_OUTPUT "Build multiview NDI output (Windows; requires NDI SDK)" ON)
+else()
+  set(ENABLE_NDI_OUTPUT OFF)
+endif()
+
+# ndi-output.cmake detects the installed NDI SDK and may turn ENABLE_NDI_OUTPUT
+# back OFF when it is absent (e.g. CI), so re-check before wiring it up. NDI is
+# header-only at build time + runtime DLL load — no import library to link.
+if(ENABLE_NDI_OUTPUT)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ndi-output.cmake")
+endif()
+
+if(ENABLE_NDI_OUTPUT)
+  target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${NDI_SDK_INCLUDE_DIR}")
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_NDI_OUTPUT)
 endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
