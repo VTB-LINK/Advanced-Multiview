@@ -33,6 +33,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QTimer>
 #include <atomic>
 #include <map>
+#include <set>
 #include <vector>
 
 OBS_DECLARE_MODULE()
@@ -45,18 +46,24 @@ static std::map<std::string, MultiviewWindow *> open_windows;
 /* ---- Issue #11 Phase 2: global external-output driver ----
  *
  * External output runs even with no visible projector window. A single
- * obs_add_main_render_callback drives every output-enabled host each frame on
+ * obs_add_main_rendered_callback drives every output-enabled host each frame on
  * the graphics thread. The callback is registered ONLY while at least one host
  * emits output, so instances with no output cost nothing per frame.
  *
+ * We use the *rendered* callback (fires after the main canvas texture is
+ * composited and obs->...->texture_rendered is set), NOT the plain main render
+ * callback (which fires BEFORE the scene is rendered). PGM cells call
+ * obs_render_main_texture(), which early-returns black until texture_rendered
+ * is true — so the plain callback produced a black PGM in the output.
+ *
  * g_output_hosts is the graphics-thread view of which hosts to drive. It is
  * rebuilt from open_windows under obs_enter_graphics (which serializes against
- * on_main_render, since that runs inside the graphics frame), so the callback
+ * on_main_rendered, since that runs inside the graphics frame), so the callback
  * never iterates a list that is changing under it. */
 static bool g_main_render_registered = false;
 static std::vector<MultiviewWindow *> g_output_hosts;
 
-static void on_main_render(void *, uint32_t, uint32_t)
+static void on_main_rendered(void *)
 {
 	for (auto *w : g_output_hosts) {
 		if (!w || !w->has_output())
@@ -82,10 +89,10 @@ void multiview_refresh_output_driver()
 	obs_leave_graphics();
 
 	if (need && !g_main_render_registered) {
-		obs_add_main_render_callback(on_main_render, nullptr);
+		obs_add_main_rendered_callback(on_main_rendered, nullptr);
 		g_main_render_registered = true;
 	} else if (!need && g_main_render_registered) {
-		obs_remove_main_render_callback(on_main_render, nullptr);
+		obs_remove_main_rendered_callback(on_main_rendered, nullptr);
 		g_main_render_registered = false;
 	}
 }
@@ -312,12 +319,19 @@ void notify_multiview_output_settings_changed(const std::string &uuid)
 	 * headless host if there is no open window), and tear down headless hosts
 	 * whose output was disabled. Then refresh the global driver. */
 	if (uuid.empty()) {
+		/* Reconcile every instance AND every existing host: the union
+		 * covers config instances that should gain a headless host and
+		 * stale hosts whose instance no longer has output (or was removed,
+		 * e.g. after a scene-collection switch). */
+		std::set<std::string> uuids;
 		if (config_manager) {
-			/* Copy uuids first: ensure_or_release_host may erase from
-			 * open_windows, and instances() is the config list. */
 			for (auto &inst : config_manager->instances())
-				ensure_or_release_host(inst.uuid);
+				uuids.insert(inst.uuid);
 		}
+		for (auto &[id, w] : open_windows)
+			uuids.insert(id);
+		for (const auto &u : uuids)
+			ensure_or_release_host(u);
 	} else {
 		ensure_or_release_host(uuid);
 	}
@@ -342,7 +356,7 @@ static void close_all_multiview_windows()
 	/* Issue #11: stop the global output driver before destroying hosts so no
 	 * on_main_render fires against freed windows. */
 	if (g_main_render_registered) {
-		obs_remove_main_render_callback(on_main_render, nullptr);
+		obs_remove_main_rendered_callback(on_main_rendered, nullptr);
 		g_main_render_registered = false;
 	}
 	g_output_hosts.clear();
@@ -508,7 +522,18 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 			config_manager->on_scene_collection_changed();
 			if (manager_dialog)
 				manager_dialog->refresh_instance_list();
+			/* Issue #11: the config reloaded for the new collection.
+			 * Spin up headless hosts for instances with output enabled
+			 * and tear down hosts whose instance is gone/disabled. */
+			notify_multiview_output_settings_changed();
 		}
+	}
+
+	/* Issue #11 Phase 2: once OBS finishes loading (scene collection + our
+	 * config are in memory), start headless output for any instance that has
+	 * it persisted-enabled, WITHOUT needing the user to open its window. */
+	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+		notify_multiview_output_settings_changed();
 	}
 
 	if (event == OBS_FRONTEND_EVENT_EXIT) {
