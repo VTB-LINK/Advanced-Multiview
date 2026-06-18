@@ -164,7 +164,55 @@ and no leaf lock is held while acquiring 1 or 2 → no ABBA cycle. The invariant
 "graphics → source_mutex_ only; release source_mutex_ before any
 obs_enter_graphics." Keep new code on the four-phase pattern.
 
-### Remaining hardening
-- Split `multiview-instance.cpp` (2336 lines) — hygiene; fold in a teardown
-  create/release audit for the small pre-existing shutdown leak (~8-14 OBS
-  objects under heavy use; KB-scale, negligible runtime impact).
+## Comprehensive Phase-2 hardening re-review (4-dimension audit)
+
+Re-audited issue #10 (Phase 2 lifecycle refactor + every session change) across four
+dimensions, each verified against the local OBS source. Results:
+
+**Verified correct / safe (no change):**
+- Lifecycle / UAF / teardown ordering: core removed from g_cores + the graphics
+  output-driver list (under obs_enter_graphics) BEFORE destruction; view display
+  callbacks removed before the core dies; window_closed(view*) can't double-process
+  (disconnect-before-delete); no iterate-while-mutate (orphan cleanup + notify use
+  snapshots); deleteLater/synchronous delete ordering sound.
+- Threading / locks: F5 invariant holds (no obs_enter_graphics under source_mutex_);
+  no obs_frontend_* on the render thread (all via the F2 cache); NDI double-buffer
+  ping-pong state is graphics-thread-only; sender_/runtime_ correctly guarded by
+  sender_mutex_ across graphics+audio; output_ndi_double_buffer_ atomic; tick token
+  de-dup correct.
+- Refcounting: no over-release found; inc/dec showing+active pairing balanced across
+  refresh_cell (4-phase) / update / release / dtor; obs_data + GPU resource pairs
+  balanced; the F2 OBSSourceAutoRelease→obs_source_get_ref pattern is correct.
+- All 5 features correct end-to-end (F2 cache, first-frame timeout incl. grace==total
+  semantics, NDI double-buffer setting incl. resize/first-frame, media health counter
+  resets + stall metric, title numbering + notify fan-out).
+
+**Fixed:**
+- **Data race (MED → fixed, commit d863112):** the precise source_create/source_remove
+  signal handlers iterated g_cores synchronously on the OBS-signal thread (signals fire
+  inline on the caller's thread — obs-websocket/scripts remove sources off-main),
+  racing main-thread g_cores/g_views inserts/erases. Added recursive `g_registry_mutex`
+  serializing ALL g_cores/g_views access; outermost lock (g_registry → obs graphics →
+  source_mutex_), graphics/render thread never takes it → no inversion.
+- **Late-Expose display recreate (LOW → fixed, d863112):** `closing_` flag prevents a
+  post-closeEvent Expose/visibleChanged from re-creating the display on a closing view.
+
+**Teardown leak:** the dedicated refcount audit traced every create/release pair and
+found them BALANCED — no structural leak. The residual ~8-14 OBS-allocator objects at
+heavy-use shutdown could not be localized statically (most-likely area: volmeter
+rebuild churn, but it traces balanced). KB-scale, negligible runtime impact. To
+localize would need a debug OBS build that lists leaked allocations or create/destroy
+counters around the volmeter + provider create paths. Deprioritized.
+
+## Remaining hardening
+- **Split oversized files (re-planned post-Phase-2)** — pure mechanical, behavior-
+  neutral. Current >1300-line files: `multiview-instance.cpp` (2346, ~95% struct
+  serialization), `amv-instance-core-vu.cpp` (1641), `cell-display-settings-dialog.cpp`
+  (1635), `amv-instance-core-sources.cpp` (1554), `manager-dialog.cpp` (1335).
+  Proposed first cut — `multiview-instance.cpp` → keep MultiviewInstance/GlobalSettings/
+  Layout + shared helpers; extract `…-serialize-visual.cpp` (Background/Label/SafeArea/
+  VuMeter/Overlay/Highlight + Global/Instance/Cell visual + resolve_effective_visual),
+  `…-serialize-output.cpp` (rescale + OutputBackend/InstanceOutput + resolve_output_dims),
+  `…-serialize-signal.cpp` (LostSignal/CellLostSignal + resolve_effective_lost +
+  SceneClickSwitch + SignalConfig + CellAssignment). Then optionally split
+  amv-instance-core-vu.cpp (rebuild/poll vs render) and the two dialogs.
