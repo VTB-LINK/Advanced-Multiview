@@ -506,10 +506,17 @@ struct SceneClickSwitchSettings {
  * backend picks its own output resolution and frame-rate divisor; backends
  * that resolve to the same dimensions share one offscreen render. */
 enum class OutputResolutionMode {
-	CanvasBase, /* OBS canvas base_width/base_height */
-	ObsOutput,  /* OBS output_width/output_height (rescaled) */
-	Custom,     /* customWidth/customHeight */
+	CanvasBase,       /* OBS canvas base_width/base_height */
+	ObsOutput,        /* OBS output_width/output_height (global scaled) */
+	ObsStreamRescale, /* OBS advanced streaming encoder "Rescale Output" resolution */
+	Custom,           /* customWidth/customHeight */
 };
+
+/* True when OBS is in Advanced output mode AND the streaming encoder's
+ * "Rescale Output" is enabled; fills w/h with that resolution. Used both to
+ * resolve the ObsStreamRescale dimensions and to enable/disable that option in
+ * the settings dialog. */
+bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h);
 
 struct OutputBackendSettings {
 	bool enabled = false;

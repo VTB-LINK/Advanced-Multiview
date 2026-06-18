@@ -21,7 +21,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QUuid>
 #include <obs.h>
 #include <obs-data.h>
+#include <obs-frontend-api.h>
+#include <util/config-file.h>
 #include <plugin-support.h>
+
+#include <cstdio>
 
 #include <cstring>
 
@@ -1170,6 +1174,8 @@ static const char *output_res_mode_to_str(OutputResolutionMode m)
 	switch (m) {
 	case OutputResolutionMode::ObsOutput:
 		return "obsOutput";
+	case OutputResolutionMode::ObsStreamRescale:
+		return "obsStreamRescale";
 	case OutputResolutionMode::Custom:
 		return "custom";
 	default:
@@ -1181,9 +1187,41 @@ static OutputResolutionMode output_res_mode_from_str(const char *s)
 {
 	if (s && strcmp(s, "obsOutput") == 0)
 		return OutputResolutionMode::ObsOutput;
+	if (s && strcmp(s, "obsStreamRescale") == 0)
+		return OutputResolutionMode::ObsStreamRescale;
 	if (s && strcmp(s, "custom") == 0)
 		return OutputResolutionMode::Custom;
 	return OutputResolutionMode::CanvasBase;
+}
+
+bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h)
+{
+	config_t *cfg = obs_frontend_get_profile_config();
+	if (!cfg)
+		return false;
+
+	/* Per-encoder rescale only exists in Advanced output mode. */
+	const char *mode = config_get_string(cfg, "Output", "Mode");
+	if (!mode || strcmp(mode, "Advanced") != 0)
+		return false;
+
+	/* RescaleFilter == OBS_SCALE_DISABLE (0) means the streaming encoder's
+	 * "Rescale Output" checkbox is off. */
+	const int filter = (int)config_get_int(cfg, "AdvOut", "RescaleFilter");
+	if (filter == OBS_SCALE_DISABLE)
+		return false;
+
+	const char *res = config_get_string(cfg, "AdvOut", "RescaleRes");
+	if (!res || !*res)
+		return false;
+
+	unsigned int pw = 0, ph = 0;
+	if (sscanf(res, "%ux%u", &pw, &ph) != 2 || pw == 0 || ph == 0)
+		return false;
+
+	w = pw;
+	h = ph;
+	return true;
 }
 
 obs_data_t *OutputBackendSettings::to_obs_data() const
@@ -1249,11 +1287,19 @@ std::pair<uint32_t, uint32_t> resolve_output_dimensions(const OutputBackendSetti
 	if (s.resMode == OutputResolutionMode::Custom)
 		return {s.customWidth, s.customHeight};
 
+	if (s.resMode == OutputResolutionMode::ObsStreamRescale) {
+		uint32_t w = 0, h = 0;
+		if (obs_stream_rescale_dimensions(w, h))
+			return {w, h};
+		/* Rescale turned off in OBS since this was picked — fall back to
+		 * the global OBS output (scaled) resolution. */
+	}
+
 	struct obs_video_info ovi;
 	if (!obs_get_video_info(&ovi))
 		return {0, 0};
 
-	if (s.resMode == OutputResolutionMode::ObsOutput)
+	if (s.resMode == OutputResolutionMode::ObsOutput || s.resMode == OutputResolutionMode::ObsStreamRescale)
 		return {ovi.output_width, ovi.output_height};
 
 	return {ovi.base_width, ovi.base_height}; /* CanvasBase */

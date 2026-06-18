@@ -16,6 +16,7 @@ License: GPL-2.0-or-later
 #include <QFormLayout>
 #include <QLabel>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -94,6 +95,25 @@ QWidget *ExternalOutputSettingsDialog::build_backend_tab(BackendWidgets &w, bool
 	w.resMode->addItem(amv::text("AMVPlugin.Output.Res.ObsOutput") +
 				   (haveOvi ? dims_suffix(ovi.output_width, ovi.output_height) : QString()),
 			   (int)OutputResolutionMode::ObsOutput);
+
+	/* OBS advanced streaming encoder "Rescale Output". Only selectable when
+	 * actually enabled in OBS; otherwise keep the row present but greyed out
+	 * (per user request) so the capability is discoverable. */
+	uint32_t rw = 0, rh = 0;
+	const bool rescaleActive = obs_stream_rescale_dimensions(rw, rh);
+	w.resMode->addItem(amv::text("AMVPlugin.Output.Res.StreamRescale") +
+				   (rescaleActive ? dims_suffix(rw, rh) : QString()),
+			   (int)OutputResolutionMode::ObsStreamRescale);
+	if (!rescaleActive) {
+		const int idx = w.resMode->count() - 1;
+		if (auto *model = qobject_cast<QStandardItemModel *>(w.resMode->model())) {
+			if (QStandardItem *item = model->item(idx)) {
+				item->setFlags(item->flags() & ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+				item->setToolTip(amv::text("AMVPlugin.Output.Res.StreamRescaleDisabled"));
+			}
+		}
+	}
+
 	w.resMode->addItem(amv::text("AMVPlugin.Output.Res.Custom"), (int)OutputResolutionMode::Custom);
 	form->addRow(amv::text("AMVPlugin.Output.Resolution"), w.resMode);
 
