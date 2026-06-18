@@ -108,8 +108,10 @@ public:
 
 	/* Paint the multiview composition for a caller-computed cell layout into the
 	 * current render target's viewport. Acquires source_mutex_. (The per-cell
-	 * half of the old MultiviewWindow::draw_grid.) */
-	void draw_cells(const std::vector<CellRect> &cells, int vpX, int vpY, int vpW, int vpH);
+	 * half of the old MultiviewWindow::draw_grid.) `diag` enables the per-cell
+	 * detailed-log diagnostics; only the display pass sets it, so the output
+	 * pass (different cell sizes) doesn't thrash the once-per-tuple [fill] log. */
+	void draw_cells(const std::vector<CellRect> &cells, int vpX, int vpY, int vpW, int vpH, bool diag = true);
 
 	/* Offscreen output pass (no display); uses the core's own output engine. */
 	void render_output_only();

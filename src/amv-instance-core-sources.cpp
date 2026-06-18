@@ -1436,7 +1436,7 @@ void AmvInstanceCore::render_output_only()
 			output_cached_vpW_ = w;
 			output_cached_vpH_ = h;
 		}
-		draw_cells(output_engine_.cells(), 0, 0, w, h);
+		draw_cells(output_engine_.cells(), 0, 0, w, h, /*diag=*/false);
 	});
 }
 

@@ -52,7 +52,7 @@ static inline void endRegion()
 	gs_projection_pop();
 }
 
-void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, int vpY, int vpW, int vpH)
+void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, int vpY, int vpW, int vpH, bool diag)
 {
 	/* Acquires source_mutex_: called on the graphics thread by each VIEW's
 	 * display render() (with the cells that view computed for its own size) and
@@ -591,25 +591,26 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 				vrY = contentY;
 			}
 
-			/* Snap to fill: if letterbox/pillarbox is tiny (<=16px total),
-			 * skip it and stretch to fill content area (like OBS native).
+			/* Snap to fill: if the letterbox/pillarbox residual is tiny,
+			 * skip it and fill the content area (like OBS native), so
+			 * grid-rounding artifacts don't draw 1px bars.
 			 *
-			 * Why 16: layout-engine integer-divides the window width by
-			 * the column count, so neighboring cells in the same row can
-			 * differ in width by 1 px (e.g. 591 vs 592 for a 9-col grid).
-			 * That 1 px ripples through the aspect math: a 16:9 source
-			 * (1.7778) inside cell.h=328 needs vrW=583, leaving residual
-			 * 8 in the 591 cell and 9 in the 592 cell. With the original
-			 * threshold of 8, the 591 cell snapped (no pillarbox) while
-			 * the 592 cell pillarboxed \u2014 visible row-wise inconsistency.
-			 *
-			 * 16 covers the worst-case grid rounding (a few px per cell)
-			 * plus a small invisible-stretch margin (~2.7% on a 600 px
-			 * cell), and stays well below any genuine aspect mismatch
-			 * (4:3 source in 16:9 cell residuals are in the 100s of px). */
-			constexpr int SNAP_THRESHOLD = 16;
+			 * The threshold is RELATIVE (a small percentage of the cell),
+			 * not absolute. The layout engine integer-divides the window by
+			 * the column count, so neighbouring cells differ by ~1px and a
+			 * near-matching aspect leaves a residual of ~1-1.5% of the cell
+			 * \u2014 that should snap (and snap consistently across the row).
+			 * But an absolute 16px threshold also swallowed genuine aspect
+			 * mismatches on SMALL cells: a 1.916 source in a 1.805 cell
+			 * (261px tall) leaves a 15px = 5.7% residual that visibly
+			 * stretched when snapped, while the same source letterboxed
+			 * correctly in a larger cell (residual > 16px). 3% snaps the
+			 * grid-rounding case at any size yet letterboxes a real >~4%
+			 * aspect mismatch. */
+			const int snapW = (contentW * 3) / 100;
+			const int snapH = (contentH * 3) / 100;
 			bool snapped = false;
-			if ((contentW - vrW) <= SNAP_THRESHOLD && (contentH - vrH) <= SNAP_THRESHOLD) {
+			if ((contentW - vrW) <= snapW && (contentH - vrH) <= snapH) {
 				vrX = contentX;
 				vrY = contentY;
 				vrW = contentW;
@@ -625,7 +626,7 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 			 * (NDI Output Scaled resolution, HLS variant playlists,
 			 * etc.). One-shot per tuple keeps log volume bounded even
 			 * when the window is resized live. */
-			if (i < (int)cell_sources_.size() &&
+			if (diag && i < (int)cell_sources_.size() &&
 			    cell_sources_[i].provider_type != SignalProviderType::Unknown &&
 			    !signal_provider_is_internal(cell_sources_[i].provider_type)) {
 				const uint64_t h = ((uint64_t)srcW << 48) ^ ((uint64_t)srcH << 32) ^
