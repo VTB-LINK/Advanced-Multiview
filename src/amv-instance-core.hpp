@@ -226,6 +226,12 @@ private:
 	double canvas_aspect_ = 16.0 / 9.0;
 
 	std::vector<CellSource> cell_sources_;
+	/* Lock order (F5, see docs/obs-isolation-review.md): the ONLY legal nesting
+	 * is OBS graphics-lock -> source_mutex_ (the render path: OBS holds the
+	 * graphics lock around our draw callback, which then takes source_mutex_).
+	 * NEVER call obs_enter_graphics() while holding source_mutex_ — teardown/
+	 * rebuild uses the four-phase pattern (collect under lock, release, do GPU
+	 * work, re-lock to install). Recursive so nested core calls are safe. */
 	std::recursive_mutex source_mutex_;
 
 	int re_resolve_counter_ = 0;

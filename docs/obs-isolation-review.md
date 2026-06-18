@@ -99,4 +99,56 @@ Runtime self-test (user) — pending, not code-checkable:
 OBS calls, no new cross-thread registry access, UAF-safe teardown. Remaining open
 items are the user runtime self-tests above and the two scheduled hardening fixes
 (F1 readback double-buffer, F5 lock-order audit + doc).
-</content>
+
+---
+
+## Hardening results (post-Phase-2)
+
+### F1 — NDI readback double-buffer — DONE (commit e39bddd)
+`multiview-output-ndi.cpp` now ping-pongs two staging surfaces: frame N is staged
+into `stage_[idx]` (async `gs_stage_texture`) while the surface staged on frame
+N-1 is mapped+sent (its GPU copy finished a frame ago, so the map doesn't block
+the graphics thread). One frame of added output latency; the per-frame readback
+stall is gone. `stage_have_prev_` suppresses the send on the first frame / after
+a resize; `destroy_stages()` resets the ping-pong on teardown/resize. Spout is
+unaffected (on-GPU share, no readback).
+
+### F5 — Lock-order audit + doc — DONE (audited, no code change needed)
+
+**Locks in play** (innermost-last):
+1. **OBS graphics lock** (`obs_enter_graphics`/`obs_leave_graphics`, and held by
+   OBS around display draw callbacks + the main-rendered callback).
+2. **`AmvInstanceCore::source_mutex_`** — recursive, one per core; guards all
+   shared cell/source/volmeter/image state.
+3. **Leaves (never held while acquiring 1 or 2):**
+   - `NdiOutputBackend::sender_mutex_` — guards the NDI sender across the
+     graphics (video send) and audio (capture) threads.
+   - `amv_frontend` `g_mtx` — guards the program/preview/streaming cache.
+   - `plugin-main` `g_cores` / `g_views` — **UI-thread-only**, no lock; the
+     graphics thread reads only `g_output_hosts`, rebuilt under the graphics lock.
+
+**The one legal nesting — render path:** OBS calls our display draw callback /
+`on_main_rendered` **with the graphics lock held**; inside, `draw_cells` /
+`render_output_only` take `source_mutex_`. So the only lock nesting is
+**graphics → source_mutex_**.
+
+**Teardown / rebuild never nests the other way.** Every site that needs the
+graphics lock to destroy/create GPU objects (textures, vertex buffers, NDI stage
+surfaces) follows the four-phase pattern: (1) collect handles under
+`source_mutex_`, (2) **release** `source_mutex_`, (3) `obs_enter_graphics` to do
+the GPU work, (4) re-lock to install. Verified: `obs_enter_graphics` appears only
+**outside** any `source_mutex_` scope — `amv-instance-core-image.cpp:111/236`,
+`-lost-image.cpp:209/258`, `-sources.cpp:1343/1378/1478` (release/rebuild),
+`multiview-output.cpp:231`, `plugin-main.cpp:132` (no core lock there). The
+expensive `obs_source_dec_active`/`dec_showing` (host-plugin worker teardown) and
+`obs_source_create_private` likewise run only outside `source_mutex_`.
+
+**Conclusion:** no path acquires the graphics lock while holding `source_mutex_`,
+and no leaf lock is held while acquiring 1 or 2 → no ABBA cycle. The invariant is
+"graphics → source_mutex_ only; release source_mutex_ before any
+obs_enter_graphics." Keep new code on the four-phase pattern.
+
+### Remaining hardening
+- Split `multiview-instance.cpp` (2336 lines) — hygiene; fold in a teardown
+  create/release audit for the small pre-existing shutdown leak (~8-14 OBS
+  objects under heavy use; KB-scale, negligible runtime impact).
