@@ -81,11 +81,21 @@ int MultiviewWindow::cell_index_at_widget_pos(const QPointF &position)
 	int lx = mx - vpX;
 	int ly = my - vpY;
 
-	engine_.set_layout(layout_);
-	engine_.set_viewport(vpW, vpH);
-	engine_.compute();
+	/* Hit-test on a LOCAL engine, never the member engine_. The member
+	 * engine_ is owned by draw_grid(), which caches its computed viewport
+	 * in cached_vpW_/cached_vpH_. Recomputing engine_ here at window-pixel
+	 * size would silently desync that cache: once Spout/NDI output is on,
+	 * draw_grid() renders at canvas resolution into an offscreen target,
+	 * and a stray window-pixel layout left behind by a click would make the
+	 * cells overflow the texrender and blit back scaled/shifted (issue #11
+	 * regression). A grid layout is proportional, so hit-testing at window
+	 * size still maps clicks to the right cell. */
+	LayoutEngine hitEngine;
+	hitEngine.set_layout(layout_);
+	hitEngine.set_viewport(vpW, vpH);
+	hitEngine.compute();
 
-	auto hit = engine_.hit_test(lx, ly);
+	auto hit = hitEngine.hit_test(lx, ly);
 	if (hit && hit->type == HitType::Cell)
 		return hit->cellIndex;
 	return -1;
@@ -98,7 +108,14 @@ void MultiviewWindow::mousePressEvent(QMouseEvent *event)
 		int cellIndex = cell_index_at_widget_pos(event->position());
 
 		if (btn == Qt::RightButton) {
-			show_context_menu(event->globalPosition().toPoint(), cellIndex);
+			/* Map the LOCAL widget position to global via mapToGlobal
+			 * rather than trusting event->globalPosition(): on a
+			 * WA_NativeWindow/WA_PaintOnScreen widget under fractional /
+			 * high DPI (e.g. 250%), the event's global position can come
+			 * back in physical pixels, landing the menu far off-screen so
+			 * Qt clamps it to the bottom-right corner. mapToGlobal uses the
+			 * window's logical coordinate mapping, which stays consistent. */
+			show_context_menu(mapToGlobal(event->position().toPoint()), cellIndex);
 		} else {
 			/* Left click: only act on a hit cell. handle_scene_click_switch
 			 * itself silently ignores non-scene cells, missing sources,
@@ -218,6 +235,10 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 			});
 		}
 	}
+
+	/* External output (Spout/NDI) is configured per-instance from the manager's
+	 * "External Output…" dialog (resolution / frame-rate / audio per backend),
+	 * which is the single source of truth — no quick toggle here (issue #11). */
 
 	/* ---------- Section 2: cell display & lost (cell hit only) ---------- */
 

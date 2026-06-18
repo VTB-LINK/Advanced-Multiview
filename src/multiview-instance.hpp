@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <obs-data.h>
@@ -498,6 +499,66 @@ struct SceneClickSwitchSettings {
 	static SceneClickSwitchSettings from_obs_data(obs_data_t *data);
 };
 
+/* External output (Spout/NDI) settings, per backend (issue #11).
+ *
+ * The composed multiview can be transmitted out of OBS as a Spout sender or
+ * (future) an NDI source, independent of OBS's source/scene system. Each
+ * backend picks its own output resolution and frame-rate divisor; backends
+ * that resolve to the same dimensions share one offscreen render. */
+enum class OutputResolutionMode {
+	CanvasBase,       /* OBS canvas base_width/base_height */
+	ObsOutput,        /* OBS output_width/output_height (global scaled) */
+	ObsStreamRescale, /* OBS advanced streaming encoder "Rescale Output" resolution */
+	ObsRecordRescale, /* OBS advanced recording encoder "Rescale Output" resolution */
+	Custom,           /* customWidth/customHeight */
+};
+
+/* True when OBS is in Advanced output mode AND the streaming/recording encoder's
+ * "Rescale Output" is enabled; fills w/h with that resolution. Used both to
+ * resolve the dimensions and to enable/disable that option in the dialog. */
+bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h);
+bool obs_record_rescale_dimensions(uint32_t &w, uint32_t &h);
+
+/* Which OBS audio the backend transmits alongside video (issue #11).
+ *   FollowStreaming: the track(s) OBS sends to its streaming output.
+ *   ManualTrack:     a fixed mixer track 1..6 (audioTrackIndex).
+ * Mirrors the VU meter's VuMeterTrackMode source selection. Spout carries no
+ * audio, so its audio controls are disabled in the dialog. */
+enum class OutputAudioMode { FollowStreaming, ManualTrack };
+
+struct OutputBackendSettings {
+	bool enabled = false;
+	OutputResolutionMode resMode = OutputResolutionMode::CanvasBase;
+	uint32_t customWidth = 1920; /* used only when resMode == Custom */
+	uint32_t customHeight = 1080;
+	/* Integer frame-rate divisor: 1 = follow OBS fps, 2 = half. Only these two
+	 * are offered (half only when base fps > 30). */
+	int fpsDivisor = 1;
+
+	/* Audio source selection. Persisted + UI now; actual audio transmission
+	 * (NDI only) lands in a later milestone — Spout has no audio path. */
+	OutputAudioMode audioMode = OutputAudioMode::FollowStreaming;
+	int audioTrackIndex = 1; /* 1..6, only used when audioMode == ManualTrack */
+
+	obs_data_t *to_obs_data() const;
+	static OutputBackendSettings from_obs_data(obs_data_t *data);
+};
+
+struct InstanceOutputSettings {
+	OutputBackendSettings spout;
+	OutputBackendSettings ndi; /* persisted but inert until the NDI backend lands */
+
+	bool any_enabled() const { return spout.enabled || ndi.enabled; }
+
+	obs_data_t *to_obs_data() const;
+	static InstanceOutputSettings from_obs_data(obs_data_t *data);
+};
+
+/* Resolve a backend's output pixel dimensions from the current OBS video info.
+ * Shared by the render loop and the settings dialog so both agree. Returns
+ * {0,0} if obs_get_video_info fails. */
+std::pair<uint32_t, uint32_t> resolve_output_dimensions(const OutputBackendSettings &s);
+
 struct MultiviewInstance {
 	std::string uuid;
 	std::string name;
@@ -520,6 +581,10 @@ struct MultiviewInstance {
 	 * Mirrors the useGlobalGutter pattern. */
 	bool useGlobalSceneClickSwitch = true;
 	SceneClickSwitchSettings sceneClickSwitch;
+
+	/* External output (Spout/NDI) config, issue #11. Default = all disabled,
+	 * so legacy configs and new instances emit nothing until enabled. */
+	InstanceOutputSettings outputSettings;
 
 	int effective_gutter(int globalGutter) const;
 

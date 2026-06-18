@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "amv-logging.hpp"
 #include "amv-i18n.hpp"
 #include "cell-display-settings-dialog.hpp"
+#include "external-output-settings-dialog.hpp"
 #include "signal-lost-settings-dialog.hpp"
 #include "grid-preview-widget.hpp"
 #include "multiview-window.hpp"
@@ -34,6 +35,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QEvent>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -471,6 +473,40 @@ void ManagerDialog::setup_right_panel(QWidget *panel)
 			inst->visualSettings = dlg.get_instance_settings();
 			config_->save();
 			notify_multiview_visual_settings_changed(current_detail_uuid_);
+		}
+	});
+
+	/* --- External Output (Spout/NDI) button (issue #11) --- */
+	auto *btn_instance_output =
+		new QPushButton(amv::text("AMVPlugin.Manager.Instance.ExternalOutput"), page_instance_);
+	p_layout->addWidget(btn_instance_output);
+	connect(btn_instance_output, &QPushButton::clicked, this, [this]() {
+		MultiviewInstance *inst = config_->find_instance(current_detail_uuid_);
+		if (!inst)
+			return;
+		ExternalOutputSettingsDialog dlg(this);
+		dlg.set_settings(inst->outputSettings);
+		if (dlg.exec() == QDialog::Accepted) {
+			inst->outputSettings = dlg.get_settings();
+			config_->save();
+			/* Re-apply to the (possibly open) window and refresh the
+			 * list so the italic+bold output marker updates. */
+			notify_multiview_output_settings_changed(current_detail_uuid_);
+			/* refresh_instance_list() rebuilt the tree to update the
+			 * italic+bold output marker, which cleared the selection.
+			 * Re-select with signals LIVE (not select_instance_by_uuid,
+			 * which blocks them) so on_instance_selection_changed fires
+			 * and restores both the row highlight and the detail panel —
+			 * same pattern as on_new_instance. */
+			refresh_instance_list();
+			const QString target = QString::fromStdString(current_detail_uuid_);
+			for (int i = 0; i < instance_tree_->topLevelItemCount(); i++) {
+				auto *it = instance_tree_->topLevelItem(i);
+				if (it->data(0, Qt::UserRole).toString() == target) {
+					instance_tree_->setCurrentItem(it);
+					break;
+				}
+			}
 		}
 	});
 
@@ -930,6 +966,14 @@ void ManagerDialog::refresh_instance_list()
 		auto *item = new QTreeWidgetItem();
 		item->setText(0, QString::fromStdString(inst.name));
 		item->setData(0, Qt::UserRole, QString::fromStdString(inst.uuid));
+		/* Issue #11: an instance with any external output (Spout/NDI)
+		 * enabled is shown italic + bold so it stands out in the list. */
+		if (inst.outputSettings.any_enabled()) {
+			QFont f = item->font(0);
+			f.setItalic(true);
+			f.setBold(true);
+			item->setFont(0, f);
+		}
 		instance_tree_->addTopLevelItem(item);
 	}
 

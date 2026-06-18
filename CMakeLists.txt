@@ -52,6 +52,8 @@ target_sources(
     src/manager-dialog.cpp
     src/cell-display-settings-dialog.hpp
     src/cell-display-settings-dialog.cpp
+    src/external-output-settings-dialog.hpp
+    src/external-output-settings-dialog.cpp
     src/signal-lost-settings-dialog.hpp
     src/signal-lost-settings-dialog.cpp
     src/multiview-window.hpp
@@ -65,6 +67,14 @@ target_sources(
     src/multiview-window-status.cpp
     src/multiview-window-lost-image.cpp
     src/multiview-window-health.cpp
+    src/multiview-output.hpp
+    src/multiview-output.cpp
+    src/multiview-output-spout.hpp
+    src/multiview-output-spout.cpp
+    src/multiview-output-ndi.hpp
+    src/multiview-output-ndi.cpp
+    src/multiview-ndi-runtime.hpp
+    src/multiview-ndi-runtime.cpp
     src/signal-provider.hpp
     src/signal-provider.cpp
     src/signal-provider-ffmpeg.cpp
@@ -82,5 +92,49 @@ target_sources(
     src/source-picker.hpp
     src/source-picker.cpp
 )
+
+# ---------------------------------------------------------------------------
+# Multiview output backends (issue #11)
+#
+# Approach B: dedicated senders that transmit the composed multiview directly,
+# independent of OBS's source/scene system. The output layer is designed to be
+# backend-agnostic — Spout lands first, NDI reuses the same pipeline later.
+#
+# Each backend has its own SDK-acquisition module under cmake/ because their
+# linkage models differ (Spout = static link of the vendored SpoutDX submodule;
+# NDI = runtime DLL load). The ENABLE_*_OUTPUT options share a naming scheme.
+# ---------------------------------------------------------------------------
+if(OS_WINDOWS)
+  option(ENABLE_SPOUT_OUTPUT "Build multiview Spout output (Windows/DirectX)" ON)
+else()
+  set(ENABLE_SPOUT_OUTPUT OFF)
+endif()
+
+if(ENABLE_SPOUT_OUTPUT)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/spout-output.cmake")
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE spout-dx)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_SPOUT_OUTPUT)
+endif()
+
+# NDI is cross-platform (unlike Spout's DirectX). The runtime is loaded via Qt's
+# QLibrary and the backend uses only libobs + the NDI table, so it builds on
+# every platform NDI ships a runtime for: Windows, macOS, and Linux.
+if(OS_WINDOWS OR OS_MACOS OR OS_LINUX)
+  option(ENABLE_NDI_OUTPUT "Build multiview NDI output (Windows/macOS/Linux)" ON)
+else()
+  set(ENABLE_NDI_OUTPUT OFF)
+endif()
+
+# ndi-output.cmake detects the installed NDI SDK and may turn ENABLE_NDI_OUTPUT
+# back OFF when it is absent (e.g. CI), so re-check before wiring it up. NDI is
+# header-only at build time + runtime DLL load — no import library to link.
+if(ENABLE_NDI_OUTPUT)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ndi-output.cmake")
+endif()
+
+if(ENABLE_NDI_OUTPUT)
+  target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${NDI_SDK_INCLUDE_DIR}")
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_NDI_OUTPUT)
+endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

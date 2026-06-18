@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "config-manager.hpp"
 #include "layout-engine.hpp"
+#include "multiview-output.hpp"
 
 #include <obs.hpp>
 
@@ -38,7 +39,12 @@ class MultiviewWindow : public QWidget {
 	Q_OBJECT
 
 public:
-	MultiviewWindow(ConfigManager *config, const std::string &uuid, QWidget *parent = nullptr);
+	/* startVisible=false builds a hidden, display-less "render host" used to
+	 * drive external output without a visible projector window (issue #11
+	 * Phase 2). Such a host keeps all cell state live and is driven by the
+	 * global obs_add_main_render_callback. */
+	MultiviewWindow(ConfigManager *config, const std::string &uuid, QWidget *parent = nullptr,
+			bool startVisible = true);
 	~MultiviewWindow() override;
 
 	std::string instance_uuid() const { return uuid_; }
@@ -149,6 +155,32 @@ public:
 
 	QPaintEngine *paintEngine() const override { return nullptr; }
 
+	/* Spout/NDI output (issue #11). apply_output_settings() (re)builds the
+	 * output manager from the instance's persisted InstanceOutputSettings —
+	 * call after the config changes (External Output dialog, notify). The
+	 * sender name follows the instance name. */
+	void apply_output_settings();
+
+	/* Phase 2 headless driver hooks (issue #11). Called by the global
+	 * obs_add_main_render_callback on the graphics thread:
+	 *   has_output()        — does this host currently emit any output?
+	 *   is_headless()       — true when there is no visible window/display,
+	 *                         so the global driver must tick this host itself.
+	 *   tick_frame()        — advance once-per-frame state (re-resolve, scene
+	 *                         change, highlight trees, audio track). A visible
+	 *                         window ticks via its own display render(); a
+	 *                         headless host is ticked by the global driver.
+	 *   render_output_only()— the offscreen output pass (no display).
+	 *   enter_headless()/exit_headless() — switch a host between
+	 *                         visible+display and hidden+display-less while
+	 *                         keeping cell state + output_ alive. */
+	bool has_output() const { return output_ != nullptr; }
+	bool is_headless() const { return headless_.load(std::memory_order_relaxed); }
+	void tick_frame();
+	void render_output_only();
+	void enter_headless();
+	void exit_headless();
+
 signals:
 	void window_closed(const std::string &uuid);
 
@@ -175,6 +207,22 @@ private:
 
 	static void render_callback(void *data, uint32_t cx, uint32_t cy);
 	void render(uint32_t cx, uint32_t cy);
+
+	/* Draw the full multiview composition (gutter, cells, overlays, VU,
+	 * highlights) into the current render target, mapped to the given
+	 * viewport rect. Split out of render() so the same pipeline can paint
+	 * both the on-screen display and an offscreen target for Spout/NDI
+	 * output (issue #11). Acquires source_mutex_ (recursive). */
+	void draw_grid(int vpX, int vpY, int vpW, int vpH);
+
+	/* Output pipeline (issue #11). Display always renders natively; the
+	 * output is a separate offscreen pass driven from the persisted
+	 * InstanceOutputSettings. output_ is created only while output is enabled
+	 * (so an instance with no output costs nothing); the manager renders one
+	 * texrender per unique resolution and dispatches to each enabled backend. */
+	std::unique_ptr<MultiviewOutputManager> output_;
+	InstanceOutputSettings output_settings_; /* cached copy, updated by apply_output_settings() */
+	std::string instance_display_name() const;
 
 	/* Context menu */
 	int cell_index_at_widget_pos(const QPointF &position);
@@ -418,6 +466,10 @@ private:
 
 	bool is_always_on_top_ = false;
 	std::atomic<bool> ready_{false};
+	/* Issue #11 Phase 2: true when this is a hidden, display-less render host
+	 * (output runs without a visible window). Read on the graphics thread by
+	 * the global output driver, written on the UI thread. */
+	std::atomic<bool> headless_{false};
 
 	/* Cached viewport size to avoid recomputing layout every frame */
 	int cached_vpW_ = 0;
@@ -707,3 +759,8 @@ void notify_multiview_layout_changed(const std::string &uuid = "");
 void notify_multiview_name_changed(const std::string &uuid);
 void notify_multiview_visual_settings_changed(const std::string &uuid = "");
 void notify_multiview_signal_settings_changed(const std::string &uuid = "");
+void notify_multiview_output_settings_changed(const std::string &uuid = "");
+/* Re-evaluate the global external-output render driver (register/unregister the
+ * main render callback, rebuild the host list). Call after any change to a
+ * window's output_ state (issue #11 Phase 2). */
+void multiview_refresh_output_driver();
