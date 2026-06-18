@@ -20,8 +20,9 @@
    - Visual Studio 2022 或 2026
    - CMake 3.28+
    - OBS Studio 31.1.1+
-   - **NDI**（外部输出）—— SDK **头文件已 vendored** 于 `deps/ndi/`（仅头、不含库/DLL），
-     NDI 后端在 Windows 上**开箱即可构建**，CI 与贡献者无需安装 SDK。如需改用本机已装的
+   - **NDI**（外部输出，视频 + 音频）—— SDK **头文件已 vendored** 于 `deps/ndi/`（仅头、不含库/DLL），
+     NDI 后端在 **Windows 与 macOS** 上**开箱即可构建**（运行时经 Qt `QLibrary` 跨平台加载），
+     CI 与贡献者无需安装 SDK。如需改用本机已装的
      [NDI SDK](https://ndi.video/for-developers/ndi-sdk/)，设环境变量 `NDI_SDK_DIR`（优先于
      vendored 头）。运行期插件动态加载 NDI 运行时 DLL（不打包、不链接导入库），加载 v5 函数表
      以兼容 NDI 5 / NDI 6；**运行/测试** NDI 输出需装 [NDI 运行时](http://ndi.link/NDIRedistV6)

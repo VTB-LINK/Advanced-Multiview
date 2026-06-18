@@ -12,49 +12,58 @@ License: GPL-2.0-or-later
 #include <obs-module.h>
 #include <plugin-support.h>
 
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include <QByteArray>
+#include <QLibrary>
+#include <QString>
+#include <QStringList>
 
 #include <mutex>
-#include <string>
 
 namespace {
 
-/* NDI 5 uses its own runtime-dir env var; the v6 header only defines the v6
- * one (NDILIB_REDIST_FOLDER). Try v6 first, then v5, then the bare DLL name so
- * the OS loader resolves it from PATH / the NDI install dir on the search path. */
+/* NDI 5 uses its own runtime-dir env var; the headers only define the v6 one
+ * (NDILIB_REDIST_FOLDER). Try v6 first, then v5, then the bare library name so
+ * the OS loader resolves it from the standard search path (PATH on Windows,
+ * DYLD/LD paths on macOS/Linux). Cross-platform via Qt's QLibrary, which adds
+ * the right prefix/suffix handling per platform (the same approach DistroAV
+ * uses). */
 constexpr const char *kRuntimeDirEnvV6 = NDILIB_REDIST_FOLDER; /* "NDI_RUNTIME_DIR_V6" */
 constexpr const char *kRuntimeDirEnvV5 = "NDI_RUNTIME_DIR_V5";
 
-std::string env_var(const char *name)
+/* Candidate full paths to try, most specific first. */
+QStringList candidate_paths()
 {
-	/* Win32 over getenv to dodge MSVC's C4996 under /WX. */
-	DWORD len = GetEnvironmentVariableA(name, nullptr, 0);
-	if (len == 0)
-		return {};
-	std::string value(len, '\0');
-	DWORD written = GetEnvironmentVariableA(name, value.data(), len);
-	value.resize(written);
-	return value;
+	const QString libName = QString::fromUtf8(NDILIB_LIBRARY_NAME);
+	QStringList paths;
+
+	for (const char *envName : {kRuntimeDirEnvV6, kRuntimeDirEnvV5}) {
+		const QByteArray dir = qgetenv(envName);
+		if (!dir.isEmpty())
+			paths << (QString::fromLocal8Bit(dir) + QLatin1Char('/') + libName);
+	}
+
+#if defined(Q_OS_MACOS)
+	/* The NDI runtime/Tools installer symlinks the dylib into these dirs. */
+	paths << QStringLiteral("/usr/local/lib/") + libName;
+	paths << QStringLiteral("/Library/NDI SDK for Apple/lib/macOS/") + libName;
+#endif
+
+	/* Bare name last: let the OS loader search its standard paths. */
+	paths << libName;
+	return paths;
 }
 
-/* Locate and LoadLibrary the NDI runtime DLL. Returns nullptr if not found.
- * Does NOT resolve the table or initialize — callers do that. */
-HMODULE load_runtime_dll()
+/* Locate and load the NDI runtime library. Returns a loaded QLibrary (caller
+ * owns it) or nullptr. Does NOT resolve the table or initialize. */
+QLibrary *load_runtime_library()
 {
-	for (const char *envName : {kRuntimeDirEnvV6, kRuntimeDirEnvV5}) {
-		const std::string dir = env_var(envName);
-		if (dir.empty())
-			continue;
-		std::string path = dir;
-		if (path.back() != '\\' && path.back() != '/')
-			path += '\\';
-		path += NDILIB_LIBRARY_NAME;
-		if (HMODULE h = LoadLibraryA(path.c_str()))
-			return h;
+	for (const QString &path : candidate_paths()) {
+		auto *lib = new QLibrary(path);
+		if (lib->load())
+			return lib;
+		delete lib;
 	}
-	/* Fall back to the OS search path (PATH, app dir, system dirs). */
-	return LoadLibraryA(NDILIB_LIBRARY_NAME);
+	return nullptr;
 }
 
 } /* anonymous namespace */
@@ -70,8 +79,8 @@ std::shared_ptr<NdiRuntime> NdiRuntime::acquire()
 	if (auto sp = cached.lock())
 		return sp;
 
-	HMODULE h = load_runtime_dll();
-	if (!h) {
+	QLibrary *lib_handle = load_runtime_library();
+	if (!lib_handle) {
 		if (!warned_load_failed) {
 			obs_log(LOG_WARNING,
 				"[multiview-output/ndi] NDI runtime not found ('%s'). "
@@ -84,25 +93,27 @@ std::shared_ptr<NdiRuntime> NdiRuntime::acquire()
 
 	/* v5 table for v5+v6 runtime compatibility (see header). */
 	using load_fn_t = const NDIlib_v5 *(*)(void);
-	auto load_fn = reinterpret_cast<load_fn_t>(GetProcAddress(h, "NDIlib_v5_load"));
+	auto load_fn = reinterpret_cast<load_fn_t>(lib_handle->resolve("NDIlib_v5_load"));
 	const NDIlib_v5 *lib = load_fn ? load_fn() : nullptr;
 	if (!lib) {
 		obs_log(LOG_WARNING, "[multiview-output/ndi] NDIlib_v5_load missing or returned null");
-		FreeLibrary(h);
+		lib_handle->unload();
+		delete lib_handle;
 		return nullptr;
 	}
 
 	if (!lib->initialize()) {
 		/* Almost always an unsupported (too old) CPU. */
 		obs_log(LOG_WARNING, "[multiview-output/ndi] NDIlib initialize failed (unsupported CPU?)");
-		FreeLibrary(h);
+		lib_handle->unload();
+		delete lib_handle;
 		return nullptr;
 	}
 
 	warned_load_failed = false;
 	obs_log(LOG_INFO, "[multiview-output/ndi] NDI runtime loaded ('%s')", lib->version());
 
-	auto sp = std::shared_ptr<NdiRuntime>(new NdiRuntime(h, lib));
+	auto sp = std::shared_ptr<NdiRuntime>(new NdiRuntime(lib_handle, lib));
 	cached = sp;
 	return sp;
 }
@@ -111,11 +122,9 @@ bool NdiRuntime::available()
 {
 	/* The NDI runtime's presence is fixed for the session, so probe once and
 	 * cache the result. reconcile() reaches this every frame while NDI output
-	 * is enabled (via MultiviewOutputManager::backend_available) on the
-	 * graphics thread — we don't want a LoadLibrary/GetModuleHandle round-trip,
-	 * let alone a failing LoadLibrary probe, per frame. A runtime installed
-	 * mid-session is picked up on the next restart (matching how OBS NDI
-	 * plugins resolve the runtime once at load). */
+	 * is enabled (via MultiviewOutputManager::backend_available) — we don't
+	 * want a load probe per frame. A runtime installed mid-session is picked up
+	 * on the next restart (matching how OBS NDI plugins resolve it at load). */
 	static std::mutex mtx;
 	static int cached = -1;
 
@@ -124,14 +133,10 @@ bool NdiRuntime::available()
 		return cached != 0;
 
 	bool ok = false;
-	if (HMODULE h = GetModuleHandleA(NDILIB_LIBRARY_NAME)) {
-		/* Already loaded (a backend holds it) — no probe needed. */
-		ok = GetProcAddress(h, "NDIlib_v5_load") != nullptr;
-	} else if (HMODULE probe = load_runtime_dll()) {
-		/* Lightweight "is it installed?" probe: load + resolve, then release
-		 * without initializing or retaining anything. */
-		ok = GetProcAddress(probe, "NDIlib_v5_load") != nullptr;
-		FreeLibrary(probe);
+	if (QLibrary *probe = load_runtime_library()) {
+		ok = probe->resolve("NDIlib_v5_load") != nullptr;
+		probe->unload();
+		delete probe;
 	}
 
 	cached = ok ? 1 : 0;
@@ -144,8 +149,11 @@ NdiRuntime::~NdiRuntime()
 	 * release their shared_ptr only after send_destroy). */
 	if (lib_)
 		lib_->destroy();
-	if (module_)
-		FreeLibrary(static_cast<HMODULE>(module_));
+	if (module_) {
+		auto *lib_handle = static_cast<QLibrary *>(module_);
+		lib_handle->unload();
+		delete lib_handle;
+	}
 }
 
 #endif /* AMV_ENABLE_NDI_OUTPUT */

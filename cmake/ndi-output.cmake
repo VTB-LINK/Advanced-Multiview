@@ -14,14 +14,14 @@
 # non-fatal disable branch below only triggers if the vendored headers are also
 # missing (e.g. a partial checkout).
 #
-# Windows-only for now (matches the Spout output gate). Set the NDI_SDK_DIR
-# environment variable to override and use a specific installed SDK.
+# Windows + macOS (the runtime loads cross-platform via Qt's QLibrary). Set the
+# NDI_SDK_DIR environment variable to override and use a specific installed SDK.
 
 # `Processing.NDI.Lib.h` is the umbrella header; finding it pins the Include dir.
-# Search order: explicit NDI_SDK_DIR override, then the default v6/v5 installer
-# locations, then the vendored fallback. Both runtimes are supported at load
-# time, so either SDK version's headers suffice (we only use the ABI-frozen v5
-# function subset).
+# Search order: explicit NDI_SDK_DIR override, then the default installer
+# locations (Windows + macOS), then the vendored fallback. Both runtimes are
+# supported at load time, so either SDK version's headers suffice (we only use
+# the ABI-frozen v5 function subset).
 find_path(
   NDI_SDK_INCLUDE_DIR
   NAMES Processing.NDI.Lib.h
@@ -30,6 +30,7 @@ find_path(
     "C:/Program Files/NDI/NDI 6 SDK/Include"
     "C:/Program Files/NDI/NDI 5 SDK/Include"
     "C:/Program Files/NewTek/NDI 5 SDK/Include"
+    "/Library/NDI SDK for Apple/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/deps/ndi/include"
   NO_CACHE
 )

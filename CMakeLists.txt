@@ -116,8 +116,10 @@ if(ENABLE_SPOUT_OUTPUT)
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_SPOUT_OUTPUT)
 endif()
 
-if(OS_WINDOWS)
-  option(ENABLE_NDI_OUTPUT "Build multiview NDI output (Windows; requires NDI SDK)" ON)
+# NDI is cross-platform (unlike Spout's DirectX). The runtime is loaded via Qt's
+# QLibrary, so the backend builds on Windows and macOS (Linux is a future step).
+if(OS_WINDOWS OR OS_MACOS)
+  option(ENABLE_NDI_OUTPUT "Build multiview NDI output (Windows/macOS)" ON)
 else()
   set(ENABLE_NDI_OUTPUT OFF)
 endif()

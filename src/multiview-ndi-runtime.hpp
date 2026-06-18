@@ -50,7 +50,7 @@ public:
 private:
 	NdiRuntime(void *module, const NDIlib_v5 *lib) : module_(module), lib_(lib) {}
 
-	void *module_ = nullptr; /* HMODULE of the NDI runtime DLL */
+	void *module_ = nullptr; /* QLibrary* handle to the NDI runtime (Qt, cross-platform) */
 	const NDIlib_v5 *lib_ = nullptr;
 };
 
