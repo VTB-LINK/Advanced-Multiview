@@ -734,3 +734,4 @@ void notify_multiview_layout_changed(const std::string &uuid = "");
 void notify_multiview_name_changed(const std::string &uuid);
 void notify_multiview_visual_settings_changed(const std::string &uuid = "");
 void notify_multiview_signal_settings_changed(const std::string &uuid = "");
+void notify_multiview_output_settings_changed(const std::string &uuid = "");

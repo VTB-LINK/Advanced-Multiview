@@ -214,6 +214,24 @@ void notify_multiview_signal_settings_changed(const std::string &uuid)
 	}
 }
 
+void notify_multiview_output_settings_changed(const std::string &uuid)
+{
+	/* Issue #11: external-output config changed. Re-apply to the matching
+	 * open window(s) so the output manager rebuilds from the persisted
+	 * InstanceOutputSettings. No-op for instances with no open window (the
+	 * window applies on open). */
+	if (uuid.empty()) {
+		for (auto &[id, window] : open_windows) {
+			if (window)
+				window->apply_output_settings();
+		}
+	} else {
+		auto it = open_windows.find(uuid);
+		if (it != open_windows.end() && it->second)
+			it->second->apply_output_settings();
+	}
+}
+
 void close_multiview_window(const std::string &uuid)
 {
 	auto it = open_windows.find(uuid);
