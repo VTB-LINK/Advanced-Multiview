@@ -65,6 +65,10 @@ target_sources(
     src/multiview-window-status.cpp
     src/multiview-window-lost-image.cpp
     src/multiview-window-health.cpp
+    src/multiview-output.hpp
+    src/multiview-output.cpp
+    src/multiview-output-spout.hpp
+    src/multiview-output-spout.cpp
     src/signal-provider.hpp
     src/signal-provider.cpp
     src/signal-provider-ffmpeg.cpp

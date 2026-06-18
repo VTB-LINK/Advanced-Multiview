@@ -181,6 +181,9 @@ MultiviewWindow::~MultiviewWindow()
 	ready_ = false;
 	release_source_refs();
 	destroy_display();
+	/* destroy_display() removed the draw callback, so no render is in
+	 * flight; tear the output sender + texrender down (graphics thread). */
+	output_.reset();
 }
 
 void MultiviewWindow::create_display()
@@ -1586,8 +1589,31 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 
 	/* Draw the whole composition into the centered viewport. Extracted into
 	 * draw_grid() so the same grid can be rendered into an offscreen target
-	 * (Spout / NDI output, issue #11) without duplicating the cell pipeline. */
-	draw_grid(vpX, vpY, vpW, vpH);
+	 * (Spout / NDI output, issue #11) without duplicating the cell pipeline.
+	 *
+	 * When an output backend is enabled, render the grid once into the
+	 * manager's offscreen target at canvas resolution, fan it out to the
+	 * backends, then blit that texture into the on-screen viewport. Falls
+	 * back to drawing straight to the display if the offscreen pass is
+	 * unavailable this frame. */
+	gs_texture_t *out_tex = nullptr;
+	uint32_t out_w = 0, out_h = 0;
+	if (output_ && output_->has_backends()) {
+		struct obs_video_info ovi;
+		if (obs_get_video_info(&ovi) && ovi.base_width > 0 && ovi.base_height > 0) {
+			out_w = ovi.base_width;
+			out_h = ovi.base_height;
+			const std::string name = instance_display_name();
+			out_tex = output_->render_and_dispatch(name, out_w, out_h, [this, out_w, out_h]() {
+				draw_grid(0, 0, (int)out_w, (int)out_h);
+			});
+		}
+	}
+
+	if (out_tex)
+		blit_texture_to_viewport(out_tex, vpX, vpY, vpW, vpH, out_w, out_h);
+	else
+		draw_grid(vpX, vpY, vpW, vpH);
 }
 
 void MultiviewWindow::draw_grid(int vpX, int vpY, int vpW, int vpH)
@@ -2508,6 +2534,48 @@ void MultiviewWindow::draw_grid(int vpX, int vpY, int vpW, int vpH)
 	render_highlight_pass(true);  /* PGM on top */
 }
 
+/* ---- Output (Spout / NDI) ---- */
+
+std::string MultiviewWindow::instance_display_name() const
+{
+	MultiviewInstance *inst = config_->find_instance(uuid_);
+	if (inst && !inst->name.empty())
+		return inst->name;
+	return "OBS Advanced Multiview";
+}
+
+void MultiviewWindow::blit_texture_to_viewport(gs_texture_t *tex, int vpX, int vpY, int vpW, int vpH, uint32_t texW,
+					       uint32_t texH)
+{
+	if (!tex || texW == 0 || texH == 0)
+		return;
+
+	gs_effect_t *def = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+	gs_eparam_t *image = gs_effect_get_param_by_name(def, "image");
+	gs_effect_set_texture(image, tex);
+
+	startRegion(vpX, vpY, vpW, vpH, 0.0f, (float)texW, 0.0f, (float)texH);
+	while (gs_effect_loop(def, "Draw"))
+		gs_draw_sprite(tex, 0, texW, texH);
+	endRegion();
+}
+
+void MultiviewWindow::set_spout_output_enabled(bool enabled)
+{
+	if (enabled && !output_)
+		output_ = std::make_unique<MultiviewOutputManager>();
+	if (!output_)
+		return;
+
+	const bool now = output_->set_spout_enabled(enabled);
+	obs_log(LOG_INFO, "%sSpout output %s", log_prefix().c_str(), now ? "ON" : "OFF");
+}
+
+bool MultiviewWindow::spout_output_enabled() const
+{
+	return output_ && output_->spout_enabled();
+}
+
 /* ---- Label rendering ---- */
 
 void MultiviewWindow::closeEvent(QCloseEvent *event)
@@ -2518,6 +2586,10 @@ void MultiviewWindow::closeEvent(QCloseEvent *event)
 	ready_ = false;
 	destroy_display();
 	release_source_refs();
+	/* Release the Spout/NDI sender promptly when the projector closes so
+	 * receivers see the stream disappear rather than a frozen last frame. */
+	if (output_)
+		output_->shutdown_graphics();
 
 	emit window_closed(uuid_);
 	event->accept();

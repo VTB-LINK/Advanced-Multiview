@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "config-manager.hpp"
 #include "layout-engine.hpp"
+#include "multiview-output.hpp"
 
 #include <obs.hpp>
 
@@ -149,6 +150,12 @@ public:
 
 	QPaintEngine *paintEngine() const override { return nullptr; }
 
+	/* Spout/NDI output (issue #11). Toggles the Spout backend for this
+	 * instance; the sender name follows the instance name. Runtime-only in
+	 * this milestone (persistence + settings UI land later). */
+	void set_spout_output_enabled(bool enabled);
+	bool spout_output_enabled() const;
+
 signals:
 	void window_closed(const std::string &uuid);
 
@@ -182,6 +189,16 @@ private:
 	 * both the on-screen display and an offscreen target for Spout/NDI
 	 * output (issue #11). Acquires source_mutex_ (recursive). */
 	void draw_grid(int vpX, int vpY, int vpW, int vpH);
+
+	/* Output pipeline (issue #11). When at least one backend is enabled,
+	 * render() draws the grid once into the manager's offscreen target at
+	 * canvas resolution, dispatches it to the backends, and blits the
+	 * result into the on-screen viewport (so each source is rendered only
+	 * once per frame regardless of how many outputs are active). */
+	std::unique_ptr<MultiviewOutputManager> output_;
+	void blit_texture_to_viewport(gs_texture_t *tex, int vpX, int vpY, int vpW, int vpH, uint32_t texW,
+				      uint32_t texH);
+	std::string instance_display_name() const;
 
 	/* Context menu */
 	int cell_index_at_widget_pos(const QPointF &position);
