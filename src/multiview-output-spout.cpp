@@ -78,6 +78,7 @@ public:
 		active_ = false;
 		current_name_.clear();
 		warned_no_d3d11_ = false;
+		warned_open_failed_ = false;
 	}
 
 	bool is_active() const override { return active_; }
@@ -93,15 +94,24 @@ private:
 		 * OBS isn't touching the immediate context concurrently). */
 		auto *dev = static_cast<ID3D11Device *>(gs_get_device_obj());
 		if (!dev) {
-			obs_log(LOG_WARNING, "[multiview-output/spout] gs_get_device_obj returned null");
+			/* ensure_open() runs every frame while enabled — log the
+			 * failure only once so a persistent failure can't spam. */
+			if (!warned_open_failed_) {
+				obs_log(LOG_WARNING, "[multiview-output/spout] gs_get_device_obj returned null");
+				warned_open_failed_ = true;
+			}
 			return false;
 		}
 		if (!spout_.OpenDirectX11(dev)) {
-			obs_log(LOG_WARNING, "[multiview-output/spout] OpenDirectX11 failed");
+			if (!warned_open_failed_) {
+				obs_log(LOG_WARNING, "[multiview-output/spout] OpenDirectX11 failed");
+				warned_open_failed_ = true;
+			}
 			return false;
 		}
 		spout_.SetSenderFormat(kSpoutFormat);
 		opened_ = true;
+		warned_open_failed_ = false;
 		return true;
 	}
 
@@ -110,6 +120,7 @@ private:
 	bool opened_ = false;
 	bool active_ = false;
 	bool warned_no_d3d11_ = false;
+	bool warned_open_failed_ = false;
 };
 
 } /* anonymous namespace */

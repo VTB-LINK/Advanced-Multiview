@@ -342,12 +342,17 @@ void close_multiview_window(const std::string &uuid)
 {
 	auto it = open_windows.find(uuid);
 	if (it != open_windows.end() && it->second) {
-		it->second->disconnect();
-		it->second->close();
-		delete it->second;
+		MultiviewWindow *w = it->second;
+		w->disconnect();
+		/* Remove the host from open_windows and the graphics-thread driver
+		 * list BEFORE freeing it. multiview_refresh_output_driver() rebuilds
+		 * g_output_hosts under obs_enter_graphics (serialized with
+		 * on_main_rendered), so after it returns no render frame can hold a
+		 * pointer to this window — only then is it safe to delete. */
 		open_windows.erase(it);
-		/* Drop the freed host from the global driver's list. */
 		multiview_refresh_output_driver();
+		w->close();
+		delete w;
 	}
 }
 

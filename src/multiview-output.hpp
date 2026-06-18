@@ -69,10 +69,6 @@ public:
 	void render_all(const std::string &name, const InstanceOutputSettings &cfg,
 			const std::function<void(int w, int h)> &draw);
 
-	/* True if any backend is currently enabled (valid after the first
-	 * render_all reconcile). */
-	bool has_backends() const { return spout_.enabled || ndi_.enabled; }
-
 	/* Stop all backends + destroy all texrenders. Caller must hold the OBS
 	 * graphics context (used by apply_output_settings under obs_enter_graphics). */
 	void teardown_locked();

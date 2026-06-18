@@ -1265,6 +1265,19 @@ OutputBackendSettings OutputBackendSettings::from_obs_data(obs_data_t *data)
 		s.customWidth = (uint32_t)obs_data_get_int(data, "customWidth");
 	if (obs_data_has_user_value(data, "customHeight"))
 		s.customHeight = (uint32_t)obs_data_get_int(data, "customHeight");
+	/* Defensive clamp against hand-edited / corrupt configs: a huge or zero
+	 * custom resolution feeds straight into gs_texrender_create and the GPU
+	 * shared texture. Match the dialog spinbox lower bound (16) and cap at
+	 * 16384 (>8K, well within texture-size limits). */
+	constexpr uint32_t kMinDim = 16, kMaxDim = 16384;
+	if (s.customWidth < kMinDim)
+		s.customWidth = kMinDim;
+	else if (s.customWidth > kMaxDim)
+		s.customWidth = kMaxDim;
+	if (s.customHeight < kMinDim)
+		s.customHeight = kMinDim;
+	else if (s.customHeight > kMaxDim)
+		s.customHeight = kMaxDim;
 	if (obs_data_has_user_value(data, "fpsDivisor"))
 		s.fpsDivisor = (int)obs_data_get_int(data, "fpsDivisor");
 	/* Only full (1) and half (2) are legal divisors. */
