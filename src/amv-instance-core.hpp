@@ -191,6 +191,9 @@ private:
 		uint64_t render_skipped_no_src = 0;
 		uint64_t render_skipped_zero_dim = 0;
 		uint64_t last_perf_log_ns = 0;
+		/* Playback position (ms) sampled at the last perf interval, for the
+		 * media-progress stall check. -1 = not a timed media (live/network). */
+		int64_t last_media_time_ms = -1;
 
 		uint64_t fill_log_hash = 0;
 	};

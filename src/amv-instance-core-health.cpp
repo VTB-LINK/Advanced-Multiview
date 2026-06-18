@@ -101,25 +101,74 @@ AmvInstanceCore::SignalRuntimeState AmvInstanceCore::tick_external_cell_health(i
 	if (!report.reason.empty())
 		cs.last_error_reason = report.reason;
 
-	/* Phase 3 / M6.1 perf diag: every 5s, log render-call rate alongside
-	 * the supervisor's view of the source. Lets us correlate user-visible
-	 * stutter with provider state vs render-thread starvation.
-	 *
-	 * Phase 3 hardening tail: the per-cell 5-second cadence noticeably
-	 * pollutes OBS logs in normal operation, so this is now gated behind
-	 * the global Detailed logs toggle. Failures still surface via state
+	/* Per-cell diagnostic, every 5s. For timed media it reports playback-time
+	 * advancement (a real stall/buffering signal — render rate can't show this
+	 * because we redraw the latest frame every display frame regardless); a
+	 * sub-threshold advance emits a yellow WARNING that surfaces even with
+	 * detailed logs off. Live/non-timed cells just emit a health heartbeat.
+	 * The healthy info lines are gated behind the global Detailed logs toggle
+	 * so they don't pollute normal operation; failures also surface via state
 	 * transitions (overlays + WARNING/ERROR paths). */
 	constexpr uint64_t kPerfLogIntervalNs = 5ULL * NS_PER_SEC;
+	/* Below this fraction of real-time advancement, a PLAYING timed media is
+	 * considered stalled/buffering and gets a yellow WARNING. Healthy playback
+	 * advances ~1:1 (the playback clock is wall-driven), a stuck/buffering one
+	 * advances ~0, so 0.5 cleanly flags real stalls without false-firing on the
+	 * small sampling jitter over a 5s window. */
+	constexpr double kMediaProgressWarnRatio = 0.5;
 	if (now_ns - cs.last_perf_log_ns >= kPerfLogIntervalNs) {
 		const uint64_t elapsed_ns = cs.last_perf_log_ns == 0 ? kPerfLogIntervalNs
 								     : (now_ns - cs.last_perf_log_ns);
-		const double elapsed_sec = (double)elapsed_ns / 1e9;
-		const double render_fps = (double)cs.render_calls / elapsed_sec;
-		amv_log_detailed(LOG_INFO,
-				 "%s[perf] cell (%d,%d) provider=%s render_fps=%.1f frame=%ux%u health=%d state=%d",
-				 log_prefix().c_str(), cellRow, cellCol, signal_provider_to_string(cs.provider_type),
-				 render_fps, cs.last_dimensions_w, cs.last_dimensions_h, (int)report.code,
-				 (int)cs.state);
+		const double elapsed_ms = (double)elapsed_ns / 1e6;
+
+		/* For timed media (local file / VLC, duration > 0) monitor playback-time
+		 * advancement to catch stalls/buffering. Live & network sources (m3u8,
+		 * NDI, Spout) have no meaningful duration and OBS exposes no per-source
+		 * delivered-frame count, so they fall through to the plain heartbeat. */
+		const int64_t duration_ms = obs_source_media_get_duration(raw);
+		bool media_logged = false;
+		if (duration_ms > 0) {
+			const int64_t cur_ms = obs_source_media_get_time(raw);
+			const obs_media_state mstate = obs_source_media_get_state(raw);
+			if (mstate == OBS_MEDIA_STATE_PLAYING && cs.last_perf_log_ns != 0 &&
+			    cs.last_media_time_ms >= 0) {
+				int64_t advanced = cur_ms - cs.last_media_time_ms;
+				if (advanced < 0)
+					advanced = (int64_t)elapsed_ms; /* looped/seeked back — treat as healthy */
+				const double ratio = elapsed_ms > 0.0 ? (double)advanced / elapsed_ms : 1.0;
+				media_logged = true;
+				if (ratio < kMediaProgressWarnRatio) {
+					obs_log(LOG_WARNING,
+						"%s[media] cell (%d,%d) provider=%s STALLED: advanced %lldms in %.0fms "
+						"(%.0f%%) frame=%ux%u state=%d",
+						log_prefix().c_str(), cellRow, cellCol,
+						signal_provider_to_string(cs.provider_type), (long long)advanced,
+						elapsed_ms, ratio * 100.0, cs.last_dimensions_w, cs.last_dimensions_h,
+						(int)cs.state);
+				} else {
+					amv_log_detailed(
+						LOG_INFO,
+						"%s[media] cell (%d,%d) provider=%s advanced %lldms (%.0f%%) frame=%ux%u "
+						"state=%d",
+						log_prefix().c_str(), cellRow, cellCol,
+						signal_provider_to_string(cs.provider_type), (long long)advanced,
+						ratio * 100.0, cs.last_dimensions_w, cs.last_dimensions_h,
+						(int)cs.state);
+				}
+			}
+			cs.last_media_time_ms = cur_ms;
+		} else {
+			cs.last_media_time_ms = -1;
+		}
+
+		/* Live / non-timed cells: lightweight health + dimensions heartbeat. */
+		if (!media_logged) {
+			amv_log_detailed(LOG_INFO, "%s[perf] cell (%d,%d) provider=%s frame=%ux%u health=%d state=%d",
+					 log_prefix().c_str(), cellRow, cellCol,
+					 signal_provider_to_string(cs.provider_type), cs.last_dimensions_w,
+					 cs.last_dimensions_h, (int)report.code, (int)cs.state);
+		}
+
 		cs.render_calls = 0;
 		cs.last_perf_log_ns = now_ns;
 	}
