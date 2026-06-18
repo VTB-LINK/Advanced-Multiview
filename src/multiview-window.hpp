@@ -125,6 +125,9 @@ private:
 
 	bool is_always_on_top_ = false;
 	std::atomic<bool> ready_{false};
+	/* Set in closeEvent so a late Expose/visibleChanged can't re-create the
+	 * display (and re-register a render callback) on a view that is closing. */
+	bool closing_ = false;
 };
 
 /* Global functions (defined in plugin-main) */

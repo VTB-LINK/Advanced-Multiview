@@ -88,7 +88,7 @@ MultiviewWindow::MultiviewWindow(ConfigManager *config, AmvInstanceCore *core, Q
 
 	/* Create display when window becomes visible */
 	connect(windowHandle(), &QWindow::visibleChanged, this, [this](bool visible) {
-		if (visible && !display_created_)
+		if (visible && !closing_ && !display_created_)
 			create_display();
 	});
 
@@ -237,6 +237,7 @@ void MultiviewWindow::closeEvent(QCloseEvent *event)
 	 * when plugin-main may destroy the core. After the emit, core_ may already
 	 * be dangling (if this was the last view) — do not touch it. */
 	ready_ = false;
+	closing_ = true;
 	destroy_display();
 
 	emit window_closed(this, uuid_);
@@ -257,7 +258,7 @@ void MultiviewWindow::resizeEvent(QResizeEvent *event)
 bool MultiviewWindow::event(QEvent *event)
 {
 	if (event->type() == QEvent::Expose) {
-		if (!display_created_)
+		if (!closing_ && !display_created_)
 			create_display();
 	}
 	return QWidget::event(event);

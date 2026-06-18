@@ -37,6 +37,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -55,9 +56,17 @@ static ManagerDialog *manager_dialog = nullptr;
  * instance; a core with zero views but output enabled is the issue-#11
  * headless host generalized.
  *
- * Both maps are mutated only on the Qt/UI thread (open/close, config edits).
- * The graphics thread never reads them — it iterates g_output_hosts, which is
- * rebuilt under obs_enter_graphics. */
+ * The maps are mutated on the Qt/UI thread (open/close, config edits) and ALSO
+ * iterated from OBS source-signal handlers (source_create/source_remove), which
+ * OBS fires inline on whatever thread called obs_source_create/remove — NOT
+ * necessarily the main thread (obs-websocket, scripts, other plugins remove
+ * sources off-thread). g_registry_mutex serializes all g_cores/g_views access so
+ * a signal-thread iteration can't race a main-thread insert/erase. It is the
+ * OUTERMOST lock (order: g_registry_mutex -> obs graphics lock -> source_mutex_);
+ * the graphics/render thread never takes it (it drives g_output_hosts instead),
+ * so there is no inversion. Recursive so nested lifecycle calls (open ->
+ * ensure_core -> refresh driver) re-enter safely. */
+static std::recursive_mutex g_registry_mutex;
 static std::map<std::string, std::unique_ptr<AmvInstanceCore>> g_cores;
 static std::map<std::string, std::vector<MultiviewWindow *>> g_views;
 
@@ -65,6 +74,7 @@ static std::map<std::string, std::vector<MultiviewWindow *>> g_views;
  * returns the (now-existing) core, or nullptr if there is no such instance. */
 static AmvInstanceCore *ensure_core(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	auto it = g_cores.find(uuid);
 	if (it != g_cores.end())
 		return it->second.get();
@@ -83,6 +93,7 @@ static AmvInstanceCore *ensure_core(const std::string &uuid)
  * the "| Window n" suffix stays gap-free after any open/close. */
 static void refresh_view_numbers(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	auto it = g_views.find(uuid);
 	if (it == g_views.end())
 		return;
@@ -129,6 +140,8 @@ static void on_main_rendered(void *)
 
 void multiview_refresh_output_driver()
 {
+	/* g_registry before the graphics lock (outermost-lock order). */
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	obs_enter_graphics();
 	g_output_hosts.clear();
 	for (auto &[id, core] : g_cores) {
@@ -149,6 +162,7 @@ void multiview_refresh_output_driver()
 
 static void on_window_closed(MultiviewWindow *view, const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* The view's closeEvent already removed its display callback; here we drop
 	 * it from the instance's view list, re-number the survivors, and tear the
 	 * core down only if nothing references it anymore (no views, no output). */
@@ -190,6 +204,7 @@ static void on_window_closed(MultiviewWindow *view, const std::string &uuid)
  * a core with no views down once output is disabled. */
 static void reconcile_output_host(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	MultiviewInstance *inst = config_manager ? config_manager->find_instance(uuid) : nullptr;
 	const bool want = inst && inst->outputSettings.any_enabled();
 	const bool hasViews = g_views.count(uuid) != 0;
@@ -311,6 +326,7 @@ void open_manager_dialog_settings()
 
 void open_multiview_window(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Issue #10: every open creates a NEW projector window onto the instance's
 	 * shared core (with N windows already open, "focus the existing one" is
 	 * ambiguous). The core is created on first open and reused thereafter, so
@@ -333,6 +349,7 @@ void open_multiview_window(const std::string &uuid)
 
 void notify_multiview_layout_changed(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Layout change rebuilds the shared core's cells ONCE, then invalidates
 	 * every view's cached viewport so each recomputes at its own size. */
 	auto apply = [](const std::string &id, AmvInstanceCore *core) {
@@ -356,6 +373,7 @@ void notify_multiview_layout_changed(const std::string &uuid)
 
 void notify_multiview_name_changed(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Fan the new name out to every view's title (each keeps its window n). */
 	auto vit = g_views.find(uuid);
 	if (vit != g_views.end())
@@ -366,6 +384,7 @@ void notify_multiview_name_changed(const std::string &uuid)
 
 void notify_multiview_visual_settings_changed(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Visual settings rebuild shared resources on the core; cell rects are
 	 * unchanged, so views need no cache invalidation (they redraw next frame).
 	 * One call per core (not per view) avoids N redundant rebuilds. */
@@ -382,6 +401,7 @@ void notify_multiview_visual_settings_changed(const std::string &uuid)
 
 void notify_multiview_signal_settings_changed(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Phase 3 / M5.5: Lost Signal settings changes don't touch label/bg/
 	 * overlay/VU — only the runtime resolver and any image loaders that
 	 * read placeholder/signal-lost paths. refresh_signal_settings() is the
@@ -400,6 +420,7 @@ void notify_multiview_signal_settings_changed(const std::string &uuid)
 
 void notify_multiview_output_settings_changed(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Issue #11: external-output config changed. Ensure a core exists for each
 	 * instance that now has output enabled (creating a headless core if there
 	 * is no open window), and tear down view-less cores whose output was
@@ -426,6 +447,7 @@ void notify_multiview_output_settings_changed(const std::string &uuid)
 
 void close_multiview_window(const std::string &uuid)
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Instance deletion: close ALL views of the instance and destroy the core.
 	 * UAF-safe order: (1) disconnect view signals so deleting them doesn't
 	 * re-enter on_window_closed; (2) move the core out of g_cores and rebuild
@@ -465,6 +487,7 @@ void close_multiview_window(const std::string &uuid)
 
 static void close_all_multiview_windows()
 {
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	/* Issue #11: stop the global output driver before destroying anything so no
 	 * on_main_rendered fires against freed cores. */
 	if (g_main_render_registered) {
@@ -506,6 +529,7 @@ static void on_qt_refresh_sources_all()
 {
 	if (!source_list_dirty_.exchange(false, std::memory_order_acquire))
 		return;
+	std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 	for (auto &[id, core] : g_cores) {
 		if (core)
 			core->refresh_sources_lazy();
@@ -570,6 +594,11 @@ static void on_obs_source_remove_precise(void *, calldata_t *cd)
 	obs_source_t *source = nullptr;
 	calldata_get_ptr(cd, "source", &source);
 	if (source) {
+		/* Fires on whatever thread called obs_source_remove (NOT always the
+		 * main thread). Hold g_registry_mutex so iterating g_cores can't race a
+		 * main-thread insert/erase; the per-core on_source_being_removed takes
+		 * source_mutex_ inside (g_registry -> source_mutex_ order). */
+		std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 		for (auto &[id, core] : g_cores) {
 			if (core)
 				core->on_source_being_removed(source);
@@ -597,6 +626,9 @@ static void on_obs_source_create_precise(void *, calldata_t *cd)
 	obs_source_t *source = nullptr;
 	calldata_get_ptr(cd, "source", &source);
 	if (source) {
+		/* Fires on the source-creating thread (not always main). Same
+		 * g_registry_mutex guard as the remove handler. */
+		std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
 		for (auto &[id, core] : g_cores) {
 			if (core)
 				core->on_source_just_created(source);
@@ -653,9 +685,12 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 			 * handles the UAF-safe teardown). Collect first; the close
 			 * mutates g_views/g_cores. */
 			std::vector<std::string> orphans;
-			for (auto &[id, views] : g_views) {
-				if (!config_manager->find_instance(id))
-					orphans.push_back(id);
+			{
+				std::lock_guard<std::recursive_mutex> lk(g_registry_mutex);
+				for (auto &[id, views] : g_views) {
+					if (!config_manager->find_instance(id))
+						orphans.push_back(id);
+				}
 			}
 			for (const auto &id : orphans)
 				close_multiview_window(id);
