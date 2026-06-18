@@ -59,69 +59,54 @@ public:
 		if (!ensure_stage(w, h))
 			return;
 
-		/* Double-buffered readback. Queue frame N's copy into stage_[idx]
-		 * (gs_stage_texture is async); then map+send the OTHER buffer staged
-		 * last frame, whose copy the GPU has already finished — so the map
-		 * returns without stalling the graphics thread. The just-staged buffer
-		 * becomes next frame's "prev". stage_have_prev_ is false on the first
-		 * frame (and after a resize), where there is nothing complete to send
-		 * yet. ensure_stage guarantees both surfaces match the current w/h, so
-		 * the prev buffer we send always has these dimensions. */
-		gs_stage_texture(stage_[stage_idx_], tex);
-		const int prev = 1 - stage_idx_;
+		/* GPU -> CPU readback. gs_stage_texture queues the copy; the map
+		 * blocks until it lands (a ~1-frame stall — double-buffering is a
+		 * noted hardening follow-up). */
+		gs_stage_texture(stage_, tex);
 
-		if (stage_have_prev_) {
-			uint8_t *data = nullptr;
-			uint32_t linesize = 0;
-			if (!gs_stagesurface_map(stage_[prev], &data, &linesize)) {
-				if (!warned_map_failed_) {
-					obs_log(LOG_WARNING, "[multiview-output/ndi] gs_stagesurface_map failed");
-					warned_map_failed_ = true;
-				}
-				/* Still advance the ping-pong so a transient map failure
-				 * doesn't wedge us reading the same buffer forever. */
-				stage_idx_ = prev;
-				return;
+		uint8_t *data = nullptr;
+		uint32_t linesize = 0;
+		if (!gs_stagesurface_map(stage_, &data, &linesize)) {
+			if (!warned_map_failed_) {
+				obs_log(LOG_WARNING, "[multiview-output/ndi] gs_stagesurface_map failed");
+				warned_map_failed_ = true;
 			}
-
-			NDIlib_video_frame_v2_t frame = {};
-			frame.xres = (int)w;
-			frame.yres = (int)h;
-			frame.FourCC = NDIlib_FourCC_video_type_BGRA;
-
-			/* OBS has one global frame rate; output rescale doesn't change it.
-			 * The manager halves our actual cadence at fpsDivisor==2 by skipping
-			 * compose passes, so declare the true sent rate (OBS fps / divisor) —
-			 * otherwise NDI receivers (e.g. Studio Monitor) report the nominal
-			 * full rate while frames arrive at half. */
-			const int divisor = (fpsDivisor >= 1) ? fpsDivisor : 1;
-			struct obs_video_info ovi;
-			if (obs_get_video_info(&ovi) && ovi.fps_den != 0) {
-				frame.frame_rate_N = (int)ovi.fps_num;
-				frame.frame_rate_D = (int)ovi.fps_den * divisor;
-			} else {
-				frame.frame_rate_N = 30;
-				frame.frame_rate_D = divisor;
-			}
-
-			frame.frame_format_type = NDIlib_frame_format_type_progressive;
-			frame.timecode = NDIlib_send_timecode_synthesize;
-			frame.p_data = data;
-			frame.line_stride_in_bytes = (int)linesize;
-
-			/* Video sends on the graphics thread; sender_ is only ever mutated
-			 * here (same thread), and NDI permits concurrent video/audio sends,
-			 * so no lock is needed on this hot path. */
-			runtime_->lib()->send_send_video_v2(sender_, &frame);
-
-			gs_stagesurface_unmap(stage_[prev]);
-			active_ = true;
-			warned_map_failed_ = false;
+			return;
 		}
 
-		/* The buffer we just staged becomes next frame's prev. */
-		stage_idx_ = prev;
-		stage_have_prev_ = true;
+		NDIlib_video_frame_v2_t frame = {};
+		frame.xres = (int)w;
+		frame.yres = (int)h;
+		frame.FourCC = NDIlib_FourCC_video_type_BGRA;
+
+		/* OBS has one global frame rate; output rescale doesn't change it.
+		 * The manager halves our actual cadence at fpsDivisor==2 by skipping
+		 * compose passes, so declare the true sent rate (OBS fps / divisor) —
+		 * otherwise NDI receivers (e.g. Studio Monitor) report the nominal
+		 * full rate while frames arrive at half. */
+		const int divisor = (fpsDivisor >= 1) ? fpsDivisor : 1;
+		struct obs_video_info ovi;
+		if (obs_get_video_info(&ovi) && ovi.fps_den != 0) {
+			frame.frame_rate_N = (int)ovi.fps_num;
+			frame.frame_rate_D = (int)ovi.fps_den * divisor;
+		} else {
+			frame.frame_rate_N = 30;
+			frame.frame_rate_D = divisor;
+		}
+
+		frame.frame_format_type = NDIlib_frame_format_type_progressive;
+		frame.timecode = NDIlib_send_timecode_synthesize;
+		frame.p_data = data;
+		frame.line_stride_in_bytes = (int)linesize;
+
+		/* Video sends on the graphics thread; sender_ is only ever mutated
+		 * here (same thread), and NDI permits concurrent video/audio sends,
+		 * so no lock is needed on this hot path. */
+		runtime_->lib()->send_send_video_v2(sender_, &frame);
+
+		gs_stagesurface_unmap(stage_);
+		active_ = true;
+		warned_map_failed_ = false;
 	}
 
 	void configure_audio(const OutputBackendSettings &cfg) override
@@ -169,7 +154,11 @@ public:
 			runtime_.reset();
 		}
 
-		destroy_stages();
+		if (stage_) {
+			gs_stagesurface_destroy(stage_);
+			stage_ = nullptr;
+			stage_w_ = stage_h_ = 0;
+		}
 
 		active_ = false;
 		current_name_.clear();
@@ -212,33 +201,19 @@ private:
 		}
 	}
 
-	void destroy_stages()
-	{
-		for (auto *&s : stage_) {
-			if (s) {
-				gs_stagesurface_destroy(s);
-				s = nullptr;
-			}
-		}
-		stage_w_ = stage_h_ = 0;
-		stage_idx_ = 0;
-		/* No completed copy survives a teardown/resize, so the next frame
-		 * must restart the ping-pong rather than send stale (or wrong-sized)
-		 * pixels from a freed/recreated surface. */
-		stage_have_prev_ = false;
-	}
-
 	bool ensure_stage(uint32_t w, uint32_t h)
 	{
-		if (stage_[0] && stage_[1] && stage_w_ == w && stage_h_ == h)
+		if (stage_ && stage_w_ == w && stage_h_ == h)
 			return true;
 
-		destroy_stages();
+		if (stage_) {
+			gs_stagesurface_destroy(stage_);
+			stage_ = nullptr;
+		}
 
-		stage_[0] = gs_stagesurface_create(w, h, GS_BGRA);
-		stage_[1] = gs_stagesurface_create(w, h, GS_BGRA);
-		if (!stage_[0] || !stage_[1]) {
-			destroy_stages();
+		stage_ = gs_stagesurface_create(w, h, GS_BGRA);
+		if (!stage_) {
+			stage_w_ = stage_h_ = 0;
 			if (!warned_stage_failed_) {
 				obs_log(LOG_WARNING, "[multiview-output/ndi] gs_stagesurface_create(%ux%u) failed", w,
 					h);
@@ -371,14 +346,8 @@ private:
 	std::mutex sender_mutex_;
 	NDIlib_send_instance_t sender_ = nullptr;
 
-	/* Double-buffered GPU->CPU readback (issue #10 F1): stage frame N into one
-	 * surface while mapping the OTHER (staged frame N-1, whose copy the GPU has
-	 * had a full frame to finish), so the map never blocks the graphics thread.
-	 * Costs one frame of output latency; removes the per-frame readback stall. */
-	gs_stagesurf_t *stage_[2] = {nullptr, nullptr};
+	gs_stagesurf_t *stage_ = nullptr;
 	uint32_t stage_w_ = 0, stage_h_ = 0;
-	int stage_idx_ = 0;            /* buffer to stage INTO this frame */
-	bool stage_have_prev_ = false; /* stage_[1 - stage_idx_] holds last frame's completed copy */
 	std::string current_name_;
 	bool active_ = false;
 	bool warned_map_failed_ = false;
