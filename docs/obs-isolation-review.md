@@ -70,4 +70,33 @@ Established invariant: render thread takes graphics-lock → `source_mutex_`; UI
 - [ ] NDI output + multiple views: graphics-thread frame time stays within budget (readback not stalling); audio sender mutex never held during a blocking call.
 - [ ] No `obs_enter_graphics` under `source_mutex_`; no new cross-thread `views_` access.
 - [ ] Stress: rapid scene switching + source delete/undo while N views render + output on → no crash/deadlock.
+
+---
+
+## Post-Phase-2 re-verification result (after commit 9df8607)
+
+Code-level (by inspection) — **PASS**:
+- **[x] Item 1** — No `obs_frontend_*` on the graphics thread. Grep of `amv-instance-core*.cpp` finds only a *comment* in `-vu.cpp`; all scene/preview/streaming reads go through `amv_frontend::current_program_scene()/current_preview_scene()/streaming_mixers()` (main-thread-updated cache, F2 fix, commit 4aefa13). Whole-`src` grep confirms the only live `obs_frontend_*` reads are the cache itself + `multiview-window-context-menu.cpp` (UI handler) + `config-manager.cpp` (scene-collection name) — all main thread.
+- **[x] Item 5** — Graphics-thread `on_main_rendered` iterates only `g_output_hosts` (rebuilt under `obs_enter_graphics` in `multiview_refresh_output_driver`); it never walks `g_views`/`g_cores`. The new `g_views`/`g_cores` registries are mutated UI-thread-only. No new `obs_enter_graphics` is taken under `source_mutex_` — the only new one (`multiview_refresh_output_driver`) holds no core lock.
+
+Architectural (by inspection) — **PASS**:
+- **[x] Item 2** — Exactly one `AmvInstanceCore` per uuid in `g_cores`; all N views hold a non-owning pointer to it, so sources/volmeters exist once. `tick_once_per_frame()` dedups via the per-core frame token, so N views + the output driver tick once/frame.
+- **[x] Item 3** — `MultiviewWindow::closeEvent` tears down only the view's display; the core (and its `release_source_refs` inc/dec balance) is destroyed only when `on_window_closed` finds the last view gone AND no output (or `close_multiview_window`/unload). Closing 1 of N never touches the shared core.
+
+UAF ordering (new in Phase 2) — **PASS by inspection**: every core teardown path
+(`on_window_closed`, `close_multiview_window`, `reconcile_output_host`) moves the
+core out of `g_cores` and calls `multiview_refresh_output_driver()` (rebuilds
+`g_output_hosts` under `obs_enter_graphics`) **before** the core is destroyed, and
+deletes views (removing their display callbacks) before the core dtor runs — so no
+in-flight render frame can hold a freed core.
+
+Runtime self-test (user) — pending, not code-checkable:
+- **[ ] Item 2 (runtime)** — confirm a single m3u8 source opened in 2 windows makes ONE network connection (OBS log / resource monitor).
+- **[ ] Item 4** — NDI output + 2 windows: graphics frame time within budget. (F1 single-buffer readback still present — deferred to hardening; Phase 2 added no regression: still one output pass per core.)
+- **[ ] Item 6** — stress: rapid scene switch + source delete/undo while 2 windows render + output on → no crash/deadlock.
+
+**Conclusion:** all code-checkable broadcast-grade items pass; no new render-thread
+OBS calls, no new cross-thread registry access, UAF-safe teardown. Remaining open
+items are the user runtime self-tests above and the two scheduled hardening fixes
+(F1 readback double-buffer, F5 lock-order audit + doc).
 </content>
