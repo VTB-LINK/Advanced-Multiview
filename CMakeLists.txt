@@ -83,4 +83,27 @@ target_sources(
     src/source-picker.cpp
 )
 
+# ---------------------------------------------------------------------------
+# Multiview output backends (issue #11)
+#
+# Approach B: dedicated senders that transmit the composed multiview directly,
+# independent of OBS's source/scene system. The output layer is designed to be
+# backend-agnostic — Spout lands first, NDI reuses the same pipeline later.
+#
+# Each backend has its own SDK-acquisition module under cmake/ because their
+# linkage models differ (Spout = static link of the vendored SpoutDX submodule;
+# NDI = runtime DLL load). The ENABLE_*_OUTPUT options share a naming scheme.
+# ---------------------------------------------------------------------------
+if(OS_WINDOWS)
+  option(ENABLE_SPOUT_OUTPUT "Build multiview Spout output (Windows/DirectX)" ON)
+else()
+  set(ENABLE_SPOUT_OUTPUT OFF)
+endif()
+
+if(ENABLE_SPOUT_OUTPUT)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/spout-output.cmake")
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE spout-dx)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AMV_ENABLE_SPOUT_OUTPUT)
+endif()
+
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
