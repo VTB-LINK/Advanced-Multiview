@@ -133,11 +133,47 @@
 
 ---
 
-## 跨平台 / 构建
+## NDI 音频 + 跨平台（第三轮）
 
-### 观察项
+> 覆盖上次硬化（NDI 运行时探测缓存）之后加入的内容：NDI 音频发送、QLibrary 跨平台
+> 加载器、Win/macOS/Linux 三平台门控、外部输出 UX（右键开关移除 + 音频源 UI）。
 
-- **仅 Windows + Release 验证**：与 Phase 1–3 同源观察项。输出层在非 Windows 下
+### 已修复
+
+- **音频回调每帧 `obs_get_audio_info` 重查、且可能与连接格式不一致**：
+  [multiview-output-ndi.cpp](../src/multiview-output-ndi.cpp)
+  - `on_audio`（OBS 音频线程）原先每帧调 `obs_get_audio_info` 取声道数/采样率。`audio_output_connect`
+    的 `audio_convert_info` 已把交付格式**在连接时固定**；若会话中途改 OBS 音频设置，回调读到的
+    声道数会与实际交付的平面数不一致（虽有 `if (data->data[ch])` 防空指针、不致越界，但格式错配）。
+    且这是音频线程上每帧一次的全局查询。
+  - 修复：连接时缓存 `connected_channels_`/`connected_sample_rate_`（在 `audio_output_connect`
+    **之前**写入，经 OBS 连接路径 publish 给音频线程），回调直接用缓存值。消除每帧查询 + 格式错配。
+
+### 观察项（音频 / 线程模型，已审核认定安全）
+
+- **sender 跨图形线程 / 音频线程**：`sender_` 在图形线程建/毁、音频线程发送。`sender_mutex_` 守护
+  其有效性：建/毁（recreate_sender / stop）与音频发送（on_audio）持锁；**视频发送不持锁**（图形线程
+  独写 sender_ 生命周期 + NDI 允许音视频并发发送）。`on_audio` 的 `!sender_ || !runtime_` 短路保证
+  `sender_` 为空时不读 `runtime_`，而 `sender_` 非空即蕴含 `runtime_` 已 publish 且稳定 → 无 `runtime_`
+  数据竞争。`stop()` 在锁内同时清 `sender_` 与释放 `runtime_`，杜绝音频回调读到悬垂 `runtime_`。
+- **无锁序反转 / 死锁**：`configure_audio`（图形线程）经 `audio_output_connect/disconnect` 取 OBS 音频锁，
+  但**不**持 `sender_mutex_`；`on_audio` 持 `sender_mutex_` 但不取 OBS 音频锁的相反序 → 无环。`stop()`
+  先 `disconnect_audio`（停新回调、等在飞回调）再持锁毁 sender，二者不同时持两把锁。
+- **FollowStreaming 每 30 帧重轮询 `obs_frontend_get_streaming_output`（图形线程）**：沿用 VU 表
+  `compute_active_track_bit` 的同源做法（亦于渲染线程调用）。Manual 模式零 frontend 调用。
+- **音频恒开**：NDI 启用即发音频（UI 无"关音频"项，仅源选择）。如需视频-only，后续加"无"选项即可。
+
+### 跨平台 / 构建
+
+- **QLibrary 加载器无泄漏**：`load_runtime_library` 失败的 `QLibrary` 在循环内 `delete`，成功者交
+  调用方（`NdiRuntime` 持有、析构 `unload()+delete`；`available()` 探测后 `unload()+delete`）。
+- **macOS / Linux 仅 CI 验证**：开发机为 Windows，NDI 后端为跨平台代码（libobs `gs_*` + NDI 表 +
+  QLibrary），三平台 CI（windows / macos-15 / ubuntu-24.04）经 vendored 头编译 NDI；mac/Linux 运行
+  行为未本地验证，依赖 CI 编译 + 用户运行验收。
+
+### 观察项（既有）
+
+- **仅 Windows + Release 验证**：与 Phase 1–3 同源观察项。Spout 在非 Windows 下
   `AMV_ENABLE_SPOUT_OUTPUT` 关闭、不含 Spout 代码；headless 驱动 / 生命周期为跨平台
   代码但未在 macOS / Linux 运行验证。
 - **构建期 PDB 被运行中的 OBS 占用**：开发回归——OBS 加载插件后其崩溃处理器持有
@@ -161,6 +197,15 @@
 | 文件 | 修复 | 风险等级 |
 |---|---|---|
 | `src/multiview-ndi-runtime.cpp` | NdiRuntime::available() 结果缓存，消除 reconcile 每帧在图形线程的 loader 往返 / 失败时每帧 LoadLibrary 探测 | MED（NDI 启用时图形线程热路径无谓开销） |
+
+### 第三轮（NDI 音频 + 跨平台）
+
+| 文件 | 修复 | 风险等级 |
+|---|---|---|
+| `src/multiview-output-ndi.cpp` | 音频回调改用连接时缓存的声道数/采样率，消除每帧 obs_get_audio_info + 与连接格式错配 | MED（中途改音频设置时格式错配；音频线程每帧全局查询） |
+
+> 本轮另对 NDI 音频跨线程模型（sender_mutex_、短路防竞争、无锁序反转、停止顺序）与 QLibrary
+> 加载器（无泄漏）做了审核，认定安全，记于上方观察项；未发现需改动的缺陷。
 
 ---
 

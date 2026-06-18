@@ -267,6 +267,15 @@ private:
 		conv.format = AUDIO_FORMAT_FLOAT_PLANAR;
 		conv.speakers = oai.speakers;
 
+		/* Cache the format we asked OBS to deliver. The capture callback sizes
+		 * each frame from these rather than re-querying obs_get_audio_info on
+		 * the audio thread: the conversion above fixes the delivered layout for
+		 * the life of the connection, so a mid-session settings change must not
+		 * make the callback read a different channel count than is delivered.
+		 * Set before connect so the audio thread observes them. */
+		connected_channels_ = (int)get_audio_channels(oai.speakers);
+		connected_sample_rate_ = (int)oai.samples_per_sec;
+
 		audio_output_connect(audio, mix, &conv, audio_capture, this);
 		audio_handle_ = audio;
 		connected_mix_ = mix;
@@ -299,10 +308,7 @@ private:
 		if (!sender_ || !runtime_)
 			return;
 
-		struct obs_audio_info oai;
-		if (!obs_get_audio_info(&oai))
-			return;
-		const int channels = (int)get_audio_channels(oai.speakers);
+		const int channels = connected_channels_;
 		if (channels <= 0)
 			return;
 
@@ -321,7 +327,7 @@ private:
 		}
 
 		NDIlib_audio_frame_v3_t af = {};
-		af.sample_rate = (int)oai.samples_per_sec;
+		af.sample_rate = connected_sample_rate_;
 		af.no_channels = channels;
 		af.no_samples = frames;
 		af.timecode = NDIlib_send_timecode_synthesize;
@@ -351,6 +357,8 @@ private:
 	audio_t *audio_handle_ = nullptr;
 	bool audio_connected_ = false;
 	size_t connected_mix_ = (size_t)-1;
+	int connected_channels_ = 0;    /* set at connect; read on the audio thread */
+	int connected_sample_rate_ = 0; /* set at connect; read on the audio thread */
 	OutputAudioMode want_audio_mode_ = OutputAudioMode::FollowStreaming;
 	int want_audio_track_ = 1;
 	uint64_t audio_resolve_counter_ = 0;
