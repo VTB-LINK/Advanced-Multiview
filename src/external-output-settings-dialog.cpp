@@ -96,23 +96,32 @@ QWidget *ExternalOutputSettingsDialog::build_backend_tab(BackendWidgets &w, bool
 				   (haveOvi ? dims_suffix(ovi.output_width, ovi.output_height) : QString()),
 			   (int)OutputResolutionMode::ObsOutput);
 
-	/* OBS advanced streaming encoder "Rescale Output". Only selectable when
-	 * actually enabled in OBS; otherwise keep the row present but greyed out
-	 * (per user request) so the capability is discoverable. */
-	uint32_t rw = 0, rh = 0;
-	const bool rescaleActive = obs_stream_rescale_dimensions(rw, rh);
-	w.resMode->addItem(amv::text("AMVPlugin.Output.Res.StreamRescale") +
-				   (rescaleActive ? dims_suffix(rw, rh) : QString()),
-			   (int)OutputResolutionMode::ObsStreamRescale);
-	if (!rescaleActive) {
+	/* OBS advanced streaming/recording encoder "Rescale Output". Only
+	 * selectable when actually enabled in OBS; otherwise keep the row present
+	 * but greyed out (per user request) so the capability is discoverable. */
+	auto addRescaleItem = [&](const char *labelKey, const char *disabledTipKey, bool active, uint32_t rw,
+				  uint32_t rh, OutputResolutionMode mode) {
+		w.resMode->addItem(amv::text(labelKey) + (active ? dims_suffix(rw, rh) : QString()), (int)mode);
+		if (active)
+			return;
 		const int idx = w.resMode->count() - 1;
 		if (auto *model = qobject_cast<QStandardItemModel *>(w.resMode->model())) {
 			if (QStandardItem *item = model->item(idx)) {
 				item->setFlags(item->flags() & ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable));
-				item->setToolTip(amv::text("AMVPlugin.Output.Res.StreamRescaleDisabled"));
+				item->setToolTip(amv::text(disabledTipKey));
 			}
 		}
-	}
+	};
+
+	uint32_t sw = 0, sh = 0;
+	const bool streamActive = obs_stream_rescale_dimensions(sw, sh);
+	addRescaleItem("AMVPlugin.Output.Res.StreamRescale", "AMVPlugin.Output.Res.StreamRescaleDisabled", streamActive,
+		       sw, sh, OutputResolutionMode::ObsStreamRescale);
+
+	uint32_t recw = 0, rech = 0;
+	const bool recActive = obs_record_rescale_dimensions(recw, rech);
+	addRescaleItem("AMVPlugin.Output.Res.RecordRescale", "AMVPlugin.Output.Res.RecordRescaleDisabled", recActive,
+		       recw, rech, OutputResolutionMode::ObsRecordRescale);
 
 	w.resMode->addItem(amv::text("AMVPlugin.Output.Res.Custom"), (int)OutputResolutionMode::Custom);
 	form->addRow(amv::text("AMVPlugin.Output.Resolution"), w.resMode);

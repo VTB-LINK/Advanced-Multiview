@@ -1176,6 +1176,8 @@ static const char *output_res_mode_to_str(OutputResolutionMode m)
 		return "obsOutput";
 	case OutputResolutionMode::ObsStreamRescale:
 		return "obsStreamRescale";
+	case OutputResolutionMode::ObsRecordRescale:
+		return "obsRecordRescale";
 	case OutputResolutionMode::Custom:
 		return "custom";
 	default:
@@ -1189,12 +1191,17 @@ static OutputResolutionMode output_res_mode_from_str(const char *s)
 		return OutputResolutionMode::ObsOutput;
 	if (s && strcmp(s, "obsStreamRescale") == 0)
 		return OutputResolutionMode::ObsStreamRescale;
+	if (s && strcmp(s, "obsRecordRescale") == 0)
+		return OutputResolutionMode::ObsRecordRescale;
 	if (s && strcmp(s, "custom") == 0)
 		return OutputResolutionMode::Custom;
 	return OutputResolutionMode::CanvasBase;
 }
 
-bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h)
+/* Shared reader for an OBS advanced-mode encoder "Rescale Output" setting.
+ * filterKey/resKey are the [AdvOut] config keys: streaming uses
+ * RescaleFilter/RescaleRes, recording uses RecRescaleFilter/RecRescaleRes. */
+static bool obs_advout_rescale_dimensions(const char *filterKey, const char *resKey, uint32_t &w, uint32_t &h)
 {
 	config_t *cfg = obs_frontend_get_profile_config();
 	if (!cfg)
@@ -1205,13 +1212,13 @@ bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h)
 	if (!mode || strcmp(mode, "Advanced") != 0)
 		return false;
 
-	/* RescaleFilter == OBS_SCALE_DISABLE (0) means the streaming encoder's
-	 * "Rescale Output" checkbox is off. */
-	const int filter = (int)config_get_int(cfg, "AdvOut", "RescaleFilter");
+	/* filter == OBS_SCALE_DISABLE (0) means the "Rescale Output" checkbox
+	 * is off. */
+	const int filter = (int)config_get_int(cfg, "AdvOut", filterKey);
 	if (filter == OBS_SCALE_DISABLE)
 		return false;
 
-	const char *res = config_get_string(cfg, "AdvOut", "RescaleRes");
+	const char *res = config_get_string(cfg, "AdvOut", resKey);
 	if (!res || !*res)
 		return false;
 
@@ -1222,6 +1229,16 @@ bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h)
 	w = pw;
 	h = ph;
 	return true;
+}
+
+bool obs_stream_rescale_dimensions(uint32_t &w, uint32_t &h)
+{
+	return obs_advout_rescale_dimensions("RescaleFilter", "RescaleRes", w, h);
+}
+
+bool obs_record_rescale_dimensions(uint32_t &w, uint32_t &h)
+{
+	return obs_advout_rescale_dimensions("RecRescaleFilter", "RecRescaleRes", w, h);
 }
 
 obs_data_t *OutputBackendSettings::to_obs_data() const
@@ -1292,14 +1309,20 @@ std::pair<uint32_t, uint32_t> resolve_output_dimensions(const OutputBackendSetti
 		if (obs_stream_rescale_dimensions(w, h))
 			return {w, h};
 		/* Rescale turned off in OBS since this was picked — fall back to
-		 * the global OBS output (scaled) resolution. */
+		 * the global OBS output (scaled) resolution below. */
+	} else if (s.resMode == OutputResolutionMode::ObsRecordRescale) {
+		uint32_t w = 0, h = 0;
+		if (obs_record_rescale_dimensions(w, h))
+			return {w, h};
+		/* Fall back to the global OBS output resolution below. */
 	}
 
 	struct obs_video_info ovi;
 	if (!obs_get_video_info(&ovi))
 		return {0, 0};
 
-	if (s.resMode == OutputResolutionMode::ObsOutput || s.resMode == OutputResolutionMode::ObsStreamRescale)
+	if (s.resMode == OutputResolutionMode::ObsOutput || s.resMode == OutputResolutionMode::ObsStreamRescale ||
+	    s.resMode == OutputResolutionMode::ObsRecordRescale)
 		return {ovi.output_width, ovi.output_height};
 
 	return {ovi.base_width, ovi.base_height}; /* CanvasBase */
