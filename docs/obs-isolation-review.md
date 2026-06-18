@@ -104,7 +104,17 @@ items are the user runtime self-tests above and the two scheduled hardening fixe
 
 ## Hardening results (post-Phase-2)
 
-### F1 — NDI readback double-buffer — TRIED, then REVERTED (e39bddd -> 02c4fb8)
+### F1 — NDI readback double-buffer — now a USER SETTING, default ON (e39bddd -> 02c4fb8 -> 1b2c264)
+**Final state:** `GlobalSettings.ndiOutputDoubleBuffer` (Manager → Settings → Output,
+default ON, with a prominent inline warning). ON = double-buffer (no graphics-thread
+readback stall; +1 frame NDI latency; audio leads video ~1 frame when NDI audio is
+on). OFF = synchronous (lowest latency + A/V sync; map can stall the graphics thread
+on a slow GPU). Plumbed main-thread setting → core `std::atomic<bool>` →
+`render_all(…, ndiDoubleBuffer)` → `backend->set_double_buffer()` (graphics thread
+never reads GlobalSettings directly). The history below records why it isn't
+unconditional:
+
+
 Implemented a two-surface ping-pong (stage frame N, map+send frame N-1) to remove
 the synchronous `gs_stagesurface_map` stall on the graphics thread. **Reverted
 after runtime testing** because it traded a stall that wasn't actually dropping
