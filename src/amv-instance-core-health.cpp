@@ -42,16 +42,24 @@ License: GPL-2.0-or-later
 
 namespace {
 
-/* Tunables. All in nanoseconds. Defaults chosen for a typical network
- * stream on a healthy link: Opening grace 5 s, restart after 5 s stuck
- * in Opening, escalate to Lost after 3 restarts or 30 s total without
- * frames, then schedule a full recreate (for providers that benefit
- * from it) after manualReconnectCooldownMs from the Lost moment. */
+/* Tunables. All in nanoseconds. Tuned for slow network streams (HLS with
+ * tens-of-seconds segments, or a congested link) where the first frame can take
+ * 15-40 s to arrive: Opening grace 15 s, then a restart every 10 s, escalate to
+ * Lost after 3 restarts or 60 s total without frames, then schedule a full
+ * recreate (for providers that benefit) after manualReconnectCooldownMs.
+ *
+ * Why these are generous: obs_source_media_restart() REWINDS the source's
+ * buffering to zero, so poking a stream that is still slowly buffering its first
+ * frame prevents it from EVER loading (the bug this widening fixes). After any
+ * restart the source re-enters Opening, so this grace also protects the
+ * post-reconnect re-buffer. Harmless for local files — they reach Active in well
+ * under a second, far below the grace, so the grace never fires for healthy
+ * local media; local replay-after-end uses the separate Lost cooldown below. */
 constexpr uint64_t NS_PER_SEC = 1'000'000'000ULL;
-constexpr uint64_t kOpeningGraceNs = 5 * NS_PER_SEC;
-constexpr uint64_t kConnectingTotalNs = 30 * NS_PER_SEC;
+constexpr uint64_t kOpeningGraceNs = 15 * NS_PER_SEC;
+constexpr uint64_t kConnectingTotalNs = 60 * NS_PER_SEC;
 constexpr int kMaxMediaRestartAttempts = 3;
-constexpr uint64_t kMediaRestartCooldownNs = 3 * NS_PER_SEC;
+constexpr uint64_t kMediaRestartCooldownNs = 10 * NS_PER_SEC;
 
 /* Default recreate cooldown if the user didn't set
  * effective_lost.manualReconnectCooldownMs (or set it absurdly low). */
