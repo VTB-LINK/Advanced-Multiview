@@ -19,6 +19,11 @@ License: GPL-2.0-or-later
 
 #ifdef AMV_ENABLE_NDI_OUTPUT
 
+/* The NDI headers use NULL in default-argument values without including a
+ * header that defines it; pull in <cstddef> first so they compile under
+ * clang/gcc (MSVC happens to have NULL in scope already). */
+#include <cstddef>
+
 #include <Processing.NDI.Lib.h>
 
 #include <memory>

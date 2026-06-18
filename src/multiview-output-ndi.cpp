@@ -17,6 +17,9 @@ License: GPL-2.0-or-later
 #include <graphics/graphics.h>
 #include <media-io/audio-io.h>
 
+/* <cstddef> for NULL used by the NDI headers' default args (clang/gcc). */
+#include <cstddef>
+
 #include <Processing.NDI.Lib.h>
 
 #include <cstring>
