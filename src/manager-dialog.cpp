@@ -881,6 +881,7 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 			config_->global_settings().visualSettings = dlg.get_global_settings();
 			config_->save();
 			notify_multiview_visual_settings_changed();
+			obs_log(LOG_INFO, "[settings] global visual settings updated");
 		}
 	});
 
@@ -899,40 +900,20 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 			config_->global_settings().lostSignal = dlg.get_global_settings();
 			config_->save();
 			notify_multiview_signal_settings_changed();
+			obs_log(LOG_INFO, "[settings] global signal-lost settings updated");
 		}
 	});
 
-	/* Issue #10: NDI output readback double-buffer toggle (global, immediate
-	 * save). Default ON. Comes with a prominent inline warning because the
-	 * trade-off (latency + A/V desync when audio is on) is not obvious. */
+	/* Output / performance section (all global, immediate save + live apply). */
 	layout->addSpacing(12);
 	auto *output_label = new QLabel(amv::text("AMVPlugin.Manager.Settings.Output"), tab);
 	output_label->setStyleSheet(QStringLiteral("font-weight: bold;"));
 	layout->addWidget(output_label);
 
-	chk_ndi_double_buffer_ = new QCheckBox(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBuffer"), tab);
-	chk_ndi_double_buffer_->setChecked(config_->global_settings().ndiOutputDoubleBuffer);
-	chk_ndi_double_buffer_->setToolTip(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBufferTooltip"));
-	layout->addWidget(chk_ndi_double_buffer_);
-
-	/* Inline, word-wrapped warning so the trade-off is visible without hovering. */
-	auto *ndi_db_warn = new QLabel(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBufferWarn"), tab);
-	ndi_db_warn->setWordWrap(true);
-	ndi_db_warn->setStyleSheet(QStringLiteral("color: #d0a000;"));
-	layout->addWidget(ndi_db_warn);
-
-	connect(chk_ndi_double_buffer_, &QCheckBox::toggled, this, [this](bool checked) {
-		config_->global_settings().ndiOutputDoubleBuffer = checked;
-		config_->save();
-		/* Push to every live output core so the change applies immediately. */
-		notify_multiview_output_settings_changed();
-		obs_log(LOG_INFO, "[settings] NDI readback double-buffer %s", checked ? "enabled" : "disabled");
-	});
-
-	/* Issue #10 perf: multiview projector WINDOW compose rate (global, immediate).
-	 * Half composes at half the OBS fps (display still blits every frame) to
-	 * ~halve per-window render cost — the main lever against the multiview window
-	 * stealing PGM render budget. Half is only offered above 30fps base. */
+	/* Issue #10 perf: multiview projector WINDOW compose rate. Half composes at
+	 * half the OBS fps (display still blits every frame) to ~halve per-window
+	 * render cost — the main lever against the multiview window stealing PGM
+	 * render budget. Half is only offered above 30fps base. */
 	{
 		int baseFps = 60;
 		struct obs_video_info ovi;
@@ -947,7 +928,10 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 		int idx = cmb_window_fps_->findData(config_->global_settings().multiviewWindowFpsDivisor);
 		cmb_window_fps_->setCurrentIndex(idx >= 0 ? idx : 0);
 
+		/* Zero margins so the row sits flush-left like the labels/checkboxes
+		 * above it (a default QHBoxLayout would add its own indent). */
 		auto *wr_row = new QHBoxLayout();
+		wr_row->setContentsMargins(0, 0, 0, 0);
 		wr_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Settings.WindowRate"), tab));
 		wr_row->addWidget(cmb_window_fps_, 1);
 		auto *wr_widget = new QWidget(tab);
@@ -962,6 +946,27 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 			obs_log(LOG_INFO, "[settings] multiview window compose divisor = %d", d);
 		});
 	}
+
+	/* NDI output readback double-buffer toggle. Default ON, with a prominent
+	 * inline warning because the trade-off (latency + A/V desync when audio is
+	 * on) is not obvious. */
+	chk_ndi_double_buffer_ = new QCheckBox(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBuffer"), tab);
+	chk_ndi_double_buffer_->setChecked(config_->global_settings().ndiOutputDoubleBuffer);
+	chk_ndi_double_buffer_->setToolTip(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBufferTooltip"));
+	layout->addWidget(chk_ndi_double_buffer_);
+
+	auto *ndi_db_warn = new QLabel(amv::text("AMVPlugin.Manager.Settings.NdiDoubleBufferWarn"), tab);
+	ndi_db_warn->setWordWrap(true);
+	ndi_db_warn->setStyleSheet(QStringLiteral("color: #d0a000;"));
+	layout->addWidget(ndi_db_warn);
+
+	connect(chk_ndi_double_buffer_, &QCheckBox::toggled, this, [this](bool checked) {
+		config_->global_settings().ndiOutputDoubleBuffer = checked;
+		config_->save();
+		/* Push to every live output core so the change applies immediately. */
+		notify_multiview_output_settings_changed();
+		obs_log(LOG_INFO, "[settings] NDI readback double-buffer %s", checked ? "enabled" : "disabled");
+	});
 
 	/* Phase 3 hardening tail: Detailed logs toggle. Off by default; gates
 	 * high-frequency diagnostic INFO logs ([perf] every 5s, [health] retry,
