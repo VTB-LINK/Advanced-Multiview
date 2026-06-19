@@ -253,7 +253,11 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 	const bool haveOvi = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
 	const double baseFps = haveOvi ? (double)ovi.fps_num / (double)ovi.fps_den : 60.0;
 	int divisor = g_window_fps_divisor.load(std::memory_order_relaxed);
-	if (baseFps <= 30.0)
+	/* Force Full when the base rate is unknown or already <=30: the Half path
+	 * below divides by ovi.fps_num, so a failed obs_get_video_info (ovi
+	 * indeterminate) must never reach it. In practice OVI is always valid while
+	 * a display renders; this is the broadcast-grade guard. */
+	if (!haveOvi || baseFps <= 30.0)
 		divisor = 1;
 
 	if (divisor <= 1) {
