@@ -20,15 +20,16 @@ OBS Advanced Multiview keeps the same basic idea as OBS Multiview, but removes s
 - OBS Multiview mainly monitors Program, Preview, and scenes. This plugin can also monitor **individual sources, audio-only sources, media URLs/files, NDI, Spout, and VLC playlists**.
 - OBS Multiview has one global presentation style. This plugin has **global, instance, and per-cell display settings**.
 - OBS Multiview does not provide detailed per-cell signal-lost handling. This plugin can show **missing-source states, placeholder images, signal-lost images, fallback states, and reconnect controls**.
-- OBS Multiview is tied to one set of monitor views. This plugin lets you save and open multiple multiview instances with different layouts and settings.
+- OBS Multiview is tied to one set of monitor views. This plugin lets you save **multiple multiview instances** with different layouts and settings, and open **several projector windows of the same instance at once**, all sharing one set of sources.
 - OBS Multiview does not create external monitoring feeds. This plugin creates external provider cells as private OBS sources where possible, so they do not need to be added to your normal scenes.
+- OBS Multiview cannot send its image anywhere. This plugin can **output the composed multiview as an NDI or Spout sender** (video, plus audio for NDI), without routing it through a scene.
 
 ## Features
 
 ### Layouts and Windows
 
 - Multiple saved multiview instances.
-- One window per instance in the current release.
+- **Multiple projector windows per instance**, all sharing one set of sources.
 - **Custom row and column counts.**
 - **Merged cells / span regions.**
 - Gutter spacing from 0 to 50 px.
@@ -54,6 +55,14 @@ OBS Advanced Multiview keeps the same basic idea as OBS Multiview, but removes s
 - WebRTC is present as a placeholder provider, but runtime support is not implemented yet.
 - NDI and Spout are accessed through host OBS plugins. This plugin does not bundle the NDI SDK or a separate Spout SDK.
 
+### External Output
+
+- **NDI output of the composed multiview** (video + audio).
+- **Spout output of the composed multiview** (Windows, video only).
+- Output audio source: follow the streaming track, a manual track, or none.
+- Output runs independently of scenes and keeps sending with no window open.
+- Selectable output resolution and frame rate.
+
 ### Visual Settings
 
 - **Global visual settings.**
@@ -65,7 +74,7 @@ OBS Advanced Multiview keeps the same basic idea as OBS Multiview, but removes s
 - Safe area guides.
 - Foreground overlay image.
 - PGM/PRVW highlight borders.
-- **Nested scene detection** for PGM/PRVW highlights.
+- **Nested scene detection** for PGM/PRVW highlights, with a selectable nested-match border style (dashed, solid, or none).
 - **VU meters.**
 - VU peak hold.
 - VU dB scale ticks and labels.
@@ -92,14 +101,30 @@ OBS Advanced Multiview keeps the same basic idea as OBS Multiview, but removes s
 - Built with the OBS plugin template, Qt 6, C++17, libobs, and OBS frontend APIs.
 - Windows is the primary tested platform for the current release candidate.
 
+## Stability and OBS Isolation
+
+A multiview is a monitoring tool, so the plugin is built to one rule: **it must never crash, stall, or block OBS** — a fault on an OBS thread would take down the whole live program.
+
+- **The render path never calls OBS frontend APIs.** Program / Preview / streaming state is read from a snapshot updated on OBS's main thread, so drawing a cell cannot race a scene switch.
+- **One stream pull per instance.** All windows of an instance share a single set of sources and VU meters; opening another window of the same multiview does not pull the signal again.
+- **Output keeps running with no window open.** With external output on, an instance whose windows are all closed stays alive as a headless host and keeps sending.
+- **Teardown is use-after-free safe.** Closing a window or switching scene collections detaches the instance before anything is destroyed.
+
+Performance work keeps the multiview from pressuring the program output during a busy show:
+
+- **Multiview window render rate (Full / Half, default Half).** Half composes the grid at half the base frame rate and reuses the last frame between, roughly halving each window's render cost; offered only above 30 fps.
+- **NDI output goes idle with no receiver.** When nothing is pulling the output, the GPU readback and encode are skipped while the sender stays discoverable, until a receiver connects.
+- **Optional NDI readback double-buffer** (on by default) protects the program output from a readback stall on slow GPUs at the cost of one frame; turn it off for lowest latency and tight A/V sync.
+
 ## Requirements
 
 - OBS Studio 31.1.1 or newer.
 - Windows is the primary tested platform.
-- Optional host plugins for external providers:
+- Optional host plugins for external provider **cells**:
   - DistroAV for NDI cells
   - obs-spout2 for Spout cells
   - OBS VLC source support for VLC playlist cells
+- For **NDI output**, an NDI 5 or 6 runtime (NDI Tools or the NDI redistributable) installed. NDI output is built in and does not need DistroAV.
 
 macOS and Linux support is planned through the cross-platform build system, but current validation is Windows-first.
 
@@ -188,7 +213,7 @@ Design and implementation notes are kept under [docs](docs/). Project milestones
 
 ## Current Status
 
-The 1.0 release candidate focuses on Windows operation, custom multiview layouts, internal OBS source monitoring, external media/NDI/Spout/VLC providers, signal-lost handling, visual customization, and bilingual English / Simplified Chinese UI.
+The 1.0 release candidate focuses on Windows operation, custom multiview layouts, **multiple projector windows per instance**, internal OBS source monitoring, external media/NDI/Spout/VLC provider cells, **NDI/Spout external output**, signal-lost handling, visual customization, and bilingual English / Simplified Chinese UI.
 
 ## License
 
