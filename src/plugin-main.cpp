@@ -676,6 +676,7 @@ static void on_frontend_event(enum obs_frontend_event event, void *)
 	if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
 		if (config_manager) {
 			config_manager->on_scene_collection_changed();
+			multiview_set_window_fps_divisor(config_manager->global_settings().multiviewWindowFpsDivisor);
 			if (manager_dialog)
 				manager_dialog->refresh_instance_list();
 
@@ -730,6 +731,10 @@ bool obs_module_load(void)
 
 	config_manager = new ConfigManager();
 	config_manager->load();
+
+	/* Issue #10 perf: prime the graphics-thread-read window compose divisor from
+	 * the loaded global settings (Settings tab updates it live thereafter). */
+	multiview_set_window_fps_divisor(config_manager->global_settings().multiviewWindowFpsDivisor);
 
 	/* Phase 3 / M6: bring up the signal provider registry before any UI
 	 * surface that might query it (manager dialog, source picker, future

@@ -123,6 +123,17 @@ private:
 	int cached_vpW_ = 0;
 	int cached_vpH_ = 0;
 
+	/* Issue #10 perf: when the global window compose divisor is Half, the heavy
+	 * draw_cells compose runs at half the OBS fps into this texrender, and every
+	 * display frame just blits the last composed result (display stays smooth).
+	 * Null/unused when running Full (compose directly to the display). */
+	gs_texrender_t *compose_tr_ = nullptr;
+	int compose_tr_w_ = 0;
+	int compose_tr_h_ = 0;
+	uint64_t last_compose_ns_ = 0;
+	bool compose_tr_valid_ = false;
+	void destroy_compose_texrender();
+
 	bool is_always_on_top_ = false;
 	std::atomic<bool> ready_{false};
 	/* Set in closeEvent so a late Expose/visibleChanged can't re-create the
@@ -145,3 +156,10 @@ void notify_multiview_output_settings_changed(const std::string &uuid = "");
  * main render callback, rebuild the host list). Call after any change to a
  * window's output_ state (issue #11 Phase 2). */
 void multiview_refresh_output_driver();
+
+/* Issue #10 perf: global multiview-window compose-rate divisor (1=Full, 2=Half),
+ * read on the graphics thread by MultiviewWindow::render(). Push from the config
+ * load + the Settings tab via the setter (a relaxed atomic — a one-frame-stale
+ * value is harmless). The window forces Full when the base fps is <= 30. */
+void multiview_set_window_fps_divisor(int divisor);
+int multiview_window_fps_divisor();

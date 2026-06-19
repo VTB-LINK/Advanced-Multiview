@@ -400,6 +400,9 @@ obs_data_t *GlobalSettings::to_obs_data() const
 	/* Issue #10: NDI readback double-buffer toggle (default on). */
 	obs_data_set_bool(data, "ndiOutputDoubleBuffer", ndiOutputDoubleBuffer);
 
+	/* Issue #10 perf: multiview window compose rate divisor (1=Full, 2=Half). */
+	obs_data_set_int(data, "multiviewWindowFpsDivisor", multiviewWindowFpsDivisor);
+
 	return data;
 }
 
@@ -459,6 +462,15 @@ GlobalSettings GlobalSettings::from_obs_data(obs_data_t *data)
 		gs.ndiOutputDoubleBuffer = obs_data_get_bool(data, "ndiOutputDoubleBuffer");
 	else
 		gs.ndiOutputDoubleBuffer = true;
+
+	/* Issue #10 perf: window compose divisor. Default Half (2) when absent;
+	 * clamp to {1,2}. */
+	if (obs_data_has_user_value(data, "multiviewWindowFpsDivisor"))
+		gs.multiviewWindowFpsDivisor = (int)obs_data_get_int(data, "multiviewWindowFpsDivisor");
+	else
+		gs.multiviewWindowFpsDivisor = 2;
+	if (gs.multiviewWindowFpsDivisor != 1 && gs.multiviewWindowFpsDivisor != 2)
+		gs.multiviewWindowFpsDivisor = 2;
 
 	return gs;
 }

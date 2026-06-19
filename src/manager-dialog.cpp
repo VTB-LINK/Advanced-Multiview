@@ -36,6 +36,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFont>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -927,6 +928,40 @@ void ManagerDialog::setup_settings_tab(QWidget *tab)
 		notify_multiview_output_settings_changed();
 		obs_log(LOG_INFO, "[settings] NDI readback double-buffer %s", checked ? "enabled" : "disabled");
 	});
+
+	/* Issue #10 perf: multiview projector WINDOW compose rate (global, immediate).
+	 * Half composes at half the OBS fps (display still blits every frame) to
+	 * ~halve per-window render cost — the main lever against the multiview window
+	 * stealing PGM render budget. Half is only offered above 30fps base. */
+	{
+		int baseFps = 60;
+		struct obs_video_info ovi;
+		if (obs_get_video_info(&ovi) && ovi.fps_den)
+			baseFps = (int)((double)ovi.fps_num / (double)ovi.fps_den + 0.5);
+
+		cmb_window_fps_ = new QComboBox(tab);
+		cmb_window_fps_->addItem(amv::text("AMVPlugin.Manager.Settings.WindowRate.Full"), 1);
+		if (baseFps > 30)
+			cmb_window_fps_->addItem(amv::text("AMVPlugin.Manager.Settings.WindowRate.Half"), 2);
+		cmb_window_fps_->setToolTip(amv::text("AMVPlugin.Manager.Settings.WindowRateTooltip"));
+		int idx = cmb_window_fps_->findData(config_->global_settings().multiviewWindowFpsDivisor);
+		cmb_window_fps_->setCurrentIndex(idx >= 0 ? idx : 0);
+
+		auto *wr_row = new QHBoxLayout();
+		wr_row->addWidget(new QLabel(amv::text("AMVPlugin.Manager.Settings.WindowRate"), tab));
+		wr_row->addWidget(cmb_window_fps_, 1);
+		auto *wr_widget = new QWidget(tab);
+		wr_widget->setLayout(wr_row);
+		layout->addWidget(wr_widget);
+
+		connect(cmb_window_fps_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+			const int d = cmb_window_fps_->currentData().toInt();
+			config_->global_settings().multiviewWindowFpsDivisor = d;
+			config_->save();
+			multiview_set_window_fps_divisor(d); /* live to the graphics thread */
+			obs_log(LOG_INFO, "[settings] multiview window compose divisor = %d", d);
+		});
+	}
 
 	/* Phase 3 hardening tail: Detailed logs toggle. Off by default; gates
 	 * high-frequency diagnostic INFO logs ([perf] every 5s, [health] retry,

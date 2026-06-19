@@ -33,6 +33,7 @@ class QLineEdit;
 class QSpinBox;
 class QDoubleSpinBox;
 class QCheckBox;
+class QComboBox;
 class QSplitter;
 class QMenu;
 class GridPreviewWidget;
@@ -130,6 +131,7 @@ private:
 	QLabel *lbl_re_resolve_effective_;
 	QCheckBox *chk_detailed_logs_;
 	QCheckBox *chk_ndi_double_buffer_;
+	QComboBox *cmb_window_fps_;
 
 	/* Scene-click switch (global, immediate save) */
 	QCheckBox *chk_scene_click_switch_;

@@ -56,6 +56,19 @@ static inline QSize GetPixelSize(QWidget *widget)
 	return widget->size() * widget->devicePixelRatioF();
 }
 
+/* Issue #10 perf: global multiview-window compose divisor (1=Full, 2=Half). Set
+ * on the main thread (config load / Settings tab), read on the graphics thread
+ * (render()). Relaxed atomic — a one-frame-stale value is harmless. */
+static std::atomic<int> g_window_fps_divisor{2};
+void multiview_set_window_fps_divisor(int divisor)
+{
+	g_window_fps_divisor.store((divisor == 1) ? 1 : 2, std::memory_order_relaxed);
+}
+int multiview_window_fps_divisor()
+{
+	return g_window_fps_divisor.load(std::memory_order_relaxed);
+}
+
 /* ---- MultiviewWindow implementation ---- */
 
 MultiviewWindow::MultiviewWindow(ConfigManager *config, AmvInstanceCore *core, QWidget *parent)
@@ -154,6 +167,15 @@ void MultiviewWindow::destroy_display()
 	obs_display_remove_draw_callback(display_, render_callback, this);
 	display_ = nullptr;
 	display_created_ = false;
+
+	/* Free the compose texrender (issue #10 perf). gs_texrender_destroy needs a
+	 * graphics context; destroy_display runs on the UI thread (closeEvent/dtor),
+	 * and the draw callback is already removed above, so no render is in flight. */
+	if (compose_tr_) {
+		obs_enter_graphics();
+		destroy_compose_texrender();
+		obs_leave_graphics();
+	}
 }
 
 void MultiviewWindow::set_window_number(int number)
@@ -222,7 +244,84 @@ void MultiviewWindow::render(uint32_t cx, uint32_t cy)
 		cached_vpW_ = vpW;
 		cached_vpH_ = vpH;
 	}
-	core_->draw_cells(engine_.cells(), vpX, vpY, vpW, vpH);
+
+	/* Compose-rate divisor (issue #10 perf): Half composes the (heavy) grid at
+	 * half the OBS fps into a texrender and blits the last result every display
+	 * frame, so the window stays smooth while the per-window render cost ~halves.
+	 * Half only makes sense above 30fps base; otherwise compose directly. */
+	struct obs_video_info ovi;
+	const bool haveOvi = obs_get_video_info(&ovi) && ovi.fps_num > 0 && ovi.fps_den > 0;
+	const double baseFps = haveOvi ? (double)ovi.fps_num / (double)ovi.fps_den : 60.0;
+	int divisor = g_window_fps_divisor.load(std::memory_order_relaxed);
+	if (baseFps <= 30.0)
+		divisor = 1;
+
+	if (divisor <= 1) {
+		/* Full: compose straight to the display (no texrender overhead). */
+		if (compose_tr_)
+			destroy_compose_texrender();
+		core_->draw_cells(engine_.cells(), vpX, vpY, vpW, vpH);
+		return;
+	}
+
+	/* Half: throttle the compose into compose_tr_, blit it every frame. */
+	const uint64_t now = os_gettime_ns();
+	const uint64_t frameNs = (uint64_t)(1000000000.0 * ovi.fps_den / ovi.fps_num);
+	const uint64_t composeIntervalNs = (uint64_t)(frameNs * 1.5); /* ~every 2nd frame -> half fps */
+	const bool sizeChanged = (compose_tr_w_ != vpW || compose_tr_h_ != vpH);
+	const bool composeNow = !compose_tr_valid_ || sizeChanged || (now - last_compose_ns_) >= composeIntervalNs;
+
+	if (composeNow) {
+		if (!compose_tr_ || sizeChanged) {
+			destroy_compose_texrender();
+			compose_tr_ = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+			compose_tr_w_ = vpW;
+			compose_tr_h_ = vpH;
+		}
+		if (compose_tr_) {
+			gs_texrender_reset(compose_tr_);
+			if (gs_texrender_begin(compose_tr_, vpW, vpH)) {
+				gs_set_viewport(0, 0, vpW, vpH);
+				gs_ortho(0.0f, (float)vpW, 0.0f, (float)vpH, -100.0f, 100.0f);
+				struct vec4 clr;
+				vec4_set(&clr, 0.0f, 0.0f, 0.0f, 1.0f);
+				gs_clear(GS_CLEAR_COLOR, &clr, 0.0f, 0);
+				core_->draw_cells(engine_.cells(), 0, 0, vpW, vpH);
+				gs_texrender_end(compose_tr_);
+				compose_tr_valid_ = true;
+				last_compose_ns_ = now;
+			}
+		}
+	}
+
+	/* Blit the last composed frame into the centered viewport (OBS already
+	 * cleared the display to black, so the pill/letterbox borders stay black). */
+	if (compose_tr_valid_ && compose_tr_) {
+		gs_texture_t *tex = gs_texrender_get_texture(compose_tr_);
+		if (tex) {
+			gs_viewport_push();
+			gs_projection_push();
+			gs_set_viewport(vpX, vpY, vpW, vpH);
+			gs_ortho(0.0f, (float)vpW, 0.0f, (float)vpH, -100.0f, 100.0f);
+			gs_effect_t *eff = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_eparam_t *image = gs_effect_get_param_by_name(eff, "image");
+			gs_effect_set_texture(image, tex);
+			while (gs_effect_loop(eff, "Draw"))
+				gs_draw_sprite(tex, 0, vpW, vpH);
+			gs_projection_pop();
+			gs_viewport_pop();
+		}
+	}
+}
+
+void MultiviewWindow::destroy_compose_texrender()
+{
+	if (compose_tr_) {
+		gs_texrender_destroy(compose_tr_);
+		compose_tr_ = nullptr;
+	}
+	compose_tr_w_ = compose_tr_h_ = 0;
+	compose_tr_valid_ = false;
 }
 
 void MultiviewWindow::closeEvent(QCloseEvent *event)

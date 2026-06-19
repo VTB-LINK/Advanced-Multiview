@@ -667,6 +667,14 @@ struct GlobalSettings {
 	 * affects the NDI backend (Spout shares the texture on-GPU, no readback). */
 	bool ndiOutputDoubleBuffer = true;
 
+	/* Issue #10 perf: multiview projector WINDOW compose rate divisor. 1 = Full
+	 * (compose every frame), 2 = Half (compose at half the OBS fps; the display
+	 * still blits the last composed frame every frame so it stays smooth). Half
+	 * roughly halves the per-window graphics-thread render cost — the main lever
+	 * against the multiview window stealing budget from the PGM render. Default
+	 * Half (monitoring doesn't need 60fps). Forced to 1 when base fps <= 30. */
+	int multiviewWindowFpsDivisor = 2;
+
 	obs_data_t *to_obs_data() const;
 	static GlobalSettings from_obs_data(obs_data_t *data);
 };
