@@ -158,6 +158,27 @@ inline ImageFitMode image_fit_mode_from_str(const char *s)
 	return ImageFitMode::Fit;
 }
 
+inline const char *nested_border_style_to_str(NestedBorderStyle st)
+{
+	switch (st) {
+	case NestedBorderStyle::Solid:
+		return "solid";
+	case NestedBorderStyle::None:
+		return "none";
+	default:
+		return "dashed";
+	}
+}
+
+inline NestedBorderStyle nested_border_style_from_str(const char *s)
+{
+	if (s && strcmp(s, "solid") == 0)
+		return NestedBorderStyle::Solid;
+	if (s && strcmp(s, "none") == 0)
+		return NestedBorderStyle::None;
+	return NestedBorderStyle::Dashed;
+}
+
 inline const char *bg_fill_mode_to_str(BackgroundFillMode m)
 {
 	switch (m) {

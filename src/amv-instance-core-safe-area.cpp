@@ -188,8 +188,8 @@ void AmvInstanceCore::render_safe_area(int cellIndex, int cellX, int cellY, int 
  *   6. scene/source cell whose pointer is in prvw_tree_set_ → PrvwNested
  *
  * Priority: PgmDirect > PrvwDirect > PgmNested > PrvwNested. Direct matches
- * always render as solid borders; nested matches render as dashed when
- * HighlightSettings.nestedDashed is true, solid otherwise.
+ * always render as solid borders; nested matches follow
+ * HighlightSettings.nestedStyle (Dashed / Solid / None).
  *
  * Border geometry: thickness defaults to gutter_px_ so the border fills the
  * gutter (matches OBS native multiview look). When gutter == 0, we fall back

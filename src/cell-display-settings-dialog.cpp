@@ -897,8 +897,14 @@ QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 	auto *nestedStyleForm =
 		add_subzone(layout, grp_highlight_, amv::text("AMVPlugin.Visual.Highlight.NestedSceneStyle"));
 
-	chk_highlight_nested_dashed_ = new QCheckBox(grp_highlight_);
-	nestedStyleForm->addRow(amv::text("AMVPlugin.Visual.Highlight.NestedDashed"), chk_highlight_nested_dashed_);
+	cmb_highlight_nested_style_ = new QComboBox(grp_highlight_);
+	cmb_highlight_nested_style_->addItem(amv::text("AMVPlugin.Visual.Highlight.NestedStyleDashed"),
+					     (int)NestedBorderStyle::Dashed);
+	cmb_highlight_nested_style_->addItem(amv::text("AMVPlugin.Visual.Highlight.NestedStyleSolid"),
+					     (int)NestedBorderStyle::Solid);
+	cmb_highlight_nested_style_->addItem(amv::text("AMVPlugin.Visual.Highlight.NestedStyleNone"),
+					     (int)NestedBorderStyle::None);
+	nestedStyleForm->addRow(amv::text("AMVPlugin.Visual.Highlight.NestedCell"), cmb_highlight_nested_style_);
 
 	spin_highlight_dash_length_ = new QSpinBox(grp_highlight_);
 	spin_highlight_dash_length_->setRange(4, 32);
@@ -921,7 +927,7 @@ QGroupBox *CellDisplaySettingsDialog::create_highlight_group()
 	HOOK_CHECK(chk_highlight_enabled_);
 	HOOK_EDIT(edit_highlight_pgm_color_);
 	HOOK_EDIT(edit_highlight_prvw_color_);
-	HOOK_CHECK(chk_highlight_nested_dashed_);
+	HOOK_COMBO(cmb_highlight_nested_style_);
 	HOOK_SPIN(spin_highlight_dash_length_);
 	HOOK_SPIN(spin_highlight_dash_gap_);
 	HOOK_SPIN(spin_highlight_min_thickness_);
@@ -1107,7 +1113,8 @@ void CellDisplaySettingsDialog::set_global_settings(const GlobalVisualSettings &
 	chk_highlight_enabled_->setChecked(gs.highlight.enabled);
 	edit_highlight_pgm_color_->setText(color_to_hex(gs.highlight.pgmColor));
 	edit_highlight_prvw_color_->setText(color_to_hex(gs.highlight.prvwColor));
-	chk_highlight_nested_dashed_->setChecked(gs.highlight.nestedDashed);
+	cmb_highlight_nested_style_->setCurrentIndex(
+		cmb_highlight_nested_style_->findData((int)gs.highlight.nestedStyle));
 	spin_highlight_dash_length_->setValue(gs.highlight.dashLengthPx);
 	spin_highlight_dash_gap_->setValue(gs.highlight.dashGapPx);
 	spin_highlight_min_thickness_->setValue(gs.highlight.minThicknessPx);
@@ -1185,7 +1192,7 @@ GlobalVisualSettings CellDisplaySettingsDialog::get_global_settings() const
 	gs.highlight.enabled = chk_highlight_enabled_->isChecked();
 	gs.highlight.pgmColor = hex_to_color(edit_highlight_pgm_color_->text(), 0xFFD00000);
 	gs.highlight.prvwColor = hex_to_color(edit_highlight_prvw_color_->text(), 0xFF00D000);
-	gs.highlight.nestedDashed = chk_highlight_nested_dashed_->isChecked();
+	gs.highlight.nestedStyle = (NestedBorderStyle)cmb_highlight_nested_style_->currentData().toInt();
 	gs.highlight.dashLengthPx = spin_highlight_dash_length_->value();
 	gs.highlight.dashGapPx = spin_highlight_dash_gap_->value();
 	gs.highlight.minThicknessPx = spin_highlight_min_thickness_->value();
@@ -1279,7 +1286,8 @@ void CellDisplaySettingsDialog::set_instance_settings(const InstanceVisualSettin
 	chk_highlight_enabled_->setChecked(is.highlight.enabled);
 	edit_highlight_pgm_color_->setText(color_to_hex(is.highlight.pgmColor));
 	edit_highlight_prvw_color_->setText(color_to_hex(is.highlight.prvwColor));
-	chk_highlight_nested_dashed_->setChecked(is.highlight.nestedDashed);
+	cmb_highlight_nested_style_->setCurrentIndex(
+		cmb_highlight_nested_style_->findData((int)is.highlight.nestedStyle));
 	spin_highlight_dash_length_->setValue(is.highlight.dashLengthPx);
 	spin_highlight_dash_gap_->setValue(is.highlight.dashGapPx);
 	spin_highlight_min_thickness_->setValue(is.highlight.minThicknessPx);
@@ -1371,7 +1379,7 @@ InstanceVisualSettings CellDisplaySettingsDialog::get_instance_settings() const
 	is.highlight.enabled = chk_highlight_enabled_->isChecked();
 	is.highlight.pgmColor = hex_to_color(edit_highlight_pgm_color_->text(), 0xFFD00000);
 	is.highlight.prvwColor = hex_to_color(edit_highlight_prvw_color_->text(), 0xFF00D000);
-	is.highlight.nestedDashed = chk_highlight_nested_dashed_->isChecked();
+	is.highlight.nestedStyle = (NestedBorderStyle)cmb_highlight_nested_style_->currentData().toInt();
 	is.highlight.dashLengthPx = spin_highlight_dash_length_->value();
 	is.highlight.dashGapPx = spin_highlight_dash_gap_->value();
 	is.highlight.minThicknessPx = spin_highlight_min_thickness_->value();
@@ -1467,7 +1475,8 @@ void CellDisplaySettingsDialog::set_cell_settings(const CellVisualSettings &cs)
 		chk_highlight_enabled_->setChecked(hd.enabled);
 		edit_highlight_pgm_color_->setText(color_to_hex(hd.pgmColor));
 		edit_highlight_prvw_color_->setText(color_to_hex(hd.prvwColor));
-		chk_highlight_nested_dashed_->setChecked(hd.nestedDashed);
+		cmb_highlight_nested_style_->setCurrentIndex(
+			cmb_highlight_nested_style_->findData((int)hd.nestedStyle));
 		spin_highlight_dash_length_->setValue(hd.dashLengthPx);
 		spin_highlight_dash_gap_->setValue(hd.dashGapPx);
 		spin_highlight_min_thickness_->setValue(hd.minThicknessPx);

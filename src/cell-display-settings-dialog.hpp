@@ -164,7 +164,7 @@ private:
 	QCheckBox *chk_highlight_enabled_ = nullptr;
 	QLineEdit *edit_highlight_pgm_color_ = nullptr;
 	QLineEdit *edit_highlight_prvw_color_ = nullptr;
-	QCheckBox *chk_highlight_nested_dashed_ = nullptr;
+	QComboBox *cmb_highlight_nested_style_ = nullptr;
 	QSpinBox *spin_highlight_dash_length_ = nullptr;
 	QSpinBox *spin_highlight_dash_gap_ = nullptr;
 	QSpinBox *spin_highlight_min_thickness_ = nullptr;

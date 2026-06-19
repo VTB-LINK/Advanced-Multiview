@@ -113,7 +113,11 @@ void AmvInstanceCore::render_cell_highlight(const CellRect &cell, int vpX, int v
 												: hs.prvwColor;
 
 	const bool nested = (kind == HighlightKind::PgmNested || kind == HighlightKind::PrvwNested);
-	const bool dashed = nested && hs.nestedDashed;
+	/* Nested-match border style is user-selectable (None hides it entirely,
+	 * matching OBS-native multiview); direct matches are always solid. */
+	if (nested && hs.nestedStyle == NestedBorderStyle::None)
+		return;
+	const bool dashed = nested && hs.nestedStyle == NestedBorderStyle::Dashed;
 
 	int cellX = cell.x + vpX;
 	int cellY = cell.y + vpY;

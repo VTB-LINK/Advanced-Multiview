@@ -247,16 +247,20 @@ struct LostSignalSettings {
  * override is meaningless because the highlight is driven entirely by the
  * cell's *relationship* to the active PGM/PRVW scene tree. Per-cell tab in
  * the dialog disables this group. Cells nested inside PGM/PRVW (e.g. cell
- * shows scene X which is contained in current PGM) draw a dashed border in
- * the same color as the direct match — `nestedDashed` toggles the dashing. */
+ * shows scene X which is contained in current PGM) get their own border style
+ * via `nestedStyle`: Dashed (default), Solid (same look as a direct match), or
+ * None (no border — matches OBS-native multiview, which never highlights
+ * nested scenes). Direct matches are always solid regardless. */
+enum class NestedBorderStyle { Dashed, Solid, None };
+
 struct HighlightSettings {
 	bool enabled = true;
-	uint32_t pgmColor = 0xFFD00000;  /* ARGB red — matches OBS native */
-	uint32_t prvwColor = 0xFF00D000; /* ARGB green — matches OBS native */
-	bool nestedDashed = true;        /* nested matches use dashed border */
-	int dashLengthPx = 12;           /* [4, 32] */
-	int dashGapPx = 6;               /* [2, 16] */
-	int minThicknessPx = 8;          /* fallback when gutter == 0; [2, 16] */
+	uint32_t pgmColor = 0xFFD00000;                            /* ARGB red — matches OBS native */
+	uint32_t prvwColor = 0xFF00D000;                           /* ARGB green — matches OBS native */
+	NestedBorderStyle nestedStyle = NestedBorderStyle::Dashed; /* nested-match border style */
+	int dashLengthPx = 12;                                     /* [4, 32] */
+	int dashGapPx = 6;                                         /* [2, 16] */
+	int minThicknessPx = 8;                                    /* fallback when gutter == 0; [2, 16] */
 
 	obs_data_t *to_obs_data() const;
 	static HighlightSettings from_obs_data(obs_data_t *data);

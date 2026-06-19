@@ -536,7 +536,7 @@ obs_data_t *HighlightSettings::to_obs_data() const
 	obs_data_release(colors);
 
 	obs_data_t *nestedSceneStyle = obs_data_create();
-	obs_data_set_bool(nestedSceneStyle, "dashed", nestedDashed);
+	obs_data_set_string(nestedSceneStyle, "style", nested_border_style_to_str(nestedStyle));
 	obs_data_set_int(nestedSceneStyle, "dashLengthPx", dashLengthPx);
 	obs_data_set_int(nestedSceneStyle, "dashGapPx", dashGapPx);
 	obs_data_set_obj(data, "nestedSceneStyle", nestedSceneStyle);
@@ -574,8 +574,13 @@ HighlightSettings HighlightSettings::from_obs_data(obs_data_t *data)
 
 	obs_data_t *nestedSceneStyle = obs_data_get_obj(data, "nestedSceneStyle");
 	if (nestedSceneStyle) {
-		if (obs_data_has_user_value(nestedSceneStyle, "dashed"))
-			s.nestedDashed = obs_data_get_bool(nestedSceneStyle, "dashed");
+		if (obs_data_has_user_value(nestedSceneStyle, "style"))
+			s.nestedStyle = nested_border_style_from_str(obs_data_get_string(nestedSceneStyle, "style"));
+		else if (obs_data_has_user_value(nestedSceneStyle, "dashed"))
+			/* Back-compat: pre-tristate configs stored a bool. true→Dashed,
+			 * false→Solid (there was no "none" option then). */
+			s.nestedStyle = obs_data_get_bool(nestedSceneStyle, "dashed") ? NestedBorderStyle::Dashed
+										      : NestedBorderStyle::Solid;
 		if (obs_data_has_user_value(nestedSceneStyle, "dashLengthPx"))
 			s.dashLengthPx = (int)obs_data_get_int(nestedSceneStyle, "dashLengthPx");
 		if (obs_data_has_user_value(nestedSceneStyle, "dashGapPx"))
