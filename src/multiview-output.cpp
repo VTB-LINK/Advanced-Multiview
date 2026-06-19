@@ -149,10 +149,13 @@ void MultiviewOutputManager::render_one_resolution(const std::string &name, uint
 		return;
 
 	/* Submit to every enabled backend at THIS resolution that is due this
-	 * frame (frame % fpsDivisor == 0). */
+	 * frame (frame % fpsDivisor == 0) AND wants a frame (#2: an NDI backend with
+	 * no receiver is skipped even when a co-resolution backend forced the
+	 * compose). */
 	BackendEntry *entries[] = {&spout_, &ndi_};
 	for (BackendEntry *e : entries) {
-		if (e->enabled && e->w == w && e->h == h && (e->frame % e->fpsDivisor) == 0)
+		if (e->enabled && e->w == w && e->h == h && (e->frame % e->fpsDivisor) == 0 && e->backend &&
+		    e->backend->wants_frame())
 			e->backend->submit_frame(name, tex, w, h, e->fpsDivisor);
 	}
 }
@@ -173,16 +176,31 @@ void MultiviewOutputManager::render_all(const std::string &name, const InstanceO
 
 	BackendEntry *entries[] = {&spout_, &ndi_};
 
+	/* #2: give every enabled backend a chance to (re)create its sender so it
+	 * stays discoverable even on frames we skip. NDI needs this so receivers can
+	 * connect while idle; Spout's prepare() is a no-op. Done before any compose. */
+	for (BackendEntry *e : entries) {
+		if (e->enabled && e->backend)
+			e->backend->prepare(name);
+	}
+
 	/* Unique resolutions that have at least one backend DUE this frame.
 	 * Resolutions whose backends are all off-beat (half-rate, odd frame) are
-	 * skipped entirely — that is what makes half-rate halve the compose cost. */
+	 * skipped entirely — that is what makes half-rate halve the compose cost.
+	 *
+	 * #2: a backend is "due" only if it also WANTS a frame right now
+	 * (wants_frame()). An NDI sender with no receiver wants nothing, so its
+	 * resolution drops out of due_res and we skip the whole compose+readback+
+	 * encode. It STAYS in live_res (keyed on `enabled`, not wants_frame), so its
+	 * texrender is never GC'd — reconnect reuses the existing target with zero
+	 * realloc spike. */
 	std::set<uint64_t> due_res;
 	std::set<uint64_t> live_res;
 	for (BackendEntry *e : entries) {
 		if (!e->enabled || e->w == 0 || e->h == 0)
 			continue;
 		live_res.insert(res_key(e->w, e->h));
-		if ((e->frame % e->fpsDivisor) == 0)
+		if ((e->frame % e->fpsDivisor) == 0 && e->backend && e->backend->wants_frame())
 			due_res.insert(res_key(e->w, e->h));
 	}
 

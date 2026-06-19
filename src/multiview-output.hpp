@@ -33,6 +33,21 @@ public:
 	/* Stable identifier for logs, e.g. "spout" / "ndi". */
 	virtual const char *kind() const = 0;
 
+	/* Issue #10 (#2): keep the sender alive/discoverable WITHOUT transmitting a
+	 * frame. Called on the graphics thread every frame for every enabled backend,
+	 * before any compose happens. NDI (re)creates its sender here so downstream
+	 * receivers can still find and connect to it while we skip frames; Spout has
+	 * no discovery cost and ignores it. Cheap when the sender already matches. */
+	virtual void prepare(const std::string &name) { (void)name; }
+
+	/* Issue #10 (#2): does this backend actually need a composed frame right now?
+	 * Returns false to let the manager SKIP the GPU compose + submit for this
+	 * backend's resolution this frame. NDI returns false when no receiver is
+	 * connected (so an idle sender costs zero compose/readback/encode); Spout
+	 * can't know its consumers and always wants the frame. Called on the graphics
+	 * thread after prepare(). */
+	virtual bool wants_frame() { return true; }
+
 	/* Transmit one frame. The backend lazily (re)creates its sender to
 	 * match `name` and the texture's dimensions/format, then sends `tex`
 	 * (a GS_BGRA texture owned by the manager's texrender). The backend

@@ -37,36 +37,50 @@ public:
 
 	const char *kind() const override { return "ndi"; }
 
-	void submit_frame(const std::string &name, gs_texture_t *tex, uint32_t w, uint32_t h, int fpsDivisor) override
+	/* #2: create/keep the sender alive WITHOUT sending a frame, so receivers can
+	 * discover and connect to it even on frames we skip. Acquire the runtime on
+	 * first use (stays dormant if it can't be loaded — acquire logs once), and
+	 * (re)create the sender when the name changes. Cheap when already matching. */
+	void prepare(const std::string &name) override
 	{
-		if (!tex || w == 0 || h == 0)
-			return;
-
-		/* Acquire the NDI runtime on first use; stay dormant if it can't
-		 * be loaded (NdiRuntime::acquire logs the reason once). */
 		if (!runtime_) {
 			runtime_ = NdiRuntime::acquire();
 			if (!runtime_)
 				return;
 		}
-
-		if (!sender_ || name != current_name_) {
+		if (!sender_ || name != current_name_)
 			recreate_sender(name);
-			if (!sender_)
-				return;
-		}
+	}
 
-		/* Don't read back + encode for nobody. The GPU->CPU readback and the
-		 * NDI SpeedHQ CPU encode are the expensive part (Spout, by contrast,
-		 * shares the texture on-GPU with no readback/encode). If no receiver is
-		 * connected, skip both entirely — the sender stays discoverable and CPU
-		 * drops to ~Spout levels until someone connects. send_get_no_connections
-		 * with a 0 ms timeout is a cheap, non-blocking current-count query. */
+	/* #2: only spend the GPU->CPU readback + SpeedHQ CPU encode when a receiver
+	 * is actually connected. The readback+encode is the expensive part (Spout, by
+	 * contrast, shares the texture on-GPU with no readback/encode); when nobody is
+	 * connected we skip the whole compose for this resolution and CPU drops to
+	 * ~Spout levels until someone connects. send_get_no_connections with a 0 ms
+	 * timeout is a cheap, non-blocking current-count query. The sender (created in
+	 * prepare()) stays discoverable throughout. */
+	bool wants_frame() override
+	{
+		if (!sender_ || !runtime_)
+			return false;
 		if (runtime_->lib()->send_get_no_connections(sender_, 0) <= 0) {
 			active_ = false;
 			stage_have_prev_ = false; /* restart the ping-pong cleanly on reconnect */
-			return;
+			return false;
 		}
+		return true;
+	}
+
+	void submit_frame(const std::string &name, gs_texture_t *tex, uint32_t w, uint32_t h, int fpsDivisor) override
+	{
+		(void)name; /* sender lifecycle handled in prepare() */
+		if (!tex || w == 0 || h == 0)
+			return;
+
+		/* prepare() + wants_frame() ran first this frame, so the runtime is
+		 * loaded, the sender exists and a receiver is connected. Guard anyway. */
+		if (!sender_ || !runtime_)
+			return;
 
 		if (!ensure_stage(w, h))
 			return;
