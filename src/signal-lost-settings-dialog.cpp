@@ -99,15 +99,21 @@ int idx_from_external(ExternalLostBehavior b)
  * future M6 work can reuse provider plumbing. The combo just maps display
  * label <-> token.
  *
- * Phase 3 / M5.4 hardening: the OBS-source-based fallback options
- * (pgm / prvw / scene / source) are temporarily disabled in the UI. All
- * four resolve through obs_source_video_render -> scene_video_render ->
- * sceneitem signal callbacks, which has been observed to crash OBS when
- * a third-party plugin (e.g. streamdeck-plugin-obs) holds stale
- * sceneitem state across a source remove + restore. The fallback render
- * code still honors these tokens for previously-persisted configs, but
- * users can no longer pick them in this dialog until we ship a safe
- * render path. "None" and "Static image" stay enabled. */
+ * Issue #5 re-enable, stage A: PGM is now selectable again. PGM fallback
+ * renders through obs_render_main_texture() (the composited program
+ * output), NOT obs_source_video_render() -> scene_video_render() ->
+ * sceneitem signal callbacks, so the streamdeck-plugin-obs crash vector
+ * (signal_handler_signal+0x122 on a source remove + restore) is simply
+ * unreachable for it.
+ *
+ * PRVW / Scene / Source stay disabled here: they DO descend into
+ * scene_video_render and need the "tracked fallback slot" lifecycle
+ * (cached weak_ref + on_source_being_removed clearing + obs_source_removed
+ * guard, mirroring primary scene/source cells) before it is safe to
+ * re-enable. See docs/issue-5-signal-lost-fallback-reenable-design.md
+ * (stages B and C). The fallback render code still honors these tokens
+ * for previously-persisted configs. "None" and "Static image" stay
+ * enabled. */
 struct FallbackOption {
 	const char *token;
 	const char *labelKey;
@@ -117,7 +123,7 @@ struct FallbackOption {
 constexpr FallbackOption kFallbackOptions[] = {
 	{"", "AMVPlugin.SignalLost.Fallback.None", true},
 	{"image", "AMVPlugin.SignalLost.Fallback.StaticImage", true},
-	{"pgm", "AMVPlugin.SignalLost.Fallback.ProgramComingSoon", false},
+	{"pgm", "AMVPlugin.SignalLost.Fallback.Program", true},
 	{"prvw", "AMVPlugin.SignalLost.Fallback.PreviewComingSoon", false},
 	{"scene", "AMVPlugin.SignalLost.Fallback.SceneComingSoon", false},
 	{"source", "AMVPlugin.SignalLost.Fallback.SourceComingSoon", false},
@@ -246,12 +252,13 @@ void SignalLostSettingsDialog::build_ui()
 	cmb_fallback_type_ = new QComboBox(grp_fallback);
 	for (int i = 0; i < kFallbackOptionCount; i++)
 		cmb_fallback_type_->addItem(amv::text(kFallbackOptions[i].labelKey));
-	/* Phase 3 / M5.4 hardening: grey out the OBS-source-based fallback
-	 * options (pgm/prvw/scene/source). They still render correctly when
-	 * present in a previously-persisted config, but the user can no longer
-	 * pick them here — they trigger a third-party-plugin crash on source
-	 * restore. Reach the underlying QStandardItemModel to clear
-	 * ItemIsEnabled / ItemIsSelectable on each disabled row. */
+	/* Issue #5: grey out the fallback options still flagged enabled=false
+	 * in kFallbackOptions[] (currently prvw/scene/source — see the table
+	 * above). They still render correctly when present in a previously-
+	 * persisted config, but the user can no longer pick them here until
+	 * the tracked-fallback-slot render path lands. Reach the underlying
+	 * QStandardItemModel to clear ItemIsEnabled / ItemIsSelectable on each
+	 * disabled row. */
 	if (auto *model = qobject_cast<QStandardItemModel *>(cmb_fallback_type_->model())) {
 		for (int i = 0; i < kFallbackOptionCount; i++) {
 			if (kFallbackOptions[i].enabled)
