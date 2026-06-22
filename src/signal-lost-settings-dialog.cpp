@@ -99,21 +99,26 @@ int idx_from_external(ExternalLostBehavior b)
  * future M6 work can reuse provider plumbing. The combo just maps display
  * label <-> token.
  *
- * Issue #5 re-enable, stage A: PGM is now selectable again. PGM fallback
- * renders through obs_render_main_texture() (the composited program
- * output), NOT obs_source_video_render() -> scene_video_render() ->
- * sceneitem signal callbacks, so the streamdeck-plugin-obs crash vector
- * (signal_handler_signal+0x122 on a source remove + restore) is simply
- * unreachable for it.
+ * Issue #5 re-enable:
+ *   - stage A: PGM. Renders through obs_render_main_texture() (the
+ *     composited program output), NOT obs_source_video_render() ->
+ *     scene_video_render() -> sceneitem signal callbacks, so the
+ *     streamdeck-plugin-obs crash vector (signal_handler_signal+0x122 on a
+ *     source remove + restore) is unreachable for it.
+ *   - stage B: Scene / Source. Now safe because the renderer resolves them
+ *     through a tracked fallback slot — cached weak_ref + lazy re-resolve,
+ *     on_source_being_removed() nulls the ref the instant the target is
+ *     removed, and an obs_source_removed() guard sits in front of the
+ *     video_render call — giving the fallback the same remove-safety as a
+ *     primary scene/source cell.
  *
- * PRVW / Scene / Source stay disabled here: they DO descend into
- * scene_video_render and need the "tracked fallback slot" lifecycle
- * (cached weak_ref + on_source_being_removed clearing + obs_source_removed
- * guard, mirroring primary scene/source cells) before it is safe to
- * re-enable. See docs/issue-5-signal-lost-fallback-reenable-design.md
- * (stages B and C). The fallback render code still honors these tokens
- * for previously-persisted configs. "None" and "Static image" stay
- * enabled. */
+ * PRVW stays disabled here (stage C): it descends into scene_video_render
+ * like Scene/Source but has no main-texture shortcut and no named weak_ref
+ * slot (it tracks the frontend's live preview scene), so it is re-enabled
+ * last, after Scene/Source proves stable under stress. See
+ * docs/issue-5-signal-lost-fallback-reenable-design.md. The fallback render
+ * code still honors the prvw token for previously-persisted configs.
+ * "None" and "Static image" stay enabled throughout. */
 struct FallbackOption {
 	const char *token;
 	const char *labelKey;
@@ -125,8 +130,8 @@ constexpr FallbackOption kFallbackOptions[] = {
 	{"image", "AMVPlugin.SignalLost.Fallback.StaticImage", true},
 	{"pgm", "AMVPlugin.SignalLost.Fallback.Program", true},
 	{"prvw", "AMVPlugin.SignalLost.Fallback.PreviewComingSoon", false},
-	{"scene", "AMVPlugin.SignalLost.Fallback.SceneComingSoon", false},
-	{"source", "AMVPlugin.SignalLost.Fallback.SourceComingSoon", false},
+	{"scene", "AMVPlugin.SignalLost.Fallback.Scene", true},
+	{"source", "AMVPlugin.SignalLost.Fallback.Source", true},
 };
 
 constexpr int kFallbackOptionCount = sizeof(kFallbackOptions) / sizeof(kFallbackOptions[0]);

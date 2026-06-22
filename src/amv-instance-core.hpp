@@ -169,6 +169,39 @@ private:
 
 		LostSignalSettings effective_lost;
 
+		/* Issue #5 stage B: tracked scene/source fallback slot. The
+		 * fallback target is resolved by name (lazily, throttled by
+		 * re_resolve_counter_) and cached as a weak ref so the render
+		 * path never does a per-frame obs_get_source_by_name on an
+		 * untracked handle. on_source_being_removed() clears these the
+		 * instant the target is removed, mirroring the primary weak_ref
+		 * discipline so a fallback scene/source reaches the same safety
+		 * level as a primary cell.
+		 *
+		 *   fallback_weak_ref     : current scene/source fallback target
+		 *                           (what draw renders). Null when the
+		 *                           target is gone / not yet resolved.
+		 *   fallback_shown_ref    : the source we currently hold an
+		 *                           inc_showing on. Main-thread-owned
+		 *                           (reconcile_fallback_showing); read
+		 *                           under source_mutex_ on the render
+		 *                           thread only to decide whether a
+		 *                           reconcile post is needed.
+		 *   fallback_active       : the render thread painted this cell's
+		 *                           scene/source fallback this frame. The
+		 *                           desired-shown driver: showing is held
+		 *                           only while this is true (so a standby
+		 *                           fallback source stays dormant — no
+		 *                           background decode — until the primary
+		 *                           actually fails).
+		 *   resolved_fallback_name: name behind fallback_weak_ref; lets
+		 *                           draw detect a fallbackName config
+		 *                           change and force a re-resolve. */
+		OBSWeakSource fallback_weak_ref;
+		OBSWeakSource fallback_shown_ref;
+		bool fallback_active = false;
+		std::string resolved_fallback_name;
+
 		/* Phase 3 / M6 external provider runtime fields. */
 		SignalProviderType provider_type = SignalProviderType::Unknown;
 		OBSSource private_source;
@@ -408,6 +441,16 @@ private:
 	void collect_active_source_pointers(std::vector<void *> &out, uint32_t track_bit);
 	std::atomic<bool> volmeters_rebuild_requested_{false};
 	std::atomic<bool> lost_images_rebuild_pending_{false};
+
+	/* Issue #5 stage B: coalesced render-thread -> main-thread reconcile of
+	 * the scene/source fallback inc/dec_showing pairing. The render thread
+	 * only ever flips CellSource::fallback_active and posts this; the actual
+	 * inc/dec_showing (which fires host-plugin show/hide callbacks and so
+	 * must run off the render thread and outside source_mutex_) happens in
+	 * reconcile_fallback_showing() on the core's UI thread. Same coalescing
+	 * discipline as lost_images_rebuild_pending_. */
+	std::atomic<bool> fallback_showing_reconcile_pending_{false};
+	void reconcile_fallback_showing();
 
 	/* PGM / PRVW cell highlight borders. */
 	enum class HighlightKind { None, PgmDirect, PrvwDirect, PgmNested, PrvwNested };

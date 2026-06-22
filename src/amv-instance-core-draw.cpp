@@ -72,6 +72,11 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 		gs_draw_sprite(nullptr, 0, vpW, vpH);
 	endRegion();
 
+	/* Issue #5 stage B: set true if any cell's scene/source fallback showing
+	 * state drifted from what we hold this frame; drives one coalesced
+	 * reconcile post after the cell loop (see reconcile_fallback_showing). */
+	bool any_fallback_reconcile = false;
+
 	for (int i = 0; i < (int)cells.size(); i++) {
 		const CellRect &cell = cells[i];
 		int cellX = cell.x + vpX;
@@ -101,7 +106,8 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 		OBSSourceAutoRelease srcHolder;
 		bool isPrvwFallback = false;
 		bool isPgm = false;
-		bool isFallback = false; /* Phase 3 / M5.4: rendering a Lost-Signal fallback */
+		bool isFallback = false;          /* Phase 3 / M5.4: rendering a Lost-Signal fallback */
+		bool sceneSourceFallback = false; /* Issue #5 stage B: this frame paints a scene/source fallback */
 
 		if (i < (int)cell_sources_.size()) {
 			const auto &cs = cell_sources_[i];
@@ -343,10 +349,53 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 						srcHolder = nullptr;
 					}
 				} else if ((ft == "scene" || ft == "source") && !eff.fallbackName.empty()) {
-					srcHolder = obs_get_source_by_name(eff.fallbackName.c_str());
+					/* Issue #5 stage B: resolve through the tracked
+					 * fallback slot instead of a per-frame
+					 * obs_get_source_by_name on an untracked handle.
+					 * Cache a weak ref + lazy re-resolve by name
+					 * (throttled by the same re_resolve_counter_ gate
+					 * as the primary path); on_source_being_removed()
+					 * nulls fallback_weak_ref the instant the target
+					 * is removed, so OBSGetStrongRef below returns null
+					 * and the cell drops to MISSING SOURCE rather than
+					 * rendering a doomed scene mid-prune. This brings
+					 * the fallback to the same remove-safety as a
+					 * primary scene/source cell. */
+					if (cell_sources_[i].resolved_fallback_name != eff.fallbackName) {
+						/* fallbackName changed in config — drop the
+						 * stale binding so we re-resolve the new name. */
+						cell_sources_[i].fallback_weak_ref = nullptr;
+						cell_sources_[i].resolved_fallback_name = eff.fallbackName;
+					}
+					if (cell_sources_[i].fallback_weak_ref)
+						srcHolder = OBSGetStrongRef(cell_sources_[i].fallback_weak_ref);
+					if (!srcHolder && re_resolve_counter_ == 0) {
+						/* Throttled lazy resolve (target may have just
+						 * been created / undone back into existence). */
+						obs_source_t *resolved =
+							obs_get_source_by_name(eff.fallbackName.c_str());
+						if (resolved) {
+							if (!obs_source_removed(resolved)) {
+								cell_sources_[i].fallback_weak_ref =
+									OBSGetWeakRef(resolved);
+								/* OBSSourceAutoRelease::operator=(T)
+								 * ADOPTS (no addref) — srcHolder takes
+								 * over the +1 from obs_get_source_by_name
+								 * and its dtor releases it at scope end.
+								 * Must NOT also obs_source_release() here
+								 * or we'd drop the ref twice (over-release
+								 * → eventual UAF on the user's source). */
+								srcHolder = resolved;
+							} else {
+								/* Not binding — release the +1 ourselves. */
+								obs_source_release(resolved);
+							}
+						}
+					}
 					if (srcHolder && !obs_source_removed(srcHolder)) {
 						src = srcHolder;
 						isFallback = true;
+						sceneSourceFallback = true;
 					} else {
 						srcHolder = nullptr;
 					}
@@ -354,6 +403,23 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 				/* "image" and "" leave src null — handled by future
 				 * placeholder/signal-lost image renderer; for now the
 				 * cell falls back to the existing MISSING SOURCE band. */
+			}
+
+			/* Issue #5 stage B: record whether this frame painted a
+			 * scene/source fallback. The fallback source's inc_showing is
+			 * held only while this is true, so a standby fallback target
+			 * stays dormant (no background decode) until the primary
+			 * actually fails. inc/dec_showing fires host-plugin show/hide
+			 * callbacks, so it must NOT run here (render thread, holding
+			 * graphics lock + source_mutex_) — we only flip the flag and
+			 * note that a reconcile (on the UI thread) is needed when the
+			 * desired-shown source differs from what we currently hold. */
+			if (i < (int)cell_sources_.size()) {
+				cell_sources_[i].fallback_active = sceneSourceFallback;
+				obs_weak_source_t *fb_desired_shown =
+					sceneSourceFallback ? cell_sources_[i].fallback_weak_ref.Get() : nullptr;
+				if (cell_sources_[i].fallback_shown_ref.Get() != fb_desired_shown)
+					any_fallback_reconcile = true;
 			}
 
 			/* Phase 3 / M5.1a / M5.4: runtime state classification.
@@ -923,6 +989,20 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 
 		/* Render VU meter bars */
 		render_vu_meter(i, cell, vpX, vpY, vrX, vrY, vrW, vrH);
+	}
+
+	/* Issue #5 stage B: one coalesced reconcile post for all cells'
+	 * scene/source fallback showing changes observed this frame. Mirrors the
+	 * lost_images_rebuild_pending_ discipline — only post when no prior
+	 * reconcile is still queued. The actual inc/dec_showing runs on the UI
+	 * thread in reconcile_fallback_showing() (off the render thread, outside
+	 * source_mutex_) so host-plugin show/hide callbacks never fire while we
+	 * hold the graphics lock + source_mutex_. */
+	if (any_fallback_reconcile && !fallback_showing_reconcile_pending_.exchange(true, std::memory_order_acq_rel)) {
+		QTimer::singleShot(0, this, [this]() {
+			fallback_showing_reconcile_pending_.store(false, std::memory_order_release);
+			reconcile_fallback_showing();
+		});
 	}
 
 	/* ---- PGM / PRVW highlight pass (post-cell, two layers) ----

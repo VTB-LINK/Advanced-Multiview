@@ -148,6 +148,7 @@ bool AmvInstanceCore::refresh_cell(int row, int col)
 	OBSSource old_external;
 	OBSWeakSource old_internal_weak;
 	bool old_internal_was_showing = false;
+	OBSWeakSource old_fallback_shown; /* Issue #5 stage B: fallback slot's held showing ref */
 
 	/* New external intent (if the assignment after refresh is external). */
 	bool new_is_external = false;
@@ -201,6 +202,16 @@ bool AmvInstanceCore::refresh_cell(int row, int col)
 		}
 		cs.weak_ref = nullptr;
 		cs.showing = false;
+
+		/* Issue #5 stage B: capture + clear the tracked fallback slot too.
+		 * dec_showing on the captured ref runs outside the lock in Phase 2,
+		 * mirroring the primary handling. The next draw frame re-resolves
+		 * the fallback by name from the (possibly unchanged) config. */
+		old_fallback_shown = cs.fallback_shown_ref;
+		cs.fallback_weak_ref = nullptr;
+		cs.fallback_shown_ref = nullptr;
+		cs.fallback_active = false;
+		cs.resolved_fallback_name.clear();
 
 		if (cs.private_source) {
 			old_external = std::move(cs.private_source);
@@ -283,6 +294,14 @@ bool AmvInstanceCore::refresh_cell(int row, int col)
 		OBSSourceAutoRelease oldSrc = OBSGetStrongRef(old_internal_weak);
 		if (oldSrc)
 			obs_source_dec_showing(oldSrc);
+	}
+	if (old_fallback_shown) {
+		/* Issue #5 stage B: drop the fallback slot's held showing ref
+		 * outside the lock. Skip if the source is mid-removal (freed with
+		 * the source). */
+		OBSSourceAutoRelease oldFb = OBSGetStrongRef(old_fallback_shown);
+		if (oldFb && !obs_source_removed(oldFb))
+			obs_source_dec_showing(oldFb);
 	}
 	if (old_external) {
 		obs_source_dec_showing(old_external);
@@ -515,6 +534,37 @@ void AmvInstanceCore::on_source_being_removed(obs_source_t *source)
 			}
 		}
 
+		/* Issue #5 stage B: the removed source may also be some cell's
+		 * tracked scene/source fallback target. This pass is intentionally
+		 * NOT gated by the primary loop's type filter above — a fallback
+		 * can hang off a cell whose primary is pgm/prvw/external too. Clear
+		 * the fallback slot with the same asymmetric discipline as the
+		 * primary weak_ref: drop the refs + flag so the next frame's draw
+		 * stops resolving through this binding, but do NOT dec_showing
+		 * (we are inside the source's remove flow; its show_refs are freed
+		 * when it is destroyed). Leave cs.state alone — the draw waterfall
+		 * reclassifies the cell from FallbackActive down to MissingInternal
+		 * once fallback_weak_ref resolves to null on the next frame. */
+		for (auto &cs : cell_sources_) {
+			bool fb_hit = false;
+			if (cs.fallback_weak_ref) {
+				OBSSourceAutoRelease bound = OBSGetStrongRef(cs.fallback_weak_ref);
+				if (bound == source)
+					fb_hit = true;
+			}
+			if (!fb_hit && cs.fallback_shown_ref) {
+				OBSSourceAutoRelease shown = OBSGetStrongRef(cs.fallback_shown_ref);
+				if (shown == source)
+					fb_hit = true;
+			}
+			if (fb_hit) {
+				cs.fallback_weak_ref = nullptr;
+				cs.fallback_shown_ref = nullptr;
+				cs.fallback_active = false;
+				cs.resolved_fallback_name.clear();
+			}
+		}
+
 		/* Only kick a volmeter rebuild when this window actually held the
 		 * source. Otherwise we'd needlessly churn meters on every unrelated
 		 * source_remove fired across the whole OBS session. */
@@ -594,6 +644,65 @@ void AmvInstanceCore::on_source_just_created(obs_source_t *source)
 	 * source_mutex_ to honour the (graphics, source_mutex_) lock order. */
 	if (any_match)
 		rebuild_lost_signal_images();
+}
+
+void AmvInstanceCore::reconcile_fallback_showing()
+{
+	/* Issue #5 stage B: reconcile the scene/source fallback inc/dec_showing
+	 * pairing on the core's UI thread (posted, coalesced, from draw_cells).
+	 *
+	 * Done here — off the render thread and OUTSIDE source_mutex_ — because
+	 * obs_source_inc_showing / dec_showing call obs_source_activate /
+	 * _deactivate, which walk the source's active tree (taking libobs scene
+	 * locks). Running that under our recursive mutex + the graphics lock
+	 * would invert the (graphics -> source_mutex_) lock order. Same
+	 * collect-under-lock / act-outside-lock discipline release_source_refs
+	 * and refresh_cell use for the primary slot.
+	 *
+	 * Reconciliation is keyed on source identity (weak refs): a cell's
+	 * desired-shown source is fallback_weak_ref while fallback_active, else
+	 * none. When that differs from the source we currently hold
+	 * (fallback_shown_ref) we dec the old and inc the new — so a
+	 * fallbackName change (old -> new) and a primary recovery (target ->
+	 * none) both fall out of the same compare. We commit fallback_shown_ref
+	 * to the desired value under the lock and change the show counts after
+	 * releasing it; if the render thread flips fallback_active again in the
+	 * gap it simply posts another reconcile. */
+	struct ShowOp {
+		OBSWeakSource dec; /* source to dec_showing (may be empty) */
+		OBSWeakSource inc; /* source to inc_showing (may be empty) */
+	};
+	std::vector<ShowOp> ops;
+
+	{
+		std::lock_guard<std::recursive_mutex> lock(source_mutex_);
+		for (auto &cs : cell_sources_) {
+			OBSWeakSource desired = cs.fallback_active ? cs.fallback_weak_ref : OBSWeakSource();
+			if (cs.fallback_shown_ref.Get() == desired.Get())
+				continue;
+			ShowOp op;
+			op.dec = cs.fallback_shown_ref;
+			op.inc = desired;
+			ops.push_back(std::move(op));
+			cs.fallback_shown_ref = desired;
+		}
+	}
+
+	for (auto &op : ops) {
+		/* Skip a source that is mid-removal: its show_refs are freed when
+		 * it is destroyed, so a missed dec leaks nothing — same rationale
+		 * as on_source_being_removed deliberately not dec'ing. */
+		if (op.dec.Get()) {
+			OBSSourceAutoRelease s = OBSGetStrongRef(op.dec);
+			if (s && !obs_source_removed(s))
+				obs_source_dec_showing(s);
+		}
+		if (op.inc.Get()) {
+			OBSSourceAutoRelease s = OBSGetStrongRef(op.inc);
+			if (s && !obs_source_removed(s))
+				obs_source_inc_showing(s);
+		}
+	}
 }
 
 void AmvInstanceCore::update_source_refs_lazy()
@@ -1049,6 +1158,14 @@ void AmvInstanceCore::update_source_refs()
 			cell_sources_[i].last_reconnect_ns = 0;
 			cell_sources_[i].retry_attempt = 0;
 			cell_sources_[i].provider_type = SignalProviderType::Unknown;
+			/* Issue #5 stage B: reset the tracked fallback slot. Safe to
+			 * just null here (no dec_showing): release_source_refs() always
+			 * runs immediately before this and already dropped any held
+			 * fallback showing ref. */
+			cell_sources_[i].fallback_weak_ref = nullptr;
+			cell_sources_[i].fallback_shown_ref = nullptr;
+			cell_sources_[i].fallback_active = false;
+			cell_sources_[i].resolved_fallback_name.clear();
 
 			/* Look up assignment by (gridRow, gridCol) */
 			int r = cells[i].gridRow;
@@ -1281,6 +1398,21 @@ void AmvInstanceCore::release_source_refs()
 				cs.showing = false;
 			}
 			cs.weak_ref = nullptr;
+
+			/* Issue #5 stage B: drop the scene/source fallback slot's
+			 * showing ref. Kept under the lock here to match this
+			 * function's existing convention for the primary slot just
+			 * above — at full teardown the sources are stable (not
+			 * mid-removal), so firing the eventual show/hide is safe. */
+			if (cs.fallback_shown_ref) {
+				OBSSourceAutoRelease fbsrc = OBSGetStrongRef(cs.fallback_shown_ref);
+				if (fbsrc)
+					obs_source_dec_showing(fbsrc);
+				cs.fallback_shown_ref = nullptr;
+			}
+			cs.fallback_weak_ref = nullptr;
+			cs.fallback_active = false;
+			cs.resolved_fallback_name.clear();
 
 			/* Phase 3 / M6: hand off any external private source the
 			 * provider runtime may have created. Internal cells leave
