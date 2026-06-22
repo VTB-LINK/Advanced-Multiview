@@ -175,8 +175,15 @@ void AmvInstanceCore::draw_cells(const std::vector<CellRect> &cells, int vpX, in
 									      source_is_audio_only(resolved);
 						obs_source_inc_showing(resolved);
 						cell_sources_[i].showing = true;
+						/* OBSSourceAutoRelease::operator=(T) ADOPTS the +1
+						 * from obs_get_source_by_name (no addref); the
+						 * srcHolder dtor releases it at scope end. Do NOT
+						 * also obs_source_release(resolved) — that double-
+						 * drops the strong ref (latent over-release → UAF on
+						 * the user's source). The external-provider branch
+						 * above (srcHolder = obs_source_get_ref(raw); no
+						 * manual release) is the matching correct idiom. */
 						srcHolder = resolved;
-						obs_source_release(resolved);
 						/* Phase 3 / M5: source just came back (e.g. user undo).
 						 * Kick the volmeter rebuild so audio metering re-attaches
 						 * on the very next frame instead of waiting up to 1s for
