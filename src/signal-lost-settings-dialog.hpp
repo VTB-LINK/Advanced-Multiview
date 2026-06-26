@@ -45,6 +45,13 @@ public:
 
 	void set_cell_position(int row, int col);
 
+	/* Signal-Lost v2 axis A: the recovery-policy control only applies to
+	 * providers Multiview can actively reconnect (FFmpeg / VLC). For NDI /
+	 * Spout (host plugin owns reconnect) and internal cells it is greyed out.
+	 * Call before set_cell_settings(); defaults to applicable (e.g. Global
+	 * mode, which covers cells of every type). */
+	void set_recovery_applicable(bool applicable);
+
 	/* Global mode: payload is the LostSignalSettings struct directly. */
 	void set_global_settings(const LostSignalSettings &s);
 	LostSignalSettings get_global_settings() const;
@@ -68,6 +75,7 @@ private:
 	const Mode mode_;
 	int cell_row_ = -1;
 	int cell_col_ = -1;
+	bool recovery_applicable_ = true;
 
 	/* Inheritance combo \u2014 only meaningful in Cell mode; hidden in Global. */
 	QComboBox *cmb_inherit_ = nullptr;

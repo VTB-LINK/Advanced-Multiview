@@ -342,6 +342,20 @@ void MultiviewWindow::show_context_menu(const QPoint &pos, int cellIndex)
 
 			SignalLostSettingsDialog dlg(SignalLostSettingsDialog::Mode::Cell, this);
 			dlg.set_cell_position(row, col);
+			/* Recovery policy only applies to providers Multiview can actively
+			 * reconnect (FFmpeg/VLC). Detect the cell's provider and grey the
+			 * control for NDI/Spout (host plugin owns reconnect) and internal. */
+			{
+				AmvInstanceCore::CellRuntimeSnapshot snap = core_->snapshot_cell(cellIndex);
+				bool recovery_applicable = false;
+				if (snap.valid && snap.provider_type != SignalProviderType::Unknown &&
+				    !signal_provider_is_internal(snap.provider_type)) {
+					const auto *p = SignalProviderRegistry::instance().find(snap.provider_type);
+					recovery_applicable =
+						p && (p->supports_media_restart() || p->benefits_from_recreate());
+				}
+				dlg.set_recovery_applicable(recovery_applicable);
+			}
 			dlg.set_cell_settings(working);
 			if (dlg.exec() != QDialog::Accepted)
 				return;

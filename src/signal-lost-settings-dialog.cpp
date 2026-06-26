@@ -98,9 +98,11 @@ int idx_from_band(LostStatusBand b)
 	}
 }
 
-/* Fallback type options (v2): image / PGM / PRVW / scene / source. PRVW stays
- * gated (issue #5 stage C) so it is greyed out until its tracked render path
- * lands; the others are all safe. */
+/* Fallback type options (v2): image / PGM / PRVW / scene / source — all
+ * enabled. PRVW (issue #5 stage C) renders the frontend's live preview scene
+ * via the exact same path as a primary PRVW cell (current_preview_scene() ->
+ * obs_source_video_render, with the obs_source_removed guard), which is
+ * already shipped and safe, so it carries no extra risk. */
 struct FallbackTypeOption {
 	const char *token;
 	const char *labelKey;
@@ -110,7 +112,7 @@ struct FallbackTypeOption {
 constexpr FallbackTypeOption kFallbackTypes[] = {
 	{"image", "AMVPlugin.SignalLost.Fallback.StaticImage", true},
 	{"pgm", "AMVPlugin.SignalLost.Fallback.Program", true},
-	{"prvw", "AMVPlugin.SignalLost.Fallback.PreviewComingSoon", false},
+	{"prvw", "AMVPlugin.SignalLost.Fallback.Preview", true},
 	{"scene", "AMVPlugin.SignalLost.Fallback.Scene", true},
 	{"source", "AMVPlugin.SignalLost.Fallback.Source", true},
 };
@@ -287,6 +289,7 @@ void SignalLostSettingsDialog::build_ui()
 	cmb_recovery_policy_ = new QComboBox(grp_unavail);
 	cmb_recovery_policy_->addItem(amv::text("AMVPlugin.SignalLost.Recovery.Auto"));
 	cmb_recovery_policy_->addItem(amv::text("AMVPlugin.SignalLost.Recovery.ManualOnly"));
+	cmb_recovery_policy_->setToolTip(amv::text("AMVPlugin.SignalLost.Recovery.Tooltip"));
 	form_unavail->addRow(amv::text("AMVPlugin.SignalLost.Unavailable.Recovery"), cmb_recovery_policy_);
 	root->addWidget(grp_unavail);
 
@@ -356,6 +359,12 @@ void SignalLostSettingsDialog::set_cell_position(int row, int col)
 	cell_col_ = col;
 	if (mode_ == Mode::Cell && row >= 0 && col >= 0)
 		setWindowTitle(amv::text("AMVPlugin.SignalLost.Title.CellPosition").arg(row).arg(col));
+}
+
+void SignalLostSettingsDialog::set_recovery_applicable(bool applicable)
+{
+	recovery_applicable_ = applicable;
+	update_enabled_state();
 }
 
 void SignalLostSettingsDialog::set_global_settings(const LostSignalSettings &s)
@@ -437,7 +446,9 @@ void SignalLostSettingsDialog::update_enabled_state()
 
 	setRowEnabled(cmb_display_, true);
 	setRowEnabled(cmb_status_band_, true);
-	setRowEnabled(cmb_recovery_policy_, true);
+	/* Recovery only applies to FFmpeg/VLC cells; greyed for NDI/Spout/internal
+	 * (set via set_recovery_applicable from the cell's provider). */
+	setRowEnabled(cmb_recovery_policy_, recovery_applicable_);
 
 	const bool fallback_active = display_from_idx(cmb_display_->currentIndex()) == LostDisplayContent::Fallback;
 	const std::string fb_token = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
