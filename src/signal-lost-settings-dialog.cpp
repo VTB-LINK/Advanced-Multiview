@@ -19,114 +19,95 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "signal-lost-settings-dialog.hpp"
 #include "amv-i18n.hpp"
 
+#include <obs.h>
+#include <obs-frontend-api.h>
+
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPushButton>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QStandardItemModel>
+#include <QStringList>
 #include <QToolButton>
 #include <QVBoxLayout>
 
-/* ---- enum <-> combo helpers ---- */
+/* ---- enum <-> combo helpers (Signal-Lost v2) ---- */
 
 namespace {
 
-constexpr int kInternalBlackIdx = 0;
-constexpr int kInternalPlaceholderIdx = 1;
-constexpr int kInternalClearIdx = 2;
-
-InternalMissingBehavior internal_from_idx(int idx)
+/* Axis B1: displayContent. Combo order: Black / LastFrame / Fallback / Clear. */
+LostDisplayContent display_from_idx(int idx)
 {
 	switch (idx) {
-	case kInternalPlaceholderIdx:
-		return InternalMissingBehavior::PlaceholderImage;
-	case kInternalClearIdx:
-		return InternalMissingBehavior::ClearCell;
+	case 1:
+		return LostDisplayContent::LastFrame;
+	case 2:
+		return LostDisplayContent::Fallback;
+	case 3:
+		return LostDisplayContent::ClearCell;
 	default:
-		return InternalMissingBehavior::Black;
+		return LostDisplayContent::Black;
 	}
 }
 
-int idx_from_internal(InternalMissingBehavior b)
+int idx_from_display(LostDisplayContent c)
 {
-	switch (b) {
-	case InternalMissingBehavior::PlaceholderImage:
-		return kInternalPlaceholderIdx;
-	case InternalMissingBehavior::ClearCell:
-		return kInternalClearIdx;
+	switch (c) {
+	case LostDisplayContent::LastFrame:
+		return 1;
+	case LostDisplayContent::Fallback:
+		return 2;
+	case LostDisplayContent::ClearCell:
+		return 3;
 	default:
-		return kInternalBlackIdx;
+		return 0;
 	}
 }
 
-constexpr int kExternalOverlayIdx = 0;
-constexpr int kExternalRetryOnlyIdx = 1;
-constexpr int kExternalRetryFallbackIdx = 2;
-constexpr int kExternalImageIdx = 3;
-
-ExternalLostBehavior external_from_idx(int idx)
+/* Axis B2: statusBand. Combo order: None / SignalLost / Reconnecting / Auto. */
+LostStatusBand band_from_idx(int idx)
 {
 	switch (idx) {
-	case kExternalRetryOnlyIdx:
-		return ExternalLostBehavior::RetryOnly;
-	case kExternalRetryFallbackIdx:
-		return ExternalLostBehavior::RetryWithFallback;
-	case kExternalImageIdx:
-		return ExternalLostBehavior::SignalLostImage;
+	case 0:
+		return LostStatusBand::None;
+	case 1:
+		return LostStatusBand::SignalLost;
+	case 2:
+		return LostStatusBand::Reconnecting;
 	default:
-		return ExternalLostBehavior::SignalLostOverlay;
+		return LostStatusBand::Auto;
 	}
 }
 
-int idx_from_external(ExternalLostBehavior b)
+int idx_from_band(LostStatusBand b)
 {
 	switch (b) {
-	case ExternalLostBehavior::RetryOnly:
-		return kExternalRetryOnlyIdx;
-	case ExternalLostBehavior::RetryWithFallback:
-		return kExternalRetryFallbackIdx;
-	case ExternalLostBehavior::SignalLostImage:
-		return kExternalImageIdx;
+	case LostStatusBand::None:
+		return 0;
+	case LostStatusBand::SignalLost:
+		return 1;
+	case LostStatusBand::Reconnecting:
+		return 2;
 	default:
-		return kExternalOverlayIdx;
+		return 3;
 	}
 }
 
-/* fallbackType uses the same string namespace as CellAssignment.type so that
- * future M6 work can reuse provider plumbing. The combo just maps display
- * label <-> token.
- *
- * Issue #5 re-enable:
- *   - stage A: PGM. Renders through obs_render_main_texture() (the
- *     composited program output), NOT obs_source_video_render() ->
- *     scene_video_render() -> sceneitem signal callbacks, so the
- *     streamdeck-plugin-obs crash vector (signal_handler_signal+0x122 on a
- *     source remove + restore) is unreachable for it.
- *   - stage B: Scene / Source. Now safe because the renderer resolves them
- *     through a tracked fallback slot — cached weak_ref + lazy re-resolve,
- *     on_source_being_removed() nulls the ref the instant the target is
- *     removed, and an obs_source_removed() guard sits in front of the
- *     video_render call — giving the fallback the same remove-safety as a
- *     primary scene/source cell.
- *
- * PRVW stays disabled here (stage C): it descends into scene_video_render
- * like Scene/Source but has no main-texture shortcut and no named weak_ref
- * slot (it tracks the frontend's live preview scene), so it is re-enabled
- * last, after Scene/Source proves stable under stress. See
- * docs/issue-5-signal-lost-fallback-reenable-design.md. The fallback render
- * code still honors the prvw token for previously-persisted configs.
- * "None" and "Static image" stay enabled throughout. */
-struct FallbackOption {
+/* Fallback type options (v2): image / PGM / PRVW / scene / source. PRVW stays
+ * gated (issue #5 stage C) so it is greyed out until its tracked render path
+ * lands; the others are all safe. */
+struct FallbackTypeOption {
 	const char *token;
 	const char *labelKey;
 	bool enabled;
 };
 
-constexpr FallbackOption kFallbackOptions[] = {
-	{"", "AMVPlugin.SignalLost.Fallback.None", true},
+constexpr FallbackTypeOption kFallbackTypes[] = {
 	{"image", "AMVPlugin.SignalLost.Fallback.StaticImage", true},
 	{"pgm", "AMVPlugin.SignalLost.Fallback.Program", true},
 	{"prvw", "AMVPlugin.SignalLost.Fallback.PreviewComingSoon", false},
@@ -134,22 +115,109 @@ constexpr FallbackOption kFallbackOptions[] = {
 	{"source", "AMVPlugin.SignalLost.Fallback.Source", true},
 };
 
-constexpr int kFallbackOptionCount = sizeof(kFallbackOptions) / sizeof(kFallbackOptions[0]);
+constexpr int kFallbackTypeCount = sizeof(kFallbackTypes) / sizeof(kFallbackTypes[0]);
 
 int idx_from_fallback_token(const std::string &token)
 {
-	for (int i = 0; i < kFallbackOptionCount; i++) {
-		if (token == kFallbackOptions[i].token)
+	for (int i = 0; i < kFallbackTypeCount; i++) {
+		if (token == kFallbackTypes[i].token)
 			return i;
 	}
-	return 0; /* unknown -> None */
+	return 0; /* default -> image */
 }
 
 const char *fallback_token_from_idx(int idx)
 {
-	if (idx >= 0 && idx < kFallbackOptionCount)
-		return kFallbackOptions[idx].token;
-	return "";
+	if (idx >= 0 && idx < kFallbackTypeCount)
+		return kFallbackTypes[idx].token;
+	return "image";
+}
+
+/* Smart picker: gather scene names (frontend) or input-source names. Mirrors
+ * SourcePicker's enumeration so the lists match what the main picker shows. */
+QStringList enum_scene_names()
+{
+	QStringList names;
+	struct obs_frontend_source_list scenes = {};
+	obs_frontend_get_scenes(&scenes);
+	for (size_t i = 0; i < scenes.sources.num; i++) {
+		const char *n = obs_source_get_name(scenes.sources.array[i]);
+		if (n && *n)
+			names.append(QString::fromUtf8(n));
+	}
+	obs_frontend_source_list_free(&scenes);
+	names.sort(Qt::CaseInsensitive);
+	return names;
+}
+
+QStringList enum_input_source_names()
+{
+	QStringList names;
+	auto cb = [](void *param, obs_source_t *src) -> bool {
+		auto *out = static_cast<QStringList *>(param);
+		if (obs_source_get_type(src) == OBS_SOURCE_TYPE_SCENE)
+			return true;
+		uint32_t flags = obs_source_get_output_flags(src);
+		if (!(flags & (OBS_SOURCE_VIDEO | OBS_SOURCE_AUDIO)))
+			return true;
+		const char *n = obs_source_get_name(src);
+		if (n && *n)
+			out->append(QString::fromUtf8(n));
+		return true;
+	};
+	obs_enum_sources(cb, &names);
+	names.sort(Qt::CaseInsensitive);
+	return names;
+}
+
+/* Modal name picker with a live search box + list. Returns the chosen name,
+ * or an empty string if cancelled. */
+QString pick_name_with_search(QWidget *parent, const QString &title, const QStringList &names, const QString &current)
+{
+	QDialog dlg(parent);
+	dlg.setWindowTitle(title);
+	dlg.setMinimumSize(360, 420);
+	auto *v = new QVBoxLayout(&dlg);
+
+	auto *filter = new QLineEdit(&dlg);
+	filter->setPlaceholderText(amv::text("AMVPlugin.SignalLost.PickFilter"));
+	filter->setClearButtonEnabled(true);
+	v->addWidget(filter);
+
+	auto *list = new QListWidget(&dlg);
+	v->addWidget(list, 1);
+	for (const QString &n : names) {
+		auto *it = new QListWidgetItem(n, list);
+		if (n == current)
+			list->setCurrentItem(it);
+	}
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+	v->addWidget(buttons);
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+	QObject::connect(list, &QListWidget::itemDoubleClicked, &dlg, [&dlg](QListWidgetItem *) { dlg.accept(); });
+	QObject::connect(filter, &QLineEdit::textChanged, &dlg, [list](const QString &text) {
+		QListWidgetItem *firstVisible = nullptr;
+		for (int i = 0; i < list->count(); i++) {
+			QListWidgetItem *it = list->item(i);
+			const bool hidden = !text.isEmpty() && !it->text().contains(text, Qt::CaseInsensitive);
+			it->setHidden(hidden);
+			if (!hidden && !firstVisible)
+				firstVisible = it;
+		}
+		/* Keep a sensible selection visible as the user filters. */
+		if (QListWidgetItem *cur = list->currentItem(); !cur || cur->isHidden())
+			list->setCurrentItem(firstVisible);
+	});
+	filter->setFocus();
+
+	if (dlg.exec() != QDialog::Accepted)
+		return QString();
+	QListWidgetItem *sel = list->currentItem();
+	if (sel && !sel->isHidden())
+		return sel->text();
+	return QString();
 }
 
 } // namespace
@@ -170,8 +238,8 @@ void SignalLostSettingsDialog::build_ui()
 {
 	auto *root = new QVBoxLayout(this);
 
-	/* Inheritance row \u2014 visible only in Cell mode. We still construct it in
-	 * Global mode and hide so widget pointers stay valid. */
+	/* Inheritance row — visible only in Cell mode. Built in Global mode and
+	 * hidden so widget pointers stay valid. */
 	auto *inherit_row = new QHBoxLayout();
 	inherit_row->addWidget(new QLabel(amv::text("AMVPlugin.Visual.Inheritance")));
 	cmb_inherit_ = new QComboBox(this);
@@ -189,94 +257,50 @@ void SignalLostSettingsDialog::build_ui()
 	connect(cmb_inherit_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&SignalLostSettingsDialog::on_inheritance_changed);
 
-	/* Internal source missing group. */
-	auto *grp_internal = new QGroupBox(amv::text("AMVPlugin.SignalLost.Internal.Title"), this);
-	auto *form_internal = new QFormLayout(grp_internal);
-	cmb_internal_behavior_ = new QComboBox(grp_internal);
-	cmb_internal_behavior_->addItem(amv::text("AMVPlugin.SignalLost.Internal.BlackOverlay"));
-	cmb_internal_behavior_->addItem(amv::text("AMVPlugin.SignalLost.Internal.PlaceholderImage"));
-	cmb_internal_behavior_->addItem(amv::text("AMVPlugin.SignalLost.Internal.ClearCell"));
-	form_internal->addRow(amv::text("AMVPlugin.SignalLost.Internal.OnMissing"), cmb_internal_behavior_);
+	/* Signal-Lost v2: unified "signal unavailable" group — replaces the old
+	 * separate Internal-missing / External-lost sections. Applies to internal
+	 * and external cells alike (the render path degrades options that don't
+	 * apply to a given cell type). */
+	auto *grp_unavail = new QGroupBox(amv::text("AMVPlugin.SignalLost.Unavailable.Title"), this);
+	auto *form_unavail = new QFormLayout(grp_unavail);
 
-	auto *placeholder_row = new QHBoxLayout();
-	edit_placeholder_path_ = new QLineEdit(grp_internal);
-	edit_placeholder_path_->setPlaceholderText(amv::text("AMVPlugin.SignalLost.ImagePathPlaceholder"));
-	placeholder_row->addWidget(edit_placeholder_path_, 1);
-	auto *btn_placeholder = new QToolButton(grp_internal);
-	btn_placeholder->setText(QStringLiteral("..."));
-	connect(btn_placeholder, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_placeholder_image);
-	placeholder_row->addWidget(btn_placeholder);
-	form_internal->addRow(amv::text("AMVPlugin.SignalLost.Internal.PlaceholderImageLabel"), placeholder_row);
+	cmb_display_ = new QComboBox(grp_unavail);
+	cmb_display_->addItem(amv::text("AMVPlugin.SignalLost.Display.Black"));
+	cmb_display_->addItem(amv::text("AMVPlugin.SignalLost.Display.LastFrame"));
+	cmb_display_->addItem(amv::text("AMVPlugin.SignalLost.Display.Fallback"));
+	cmb_display_->addItem(amv::text("AMVPlugin.SignalLost.Display.ClearCell"));
+	form_unavail->addRow(amv::text("AMVPlugin.SignalLost.Unavailable.Display"), cmb_display_);
+	connect(cmb_display_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&SignalLostSettingsDialog::on_display_changed);
 
-	/* Phase 3 / M5.4: image fit mode for placeholder. Stretch fills the
-	 * cell exactly (default — most placeholder/banner art is authored at
-	 * a known target ratio); Fit preserves aspect with letterbox bars. */
-	cmb_placeholder_fit_ = new QComboBox(grp_internal);
-	cmb_placeholder_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Stretch"));
-	cmb_placeholder_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Fit"));
-	form_internal->addRow(amv::text("AMVPlugin.SignalLost.Internal.PlaceholderFit"), cmb_placeholder_fit_);
-	root->addWidget(grp_internal);
+	cmb_status_band_ = new QComboBox(grp_unavail);
+	cmb_status_band_->addItem(amv::text("AMVPlugin.SignalLost.Band.None"));
+	cmb_status_band_->addItem(amv::text("AMVPlugin.SignalLost.Band.SignalLost"));
+	cmb_status_band_->addItem(amv::text("AMVPlugin.SignalLost.Band.Reconnecting"));
+	cmb_status_band_->addItem(amv::text("AMVPlugin.SignalLost.Band.Auto"));
+	form_unavail->addRow(amv::text("AMVPlugin.SignalLost.Unavailable.StatusBand"), cmb_status_band_);
 
-	connect(cmb_internal_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-		[this](int) { update_enabled_state(); });
-
-	/* External source lost group. Provider-backed cells (FFmpeg / NDI / Spout
-	 * / VLC) use this branch when the private source is alive but unhealthy. */
-	auto *grp_external = new QGroupBox(amv::text("AMVPlugin.SignalLost.External.Title"), this);
-	auto *form_external = new QFormLayout(grp_external);
-	cmb_external_behavior_ = new QComboBox(grp_external);
-	cmb_external_behavior_->addItem(amv::text("AMVPlugin.SignalLost.External.SignalLostOverlay"));
-	cmb_external_behavior_->addItem(amv::text("AMVPlugin.SignalLost.External.RetryOnly"));
-	cmb_external_behavior_->addItem(amv::text("AMVPlugin.SignalLost.External.RetryFallback"));
-	cmb_external_behavior_->addItem(amv::text("AMVPlugin.SignalLost.External.SignalLostImage"));
-	form_external->addRow(amv::text("AMVPlugin.SignalLost.External.OnLost"), cmb_external_behavior_);
-
-	/* Signal-Lost v2 axis A: recovery policy. Auto = supervisor auto-reconnects
-	 * on the backoff ladder; ManualOnly = detect + show loss but recover only
-	 * via the cell's Reconnect/Replay menu. Only meaningful for FFmpeg/VLC
-	 * (NDI/Spout reconnect inside their host plugin); a later UI pass greys it
-	 * for those providers. */
-	cmb_recovery_policy_ = new QComboBox(grp_external);
+	/* Axis A: recovery policy. Only FFmpeg/VLC honor it (NDI/Spout reconnect
+	 * inside their host plugin, internal cells are event-driven); greying it
+	 * per provider needs cell context the dialog doesn't carry yet, so it
+	 * stays enabled for now and is simply a no-op for those cells. */
+	cmb_recovery_policy_ = new QComboBox(grp_unavail);
 	cmb_recovery_policy_->addItem(amv::text("AMVPlugin.SignalLost.Recovery.Auto"));
 	cmb_recovery_policy_->addItem(amv::text("AMVPlugin.SignalLost.Recovery.ManualOnly"));
-	form_external->addRow(amv::text("AMVPlugin.SignalLost.External.RecoveryPolicy"), cmb_recovery_policy_);
+	form_unavail->addRow(amv::text("AMVPlugin.SignalLost.Unavailable.Recovery"), cmb_recovery_policy_);
+	root->addWidget(grp_unavail);
 
-	auto *signal_lost_row = new QHBoxLayout();
-	edit_signal_lost_path_ = new QLineEdit(grp_external);
-	edit_signal_lost_path_->setPlaceholderText(amv::text("AMVPlugin.SignalLost.ImagePathPlaceholder"));
-	signal_lost_row->addWidget(edit_signal_lost_path_, 1);
-	auto *btn_signal_lost = new QToolButton(grp_external);
-	btn_signal_lost->setText(QStringLiteral("..."));
-	connect(btn_signal_lost, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_signal_lost_image);
-	signal_lost_row->addWidget(btn_signal_lost);
-	form_external->addRow(amv::text("AMVPlugin.SignalLost.External.SignalLostImageLabel"), signal_lost_row);
-
-	/* Phase 3 / M6 (preview): fit mode for the Signal Lost image. */
-	cmb_signal_lost_fit_ = new QComboBox(grp_external);
-	cmb_signal_lost_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Stretch"));
-	cmb_signal_lost_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Fit"));
-	form_external->addRow(amv::text("AMVPlugin.SignalLost.External.SignalLostFit"), cmb_signal_lost_fit_);
-	root->addWidget(grp_external);
-
-	connect(cmb_external_behavior_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-		[this](int) { update_enabled_state(); });
-
-	/* Fallback group. */
+	/* Fallback group — relevant when displayContent == Fallback. */
 	auto *grp_fallback = new QGroupBox(amv::text("AMVPlugin.SignalLost.Fallback.Title"), this);
 	auto *form_fallback = new QFormLayout(grp_fallback);
 	cmb_fallback_type_ = new QComboBox(grp_fallback);
-	for (int i = 0; i < kFallbackOptionCount; i++)
-		cmb_fallback_type_->addItem(amv::text(kFallbackOptions[i].labelKey));
-	/* Issue #5: grey out the fallback options still flagged enabled=false
-	 * in kFallbackOptions[] (currently prvw/scene/source — see the table
-	 * above). They still render correctly when present in a previously-
-	 * persisted config, but the user can no longer pick them here until
-	 * the tracked-fallback-slot render path lands. Reach the underlying
-	 * QStandardItemModel to clear ItemIsEnabled / ItemIsSelectable on each
-	 * disabled row. */
+	for (int i = 0; i < kFallbackTypeCount; i++)
+		cmb_fallback_type_->addItem(amv::text(kFallbackTypes[i].labelKey));
+	/* Grey out gated types (PRVW, stage C) — selectable again once their
+	 * render path lands. Reach the model to clear the item flags. */
 	if (auto *model = qobject_cast<QStandardItemModel *>(cmb_fallback_type_->model())) {
-		for (int i = 0; i < kFallbackOptionCount; i++) {
-			if (kFallbackOptions[i].enabled)
+		for (int i = 0; i < kFallbackTypeCount; i++) {
+			if (kFallbackTypes[i].enabled)
 				continue;
 			if (auto *item = model->item(i)) {
 				Qt::ItemFlags flags = item->flags();
@@ -289,20 +313,14 @@ void SignalLostSettingsDialog::build_ui()
 
 	auto *fallback_row = new QHBoxLayout();
 	edit_fallback_name_ = new QLineEdit(grp_fallback);
-	edit_fallback_name_->setPlaceholderText(amv::text("AMVPlugin.SignalLost.Fallback.NamePlaceholder"));
+	edit_fallback_name_->setPlaceholderText(amv::text("AMVPlugin.SignalLost.Fallback.NameOrPick"));
 	fallback_row->addWidget(edit_fallback_name_, 1);
 	auto *btn_fallback = new QToolButton(grp_fallback);
 	btn_fallback->setText(QStringLiteral("..."));
-	connect(btn_fallback, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_fallback_image);
+	connect(btn_fallback, &QToolButton::clicked, this, &SignalLostSettingsDialog::on_browse_fallback);
 	fallback_row->addWidget(btn_fallback);
 	form_fallback->addRow(amv::text("AMVPlugin.SignalLost.Fallback.NamePath"), fallback_row);
 
-	/* Phase 3 / M5.4: fit mode applies only when fallbackType == "image".
-	 * For OBS source / scene / pgm / prvw fallbacks the renderer always
-	 * uses native obs_source_video_render letterbox to preserve canvas
-	 * pixels, so the fit choice would be ignored — we still keep the row
-	 * always-visible for clarity (greys out automatically when not
-	 * applicable via update_enabled_state). */
 	cmb_fallback_image_fit_ = new QComboBox(grp_fallback);
 	cmb_fallback_image_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Stretch"));
 	cmb_fallback_image_fit_->addItem(amv::text("AMVPlugin.SignalLost.ImageFit.Fit"));
@@ -312,31 +330,17 @@ void SignalLostSettingsDialog::build_ui()
 	connect(cmb_fallback_type_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&SignalLostSettingsDialog::on_fallback_type_changed);
 
-	/* Backoff timing group. */
-	auto *grp_backoff = new QGroupBox(amv::text("AMVPlugin.SignalLost.Reconnect.Title"), this);
-	auto *form_backoff = new QFormLayout(grp_backoff);
-	spin_retry_initial_ = new QSpinBox(grp_backoff);
-	spin_retry_initial_->setRange(100, 60000);
-	spin_retry_initial_->setSuffix(QStringLiteral(" ms"));
-	form_backoff->addRow(amv::text("AMVPlugin.SignalLost.Reconnect.Initial"), spin_retry_initial_);
-
-	spin_retry_max_ = new QSpinBox(grp_backoff);
-	spin_retry_max_->setRange(100, 600000);
-	spin_retry_max_->setSuffix(QStringLiteral(" ms"));
-	form_backoff->addRow(amv::text("AMVPlugin.SignalLost.Reconnect.Max"), spin_retry_max_);
-
-	spin_manual_cooldown_ = new QSpinBox(grp_backoff);
+	/* Manual reconnect throttle. Backoff is a fixed internal ladder (not
+	 * user-exposed); this only rate-limits the Reconnect/Replay Now menu so
+	 * a user can't spam it. */
+	auto *grp_reconnect = new QGroupBox(amv::text("AMVPlugin.SignalLost.Reconnect.Title"), this);
+	auto *form_reconnect = new QFormLayout(grp_reconnect);
+	spin_manual_cooldown_ = new QSpinBox(grp_reconnect);
 	spin_manual_cooldown_->setRange(0, 60000);
 	spin_manual_cooldown_->setSuffix(QStringLiteral(" ms"));
-	/* Phase 3 hardening tail: the legacy label "Manual reconnect cooldown"
-	 * suggested this only throttled Reconnect Now clicks, but the
-	 * supervisor uses the same value to pace its automatic retry ladder
-	 * (cheap media_restart attempts and full source recreate alike).
-	 * Tooltip makes the dual scope explicit; persisted JSON key stays
-	 * `manualReconnectCooldownMs` for backwards compatibility. */
-	spin_manual_cooldown_->setToolTip(amv::text("AMVPlugin.SignalLost.Reconnect.CooldownTooltip"));
-	form_backoff->addRow(amv::text("AMVPlugin.SignalLost.Reconnect.Cooldown"), spin_manual_cooldown_);
-	root->addWidget(grp_backoff);
+	spin_manual_cooldown_->setToolTip(amv::text("AMVPlugin.SignalLost.Reconnect.ManualCooldownTooltip"));
+	form_reconnect->addRow(amv::text("AMVPlugin.SignalLost.Reconnect.ManualCooldown"), spin_manual_cooldown_);
+	root->addWidget(grp_reconnect);
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -388,49 +392,37 @@ CellLostSignalSettings SignalLostSettingsDialog::get_cell_settings() const
 
 void SignalLostSettingsDialog::apply_settings(const LostSignalSettings &s)
 {
-	cmb_internal_behavior_->setCurrentIndex(idx_from_internal(s.internalMissingBehavior));
-	edit_placeholder_path_->setText(QString::fromStdString(s.placeholderImagePath));
-	cmb_placeholder_fit_->setCurrentIndex(s.placeholderImageFitMode == ImageFitMode::Fit ? 1 : 0);
-
-	cmb_external_behavior_->setCurrentIndex(idx_from_external(s.externalLostBehavior));
+	cmb_display_->setCurrentIndex(idx_from_display(s.displayContent));
+	cmb_status_band_->setCurrentIndex(idx_from_band(s.statusBand));
 	cmb_recovery_policy_->setCurrentIndex(s.recoveryPolicy == RecoveryPolicy::ManualOnly ? 1 : 0);
-	edit_signal_lost_path_->setText(QString::fromStdString(s.signalLostImagePath));
-	cmb_signal_lost_fit_->setCurrentIndex(s.signalLostImageFitMode == ImageFitMode::Fit ? 1 : 0);
 
-	cmb_fallback_type_->setCurrentIndex(idx_from_fallback_token(s.fallbackType));
+	/* fallbackType may be empty on a never-configured fallback; default the
+	 * combo to image so the row is meaningful once the user picks Fallback. */
+	cmb_fallback_type_->setCurrentIndex(idx_from_fallback_token(s.fallbackType.empty() ? "image" : s.fallbackType));
 	edit_fallback_name_->setText(QString::fromStdString(s.fallbackName));
 	cmb_fallback_image_fit_->setCurrentIndex(s.fallbackImageFitMode == ImageFitMode::Fit ? 1 : 0);
 
-	spin_retry_initial_->setValue(s.retryInitialMs);
-	spin_retry_max_->setValue(s.retryMaxMs);
 	spin_manual_cooldown_->setValue(s.manualReconnectCooldownMs);
 }
 
 LostSignalSettings SignalLostSettingsDialog::collect_settings() const
 {
 	LostSignalSettings s;
-	s.internalMissingBehavior = internal_from_idx(cmb_internal_behavior_->currentIndex());
-	s.placeholderImagePath = edit_placeholder_path_->text().toStdString();
-	s.placeholderImageFitMode = cmb_placeholder_fit_->currentIndex() == 1 ? ImageFitMode::Fit
-									      : ImageFitMode::Stretch;
-
-	s.externalLostBehavior = external_from_idx(cmb_external_behavior_->currentIndex());
+	s.displayContent = display_from_idx(cmb_display_->currentIndex());
+	s.statusBand = band_from_idx(cmb_status_band_->currentIndex());
 	s.recoveryPolicy = cmb_recovery_policy_->currentIndex() == 1 ? RecoveryPolicy::ManualOnly
 								     : RecoveryPolicy::Auto;
-	s.signalLostImagePath = edit_signal_lost_path_->text().toStdString();
-	s.signalLostImageFitMode = cmb_signal_lost_fit_->currentIndex() == 1 ? ImageFitMode::Fit
-									     : ImageFitMode::Stretch;
 
 	s.fallbackType = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
 	s.fallbackName = edit_fallback_name_->text().toStdString();
 	s.fallbackImageFitMode = cmb_fallback_image_fit_->currentIndex() == 1 ? ImageFitMode::Fit
 									      : ImageFitMode::Stretch;
 
-	s.retryInitialMs = spin_retry_initial_->value();
-	s.retryMaxMs = spin_retry_max_->value();
-	if (s.retryMaxMs < s.retryInitialMs)
-		s.retryMaxMs = s.retryInitialMs;
 	s.manualReconnectCooldownMs = spin_manual_cooldown_->value();
+
+	/* Populate the legacy render fields so the (unchanged) render path sees
+	 * consistent values immediately — before this is persisted + reloaded. */
+	derive_legacy_lost_fields(s);
 	return s;
 }
 
@@ -443,28 +435,20 @@ void SignalLostSettingsDialog::update_enabled_state()
 			w->setEnabled(enabled && !inherit_locks_form);
 	};
 
-	setRowEnabled(cmb_internal_behavior_, true);
-	setRowEnabled(edit_placeholder_path_, internal_from_idx(cmb_internal_behavior_->currentIndex()) ==
-						      InternalMissingBehavior::PlaceholderImage);
-	setRowEnabled(cmb_placeholder_fit_, internal_from_idx(cmb_internal_behavior_->currentIndex()) ==
-						    InternalMissingBehavior::PlaceholderImage);
-
-	setRowEnabled(cmb_external_behavior_, true);
+	setRowEnabled(cmb_display_, true);
+	setRowEnabled(cmb_status_band_, true);
 	setRowEnabled(cmb_recovery_policy_, true);
-	setRowEnabled(edit_signal_lost_path_, external_from_idx(cmb_external_behavior_->currentIndex()) ==
-						      ExternalLostBehavior::SignalLostImage);
-	setRowEnabled(cmb_signal_lost_fit_, external_from_idx(cmb_external_behavior_->currentIndex()) ==
-						    ExternalLostBehavior::SignalLostImage);
 
-	setRowEnabled(cmb_fallback_type_, true);
+	const bool fallback_active = display_from_idx(cmb_display_->currentIndex()) == LostDisplayContent::Fallback;
 	const std::string fb_token = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
-	setRowEnabled(edit_fallback_name_, !fb_token.empty());
-	/* Image fit only meaningful for fallbackType == "image"; greyed out
-	 * for OBS-source variants (renderer uses native letterbox there). */
-	setRowEnabled(cmb_fallback_image_fit_, fb_token == "image");
 
-	setRowEnabled(spin_retry_initial_, true);
-	setRowEnabled(spin_retry_max_, true);
+	setRowEnabled(cmb_fallback_type_, fallback_active);
+	/* Name / path: only image / scene / source need a value (PGM/PRVW don't). */
+	setRowEnabled(edit_fallback_name_,
+		      fallback_active && (fb_token == "image" || fb_token == "scene" || fb_token == "source"));
+	/* Image fit only applies to a static image (sources/scenes letterbox). */
+	setRowEnabled(cmb_fallback_image_fit_, fallback_active && fb_token == "image");
+
 	setRowEnabled(spin_manual_cooldown_, true);
 }
 
@@ -475,22 +459,9 @@ void SignalLostSettingsDialog::on_inheritance_changed(int)
 	update_enabled_state();
 }
 
-void SignalLostSettingsDialog::on_browse_placeholder_image()
+void SignalLostSettingsDialog::on_display_changed(int)
 {
-	QString file = QFileDialog::getOpenFileName(this, amv::text("AMVPlugin.SignalLost.FileDialog.Placeholder"),
-						    QString(),
-						    amv::text("AMVPlugin.SignalLost.FileDialog.ImageFilter"));
-	if (!file.isEmpty())
-		edit_placeholder_path_->setText(file);
-}
-
-void SignalLostSettingsDialog::on_browse_signal_lost_image()
-{
-	QString file = QFileDialog::getOpenFileName(this, amv::text("AMVPlugin.SignalLost.FileDialog.SignalLost"),
-						    QString(),
-						    amv::text("AMVPlugin.SignalLost.FileDialog.ImageFilter"));
-	if (!file.isEmpty())
-		edit_signal_lost_path_->setText(file);
+	update_enabled_state();
 }
 
 void SignalLostSettingsDialog::on_fallback_type_changed(int)
@@ -498,16 +469,28 @@ void SignalLostSettingsDialog::on_fallback_type_changed(int)
 	update_enabled_state();
 }
 
-void SignalLostSettingsDialog::on_browse_fallback_image()
+void SignalLostSettingsDialog::on_browse_fallback()
 {
-	/* Only meaningful when fallbackType == "image". The browse button
-	 * itself is enabled in the row layout regardless of type to keep the
-	 * widget tree static; if the user browses while another type is
-	 * selected we still apply the path \u2014 it'll just be ignored until
-	 * they switch fallback type back to Image. */
-	QString file = QFileDialog::getOpenFileName(this, amv::text("AMVPlugin.SignalLost.FileDialog.Fallback"),
-						    QString(),
-						    amv::text("AMVPlugin.SignalLost.FileDialog.ImageFilter"));
-	if (!file.isEmpty())
-		edit_fallback_name_->setText(file);
+	const std::string token = fallback_token_from_idx(cmb_fallback_type_->currentIndex());
+	if (token == "image") {
+		QString file = QFileDialog::getOpenFileName(this, amv::text("AMVPlugin.SignalLost.FileDialog.Fallback"),
+							    QString(),
+							    amv::text("AMVPlugin.SignalLost.FileDialog.ImageFilter"));
+		if (!file.isEmpty())
+			edit_fallback_name_->setText(file);
+		return;
+	}
+	if (token == "scene" || token == "source") {
+		const bool scenes = (token == "scene");
+		QStringList names = scenes ? enum_scene_names() : enum_input_source_names();
+		if (names.isEmpty())
+			return;
+		QString chosen = pick_name_with_search(this,
+						       amv::text(scenes ? "AMVPlugin.SignalLost.PickScene.Title"
+									: "AMVPlugin.SignalLost.PickSource.Title"),
+						       names, edit_fallback_name_->text());
+		if (!chosen.isEmpty())
+			edit_fallback_name_->setText(chosen);
+	}
+	/* pgm/prvw need no name — the field/button are disabled for them. */
 }

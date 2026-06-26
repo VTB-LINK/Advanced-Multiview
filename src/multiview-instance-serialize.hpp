@@ -102,6 +102,62 @@ inline RecoveryPolicy recovery_policy_from_str(const char *s)
 	return RecoveryPolicy::Auto;
 }
 
+/* Signal-Lost v2 axis B1 — display content. */
+inline const char *lost_display_content_to_str(LostDisplayContent c)
+{
+	switch (c) {
+	case LostDisplayContent::LastFrame:
+		return "last_frame";
+	case LostDisplayContent::Fallback:
+		return "fallback";
+	case LostDisplayContent::ClearCell:
+		return "clear_cell";
+	default:
+		return "black";
+	}
+}
+
+inline LostDisplayContent lost_display_content_from_str(const char *s)
+{
+	if (s) {
+		if (strcmp(s, "last_frame") == 0)
+			return LostDisplayContent::LastFrame;
+		if (strcmp(s, "fallback") == 0)
+			return LostDisplayContent::Fallback;
+		if (strcmp(s, "clear_cell") == 0)
+			return LostDisplayContent::ClearCell;
+	}
+	return LostDisplayContent::Black;
+}
+
+/* Signal-Lost v2 axis B2 — status band. */
+inline const char *lost_status_band_to_str(LostStatusBand b)
+{
+	switch (b) {
+	case LostStatusBand::None:
+		return "none";
+	case LostStatusBand::SignalLost:
+		return "signal_lost";
+	case LostStatusBand::Reconnecting:
+		return "reconnecting";
+	default:
+		return "auto";
+	}
+}
+
+inline LostStatusBand lost_status_band_from_str(const char *s)
+{
+	if (s) {
+		if (strcmp(s, "none") == 0)
+			return LostStatusBand::None;
+		if (strcmp(s, "signal_lost") == 0)
+			return LostStatusBand::SignalLost;
+		if (strcmp(s, "reconnecting") == 0)
+			return LostStatusBand::Reconnecting;
+	}
+	return LostStatusBand::Auto;
+}
+
 inline const char *label_display_mode_to_str(LabelDisplayMode m)
 {
 	switch (m) {

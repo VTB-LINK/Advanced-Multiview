@@ -216,12 +216,40 @@ enum class RecoveryPolicy {
 	ManualOnly, /* no auto-reconnect; only manual Reconnect/Replay recovers */
 };
 
+/* Signal-Lost v2 axis B1 — unified "what to show while the signal is
+ * unavailable", shared by internal-missing and external-lost cells. The
+ * legacy InternalMissingBehavior / ExternalLostBehavior enums are derived
+ * from this (+ LostStatusBand + the fallback fields) so the hardened render
+ * path stays unchanged. Image is NOT a separate value here — it lives under
+ * Fallback (fallbackType == "image"), which is the single merged image path. */
+enum class LostDisplayContent {
+	Black,     /* black fill (default) */
+	LastFrame, /* freeze the last decoded frame (external only; internal has none) */
+	Fallback,  /* show the configured fallback (image / PGM / PRVW / scene / source) */
+	ClearCell, /* clear the cell assignment (internal only) */
+};
+
+/* Signal-Lost v2 axis B2 — status band overlaid on top of the display. */
+enum class LostStatusBand {
+	None,         /* no band */
+	SignalLost,   /* red "SIGNAL LOST" */
+	Reconnecting, /* blue "RECONNECTING" */
+	Auto,         /* pick by runtime state (default; mirrors pre-v2 behavior) */
+};
+
 struct LostSignalSettings {
+	/* Signal-Lost v2 canonical fields (edited by the dialog, persisted). */
+	LostDisplayContent displayContent = LostDisplayContent::Black; /* axis B1 */
+	LostStatusBand statusBand = LostStatusBand::Auto;              /* axis B2 */
+	RecoveryPolicy recoveryPolicy = RecoveryPolicy::Auto;          /* axis A */
+
+	/* LEGACY / derived: the hardened render path (draw / lost-image / status)
+	 * still reads these. They are DERIVED from the v2 fields above via
+	 * derive_legacy_lost_fields() after load / dialog-collect, so the render
+	 * code stays untouched. On load of a pre-v2 config they are read directly
+	 * and migrated UP into the v2 fields (migrate_lost_settings_v1_to_v2). */
 	InternalMissingBehavior internalMissingBehavior = InternalMissingBehavior::Black;
 	ExternalLostBehavior externalLostBehavior = ExternalLostBehavior::SignalLostOverlay;
-
-	/* Signal-Lost v2 axis A — recovery policy (external FFmpeg/VLC cells). */
-	RecoveryPolicy recoveryPolicy = RecoveryPolicy::Auto;
 
 	/* Optional resource paths */
 	std::string placeholderImagePath; /* used when internal == PlaceholderImage */
@@ -254,6 +282,21 @@ struct LostSignalSettings {
 	obs_data_t *to_obs_data() const;
 	static LostSignalSettings from_obs_data(obs_data_t *data);
 };
+
+/* Signal-Lost v2 bridge between the canonical v2 fields and the legacy render
+ * fields. Defined in multiview-instance-serialize-signal.cpp. */
+
+/* Populate the legacy render fields (internalMissingBehavior /
+ * externalLostBehavior / placeholder + signalLost image paths + fit modes)
+ * from the canonical v2 fields (displayContent / statusBand / fallback*). Call
+ * after loading or after the dialog collects v2 settings so the unchanged
+ * render path (draw / lost-image / status) sees consistent values. */
+void derive_legacy_lost_fields(LostSignalSettings &s);
+
+/* Migrate a pre-v2 config (legacy fields read from disk, v2 fields at
+ * defaults) UP into the v2 fields. Collapses the two old behaviors into one
+ * unified displayContent + statusBand (external wins when non-default). */
+void migrate_lost_settings_v1_to_v2(LostSignalSettings &s);
 
 /* PGM / PRVW cell highlight border (OBS native-style red/green borders).
  *

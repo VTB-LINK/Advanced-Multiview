@@ -55,10 +55,9 @@ public:
 
 private slots:
 	void on_inheritance_changed(int idx);
-	void on_browse_placeholder_image();
-	void on_browse_signal_lost_image();
+	void on_display_changed(int idx);
 	void on_fallback_type_changed(int idx);
-	void on_browse_fallback_image();
+	void on_browse_fallback(); /* smart: image file / scene / source picker */
 
 private:
 	void build_ui();
@@ -73,26 +72,16 @@ private:
 	/* Inheritance combo \u2014 only meaningful in Cell mode; hidden in Global. */
 	QComboBox *cmb_inherit_ = nullptr;
 
-	/* Internal missing behavior */
-	QComboBox *cmb_internal_behavior_ = nullptr;
-	QLineEdit *edit_placeholder_path_ = nullptr;
-	QComboBox *cmb_placeholder_fit_ = nullptr;
+	/* Signal-Lost v2 unified "signal unavailable" group. */
+	QComboBox *cmb_display_ = nullptr;         /* axis B1: displayContent */
+	QComboBox *cmb_status_band_ = nullptr;     /* axis B2: statusBand */
+	QComboBox *cmb_recovery_policy_ = nullptr; /* axis A: recoveryPolicy */
 
-	/* External lost behavior */
-	QComboBox *cmb_external_behavior_ = nullptr;
-	QLineEdit *edit_signal_lost_path_ = nullptr;
-	QComboBox *cmb_signal_lost_fit_ = nullptr;
-
-	/* Signal-Lost v2 axis A: recovery policy (auto-reconnect / manual-only). */
-	QComboBox *cmb_recovery_policy_ = nullptr;
-
-	/* Fallback assignment */
+	/* Fallback group (relevant when displayContent == Fallback). */
 	QComboBox *cmb_fallback_type_ = nullptr;
 	QLineEdit *edit_fallback_name_ = nullptr;
 	QComboBox *cmb_fallback_image_fit_ = nullptr;
 
-	/* Backoff timing */
-	QSpinBox *spin_retry_initial_ = nullptr;
-	QSpinBox *spin_retry_max_ = nullptr;
+	/* Manual reconnect throttle (anti-spam on Reconnect/Replay Now). */
 	QSpinBox *spin_manual_cooldown_ = nullptr;
 };

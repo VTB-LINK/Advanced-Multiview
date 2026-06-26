@@ -279,9 +279,35 @@ void AmvInstanceCore::render_status_overlay(int cellIndex, int cellX, int cellY,
 	if (cs.pending_clear)
 		return;
 
-	const StatusOverlayKind kind = (cs.audio_only && cs.state == SignalRuntimeState::Active)
-					       ? StatusOverlayKind::AudioOnly
-					       : status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
+	StatusOverlayKind kind = (cs.audio_only && cs.state == SignalRuntimeState::Active)
+					 ? StatusOverlayKind::AudioOnly
+					 : status_overlay_kind_for_state(cs.state, cs.type, cs.provider_type);
+
+	/* Signal-Lost v2 axis B2: honor the user's status-band choice for the
+	 * "signal unavailable" family of overlays (MISSING / SIGNAL LOST /
+	 * RECONNECTING / FALLBACK). Auto keeps the state-derived band; None
+	 * suppresses it; SignalLost / Reconnecting force the red / blue band.
+	 * ProviderMissing (install-the-plugin), Paused and AudioOnly are
+	 * actionable/active states and are intentionally NOT overridden. */
+	const bool lost_family = kind == StatusOverlayKind::MissingSource || kind == StatusOverlayKind::MissingScene ||
+				 kind == StatusOverlayKind::SignalLost || kind == StatusOverlayKind::Reconnecting ||
+				 kind == StatusOverlayKind::Fallback;
+	if (lost_family) {
+		switch (cs.effective_lost.statusBand) {
+		case LostStatusBand::None:
+			return;
+		case LostStatusBand::SignalLost:
+			kind = StatusOverlayKind::SignalLost;
+			break;
+		case LostStatusBand::Reconnecting:
+			kind = StatusOverlayKind::Reconnecting;
+			break;
+		case LostStatusBand::Auto:
+		default:
+			break;
+		}
+	}
+
 	if (kind == StatusOverlayKind::None)
 		return;
 

@@ -31,21 +31,124 @@ License: GPL-2.0-or-later
  * persistence; unknown values resolve to "" (disabled) on load.
  */
 
+/* ---- Signal-Lost v2 <-> legacy bridge ---- */
+
+void derive_legacy_lost_fields(LostSignalSettings &s)
+{
+	/* INTERNAL render path (internalMissingBehavior + placeholder image). */
+	switch (s.displayContent) {
+	case LostDisplayContent::ClearCell:
+		s.internalMissingBehavior = InternalMissingBehavior::ClearCell;
+		break;
+	case LostDisplayContent::Fallback:
+		if (s.fallbackType == "image") {
+			s.internalMissingBehavior = InternalMissingBehavior::PlaceholderImage;
+			s.placeholderImagePath = s.fallbackName;
+			s.placeholderImageFitMode = s.fallbackImageFitMode;
+		} else {
+			/* pgm/prvw/scene/source: the draw fallback block renders the
+			 * source via fallbackType; the base internal behavior is Black. */
+			s.internalMissingBehavior = InternalMissingBehavior::Black;
+		}
+		break;
+	case LostDisplayContent::Black:
+	case LostDisplayContent::LastFrame:
+	default:
+		/* Internal cells have no decoded last frame to keep, so LastFrame
+		 * degrades to Black (+ the missing-source overlay). */
+		s.internalMissingBehavior = InternalMissingBehavior::Black;
+		break;
+	}
+
+	/* EXTERNAL render path (externalLostBehavior + signal-lost image). */
+	switch (s.displayContent) {
+	case LostDisplayContent::Fallback:
+		if (s.fallbackType == "image") {
+			s.externalLostBehavior = ExternalLostBehavior::SignalLostImage;
+			s.signalLostImagePath = s.fallbackName;
+			s.signalLostImageFitMode = s.fallbackImageFitMode;
+		} else {
+			s.externalLostBehavior = ExternalLostBehavior::RetryWithFallback;
+		}
+		break;
+	case LostDisplayContent::Black:
+	case LostDisplayContent::LastFrame:
+	case LostDisplayContent::ClearCell:
+	default:
+		/* External cells keep the private source's last/black frame either
+		 * way; the status band picks the overlay color. (None can't be
+		 * fully honored through the legacy enum — it still shows the red
+		 * band; acceptable until the render path is migrated.) */
+		s.externalLostBehavior = (s.statusBand == LostStatusBand::Reconnecting)
+						 ? ExternalLostBehavior::RetryOnly
+						 : ExternalLostBehavior::SignalLostOverlay;
+		break;
+	}
+}
+
+void migrate_lost_settings_v1_to_v2(LostSignalSettings &s)
+{
+	/* Collapse the two legacy behaviors into one unified display + band.
+	 * External wins when the user customized it (non-default overlay);
+	 * otherwise the internal behavior drives. recoveryPolicy is migrated
+	 * separately (defaults Auto = pre-v2 always-auto-reconnect). */
+	if (s.externalLostBehavior != ExternalLostBehavior::SignalLostOverlay) {
+		switch (s.externalLostBehavior) {
+		case ExternalLostBehavior::RetryOnly:
+			s.displayContent = LostDisplayContent::LastFrame;
+			s.statusBand = LostStatusBand::Reconnecting;
+			break;
+		case ExternalLostBehavior::RetryWithFallback:
+			s.displayContent = LostDisplayContent::Fallback;
+			s.statusBand = LostStatusBand::Auto;
+			break;
+		case ExternalLostBehavior::SignalLostImage:
+			s.displayContent = LostDisplayContent::Fallback;
+			s.statusBand = LostStatusBand::Auto;
+			s.fallbackType = "image";
+			s.fallbackName = s.signalLostImagePath;
+			s.fallbackImageFitMode = s.signalLostImageFitMode;
+			break;
+		default:
+			break;
+		}
+	} else {
+		switch (s.internalMissingBehavior) {
+		case InternalMissingBehavior::PlaceholderImage:
+			s.displayContent = LostDisplayContent::Fallback;
+			s.statusBand = LostStatusBand::Auto;
+			s.fallbackType = "image";
+			s.fallbackName = s.placeholderImagePath;
+			s.fallbackImageFitMode = s.placeholderImageFitMode;
+			break;
+		case InternalMissingBehavior::ClearCell:
+			s.displayContent = LostDisplayContent::ClearCell;
+			s.statusBand = LostStatusBand::Auto;
+			break;
+		case InternalMissingBehavior::Black:
+		default:
+			s.displayContent = LostDisplayContent::Black;
+			/* Auto already derives the red MISSING/SIGNAL LOST band for the
+			 * lost states, so this preserves the legacy look while showing
+			 * the cleaner "Auto" default in the dialog. */
+			s.statusBand = LostStatusBand::Auto;
+			break;
+		}
+	}
+}
+
 obs_data_t *LostSignalSettings::to_obs_data() const
 {
+	/* v2 canonical schema. The legacy render fields (internalMissingBehavior
+	 * / externalLostBehavior / placeholder + signalLost paths / retryInitial
+	 * / retryMax) are DERIVED on load and no longer persisted. */
 	obs_data_t *data = obs_data_create();
-	obs_data_set_string(data, "internalMissingBehavior", internal_missing_behavior_to_str(internalMissingBehavior));
-	obs_data_set_string(data, "externalLostBehavior", external_lost_behavior_to_str(externalLostBehavior));
+	obs_data_set_string(data, "displayContent", lost_display_content_to_str(displayContent));
+	obs_data_set_string(data, "statusBand", lost_status_band_to_str(statusBand));
 	obs_data_set_string(data, "recoveryPolicy", recovery_policy_to_str(recoveryPolicy));
-	obs_data_set_string(data, "placeholderImagePath", placeholderImagePath.c_str());
-	obs_data_set_string(data, "signalLostImagePath", signalLostImagePath.c_str());
-	obs_data_set_string(data, "placeholderImageFitMode", image_fit_mode_to_str(placeholderImageFitMode));
-	obs_data_set_string(data, "signalLostImageFitMode", image_fit_mode_to_str(signalLostImageFitMode));
-	obs_data_set_string(data, "fallbackImageFitMode", image_fit_mode_to_str(fallbackImageFitMode));
 	obs_data_set_string(data, "fallbackType", fallbackType.c_str());
 	obs_data_set_string(data, "fallbackName", fallbackName.c_str());
-	obs_data_set_int(data, "retryInitialMs", retryInitialMs);
-	obs_data_set_int(data, "retryMaxMs", retryMaxMs);
+	obs_data_set_string(data, "fallbackImageFitMode", image_fit_mode_to_str(fallbackImageFitMode));
 	obs_data_set_int(data, "manualReconnectCooldownMs", manualReconnectCooldownMs);
 	return data;
 }
@@ -55,43 +158,13 @@ LostSignalSettings LostSignalSettings::from_obs_data(obs_data_t *data)
 	LostSignalSettings s;
 	if (!data)
 		return s;
-	s.internalMissingBehavior =
-		internal_missing_behavior_from_str(obs_data_get_string(data, "internalMissingBehavior"));
-	s.externalLostBehavior = external_lost_behavior_from_str(obs_data_get_string(data, "externalLostBehavior"));
-	/* Signal-Lost v2: absent on legacy configs -> defaults to Auto (the
-	 * pre-v2 behavior, where the supervisor always auto-reconnected). */
-	s.recoveryPolicy = recovery_policy_from_str(obs_data_get_string(data, "recoveryPolicy"));
-	s.placeholderImagePath = obs_data_get_string(data, "placeholderImagePath");
-	s.signalLostImagePath = obs_data_get_string(data, "signalLostImagePath");
 
-	/* Phase 3 / M6.6 H.5 hardening: clamp path strings to a reasonable
-	 * upper bound so a hand-edited config can't blow up the renderer's
-	 * gs_image_file loader with a multi-MB filename. PATH_MAX on Windows
-	 * is 260 by default, but Win32 long-path support extends it to 32767.
-	 * We pick 4096 as a generous compromise: large enough for any real
-	 * path the user might pick (including UNC + Unicode), small enough
-	 * that bad data is bounded. Same idiom as LabelSettings::fontFamily
-	 * clamp from Phase 2 hardening. */
 	constexpr size_t kMaxPathBytes = 4096;
-	if (s.placeholderImagePath.size() > kMaxPathBytes)
-		s.placeholderImagePath.resize(kMaxPathBytes);
-	if (s.signalLostImagePath.size() > kMaxPathBytes)
-		s.signalLostImagePath.resize(kMaxPathBytes);
 
-	/* Fit modes: missing / unknown values fall back to enum default
-	 * (Stretch) via image_fit_mode_from_str() — consistent with how
-	 * BackgroundSettings handles the same key on legacy configs. */
-	if (obs_data_has_user_value(data, "placeholderImageFitMode"))
-		s.placeholderImageFitMode =
-			image_fit_mode_from_str(obs_data_get_string(data, "placeholderImageFitMode"));
-	if (obs_data_has_user_value(data, "signalLostImageFitMode"))
-		s.signalLostImageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "signalLostImageFitMode"));
-	if (obs_data_has_user_value(data, "fallbackImageFitMode"))
-		s.fallbackImageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "fallbackImageFitMode"));
+	/* recoveryPolicy is shared by v1 (stage 2a) and v2 configs. */
+	s.recoveryPolicy = recovery_policy_from_str(obs_data_get_string(data, "recoveryPolicy"));
 
-	/* Whitelist fallbackType so an arbitrary string from disk can never reach
-	 * the runtime. Anything unrecognised becomes "" (disabled) and the
-	 * fallbackName is kept verbatim so the user can re-enable later. */
+	/* fallbackType whitelist + fallbackName clamp apply to both schemas. */
 	const char *ft = obs_data_get_string(data, "fallbackType");
 	if (ft && (strcmp(ft, "image") == 0 || strcmp(ft, "pgm") == 0 || strcmp(ft, "prvw") == 0 ||
 		   strcmp(ft, "scene") == 0 || strcmp(ft, "source") == 0)) {
@@ -100,37 +173,46 @@ LostSignalSettings LostSignalSettings::from_obs_data(obs_data_t *data)
 		s.fallbackType.clear();
 	}
 	s.fallbackName = obs_data_get_string(data, "fallbackName");
+	if (s.fallbackName.size() > kMaxPathBytes)
+		s.fallbackName.resize(kMaxPathBytes);
+	if (obs_data_has_user_value(data, "fallbackImageFitMode"))
+		s.fallbackImageFitMode = image_fit_mode_from_str(obs_data_get_string(data, "fallbackImageFitMode"));
 
-	/* Phase 3 / M6.6 H.5 hardening: clamp fallbackName length too. When
-	 * fallbackType == "image" this is an absolute path (same renderer as
-	 * placeholderImagePath); for "scene"/"source" it's an OBS source name
-	 * (which OBS itself caps in practice but our config could carry
-	 * arbitrary length). Same 4096 cap as the image-path fields above. */
-	if (s.fallbackName.size() > 4096)
-		s.fallbackName.resize(4096);
-
-	if (obs_data_has_user_value(data, "retryInitialMs"))
-		s.retryInitialMs = (int)obs_data_get_int(data, "retryInitialMs");
-	if (obs_data_has_user_value(data, "retryMaxMs"))
-		s.retryMaxMs = (int)obs_data_get_int(data, "retryMaxMs");
 	if (obs_data_has_user_value(data, "manualReconnectCooldownMs"))
 		s.manualReconnectCooldownMs = (int)obs_data_get_int(data, "manualReconnectCooldownMs");
-
-	/* Clamps: match design defaults in [docs/phase-3-signal-lost-and-external-sources-design.md] §10
-	 * (1s..30s backoff, 1s manual cooldown). Out-of-range values can come from
-	 * hand-edited configs or future versions; clamp instead of reject. */
-	if (s.retryInitialMs < 100)
-		s.retryInitialMs = 100;
-	if (s.retryInitialMs > 60000)
-		s.retryInitialMs = 60000;
-	if (s.retryMaxMs < s.retryInitialMs)
-		s.retryMaxMs = s.retryInitialMs;
-	if (s.retryMaxMs > 600000)
-		s.retryMaxMs = 600000;
 	if (s.manualReconnectCooldownMs < 0)
 		s.manualReconnectCooldownMs = 0;
 	if (s.manualReconnectCooldownMs > 60000)
 		s.manualReconnectCooldownMs = 60000;
+
+	if (obs_data_has_user_value(data, "displayContent")) {
+		/* v2 schema. */
+		s.displayContent = lost_display_content_from_str(obs_data_get_string(data, "displayContent"));
+		s.statusBand = lost_status_band_from_str(obs_data_get_string(data, "statusBand"));
+	} else {
+		/* Legacy (pre-v2) schema: read the old fields, then migrate up. */
+		s.internalMissingBehavior =
+			internal_missing_behavior_from_str(obs_data_get_string(data, "internalMissingBehavior"));
+		s.externalLostBehavior =
+			external_lost_behavior_from_str(obs_data_get_string(data, "externalLostBehavior"));
+		s.placeholderImagePath = obs_data_get_string(data, "placeholderImagePath");
+		s.signalLostImagePath = obs_data_get_string(data, "signalLostImagePath");
+		if (s.placeholderImagePath.size() > kMaxPathBytes)
+			s.placeholderImagePath.resize(kMaxPathBytes);
+		if (s.signalLostImagePath.size() > kMaxPathBytes)
+			s.signalLostImagePath.resize(kMaxPathBytes);
+		if (obs_data_has_user_value(data, "placeholderImageFitMode"))
+			s.placeholderImageFitMode =
+				image_fit_mode_from_str(obs_data_get_string(data, "placeholderImageFitMode"));
+		if (obs_data_has_user_value(data, "signalLostImageFitMode"))
+			s.signalLostImageFitMode =
+				image_fit_mode_from_str(obs_data_get_string(data, "signalLostImageFitMode"));
+		migrate_lost_settings_v1_to_v2(s);
+	}
+
+	/* Always re-derive the legacy render fields from the canonical v2 fields
+	 * so the unchanged render path sees consistent values. */
+	derive_legacy_lost_fields(s);
 	return s;
 }
 
